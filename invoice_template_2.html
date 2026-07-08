@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Presupuesto Gal - Header Extendido</title>
+    <style>
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { margin: 0; padding: 0; font-family: 'Arial', sans-serif; background: #fff; }
+
+    /* Estructura Base (Controlada por Python) */
+    .page-a4 { width: 210mm; height: 296mm; display: flex; flex-direction: column; overflow: hidden; margin: 0 auto; background: white; }
+    
+    /* Mitad de Hoja */
+    .invoice-half {
+        height: 148mm; width: 100%; position: relative;
+        display: flex; flex-direction: column;
+        border-bottom: 1px dashed #999;
+        overflow: hidden;
+    }
+    .invoice-half:last-child { border-bottom: none; }
+
+    /* --- HEADER CON IMAGEN DE FONDO --- */
+    .header-container {
+        width: 100%; height: 70mm; /* Ajustado para dar espacio al cuerpo */
+        position: relative; overflow: hidden;
+    }
+
+    /* Imagen de fondo: Asegúrate de que la ruta sea correcta */
+    .header-bg-img {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        object-fit: fill; z-index: 1;
+    }
+
+    .header-overlay {
+        position: relative; z-index: 2; width: 100%; height: 100%;
+        display: flex; flex-direction: column;
+        padding: 15px 30px 5px 30px; 
+    }
+
+     /* Fila Superior */
+    .header-top-row { display: flex; justify-content: space-between; align-items: flex-start; }
+    
+    .header-left { width: 35%; color: #000; }
+    
+    /* Ajuste de espaciado en Header Left */
+    .header-left h1 { 
+        font-size: 25px; 
+        font-weight: 900; 
+        margin: 0 0 13px 0; /* Agregado margen inferior */
+        text-transform: uppercase; 
+    }
+    .invoice-nro { 
+        font-size: 22px; 
+        font-weight: bold; 
+        margin-bottom: 15px; /* Aumentado de 5px a 15px para separar de la FECHA */
+        margin-top: 10px;
+    }
+    
+    .invoice-date { font-size: 22px; font-weight: bold; }
+    .date-box { border-bottom: 3px solid #000; padding: 0 4px; display: inline-block; min-width: 22px; text-align: center; }
+
+    .header-spacer { flex: 1; }
+
+     .header-right { 
+        width: 35%; 
+        
+        /* CAMBIO: Alineación centrada */
+        text-align: center; 
+        
+        font-size: 16px; 
+        font-weight: bold; 
+        line-height: 1.4; 
+        color: #000; 
+    }
+
+    /* Regla para separar las líneas (si la conservas del paso anterior) */
+    .header-right > div { margin-bottom: 6px; } 
+    .header-right > div:last-child { margin-bottom: 0; }
+    
+    .instagram-row { 
+        display: flex; 
+        
+        /* CAMBIO: Centrar el icono y texto flexbox */
+        justify-content: center; 
+        
+        align-items: center; 
+        margin-top: 4px; 
+        font-size: 15px; 
+    }
+    .instagram-icon { width: 14px; height: 14px; background: #d62976; border-radius: 4px; margin-right: 5px; display: inline-block; }
+    
+    /* Fila Inferior (Cliente) - Dentro del Header */
+    .header-client-row {
+        margin-top: auto; padding-top: 5px;
+        font-size: 20px; font-weight: bold; line-height: 1.5; color: #000;
+        margin-bottom: 20px; 
+    }
+    .client-top-line { display: flex; justify-content: space-between; }
+    .val { font-weight: 800; font-size: 20px; }
+
+    /* --- CUERPO --- */
+    .body-content {
+        padding: 5px 30px; flex: 1;
+        display: flex; flex-direction: column;
+    }
+
+    table { width: 100%; border-collapse: collapse; margin-top: 5px; }
+       /* Encabezados de Tabla */
+    th { 
+        text-align: left; 
+        text-transform: uppercase; 
+        font-size: 14px; 
+        font-weight: 900; 
+        
+        /* CAMBIO: Borde rosa (#FBD0CF) en vez de negro (#000) */
+        border-bottom: 2px solid #FBD0CF; 
+        
+        padding-bottom: 4px;
+        /* Se eliminó background-color para dejarlo sin fondo (blanco) */
+    }
+
+    /* Filas de Tabla */
+    td { 
+        font-size: 18px; 
+        padding: 5px 0; 
+        
+        /* CAMBIO: Borde rosa (#FBD0CF) en vez de gris (#ccc) */
+        border-bottom: 1px solid #FBD0CF; 
+        
+        color: #000000; 
+        font-weight: bold; 
+        height: 28px; 
+    }
+    
+    /* Alineaciones Tabla */
+    td:first-child { color: black; width: 40px; text-align: center; }
+    th:last-child, td:last-child, th:nth-child(3), td:nth-child(3) { text-align: right; }
+
+    /* --- FOOTER --- */
+      .footer-section {
+        margin-top: auto; 
+        margin-bottom: 12px;
+        display: flex; 
+        justify-content: space-between; 
+        align-items: flex-end;
+        
+        /* OPCIÓN RECOMENDADA: Línea del mismo color rosa */
+        border-top: 2px solid #FBD0CF; 
+        
+        /* OPCIÓN ALTERNATIVA (Si decides borrarla): */
+        /* border-top: none; */
+
+        padding-top: 5px;
+    }
+    .shipping-info { font-size: 19px; font-weight: bold; color: #555; margin-bottom: 10px}
+    .total-amount { 
+        font-size: 26px; 
+        font-weight: 900; 
+        color: #000;
+        
+        /* NUEVO ESTILO */
+        border: 4px solid #FBD0CF; /* Borde grueso del color deseado */
+        border-radius: 10px;       /* Bordes redondeados */
+        padding: 5px 15px;         /* Espacio interno para que el texto no toque el borde */
+        background: transparent;   
+    }
+
+    .cut-indicator { position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); background: white; color: #999; font-size: 10px; padding: 0 10px; z-index: 10; }
+</style>
+
+<!-- CONTENIDO HTML (MITAD) -->
+<!-- NOTA: Reemplaza src="assets/..." con la ruta real de tus imágenes -->
+
+<div class="header-container">
+    <!-- IMAGEN DE FONDO -->
+    <img src="assets/headercompleto.png" class="header-bg-img" alt="Fondo">
+
+    <div class="header-overlay">
+        <!-- DATOS EMPRESA -->
+        <div class="header-top-row">
+            <div class="header-left">
+                <h1>PRESUPUESTO</h1>
+                <div class="invoice-nro">N° <span id="invoiceNumBold"></span></div>
+                <div class="invoice-date">
+                    FECHA 
+                    <span class="date-box" id="invoiceDateDay"></span>
+                    <span class="date-box" id="invoiceDateMonth"></span>
+                    <span class="date-box" id="invoiceDateYear"></span>
+                </div>
+            </div>
+
+            <div class="header-spacer"></div>
+
+            <div class="header-right">
+                <div>Bermudez 331 - C.A.B.A</div>
+                <div>11 3102 7212 Jorge Blanco</div>
+                <div>11 3102 7216 Tobias Blanco</div>
+                <div class="instagram-row">
+                    <!-- Icono Instagram (Idealmente SVG) -->
+                    <img src="assets/ign.png" class="instagram-icon" alt="IG">
+                    bastidoresgal
+                </div>
+            </div>
+        </div>
+
+        <!-- DATOS CLIENTE -->
+        <div class="header-client-row">
+            <div class="client-top-line">
+                <div>Señor(es): <span class="val" id="customerName"></span></div>
+                <div>Tel: <span class="val" id="customerPhone"></span></div>
+            </div>
+            <div>Domicilio: <span class="val" id="customerAddress"></span></div>
+        </div>
+    </div>
+</div>
+
+<div class="body-content">
+    <table>
+        <thead>
+            <tr><th>CANT.</th><th>DETALLE</th><th>PRECIO U.</th><th>TOTAL</th></tr>
+        </thead>
+        <!-- PYTHON LLENARÁ ESTO CON 6 FILAS -->
+        <tbody id="invoiceItems"></tbody>
+    </table>
+
+    <div class="footer-section">
+        <div class="shipping-info">ENVIO: <span id="deliveryValue"></span></div>
+        <div class="total-amount">TOTAL $<span id="invoiceTotal">0.00</span></div>
+    </div>
+</div>

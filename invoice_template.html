@@ -1,0 +1,326 @@
+<style>
+    * { box-sizing: border-box; }
+
+    @page { 
+        size: A4; 
+        margin: 0; 
+    }
+    
+    body { 
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+        margin: 0; 
+        padding: 0; 
+        font-size: 16px; 
+        color: #333; 
+        line-height: 1.25; 
+    }
+
+    .page-a4 {
+        width: 100%;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .invoice-half {
+        flex: 1;
+        height: 50%;
+        position: relative;
+        overflow: hidden; 
+    }
+
+    .invoice-container {
+        width: 100%;
+        height: 100%;
+        /* Padding ajustado para balance */
+        padding: 15px 40px; 
+        background: #fff;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        position: relative;
+    }
+
+    /* HEADER */
+    .header {
+        position: relative;
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 5px;
+        padding-bottom: 5px;
+        min-height: 105px; 
+    }
+
+    .company-info {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        font-size: 14px;
+        color: #555;
+    }
+
+    .brand-logo {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 200px;        
+        max-width: 250px;    
+        max-height: 100px; 
+        object-fit: contain;
+    }
+
+    .info-lines span {
+        display: block;
+        margin-bottom: 2px;
+    }
+
+    .instagram {
+    display: flex;              /* 🔥 clave */
+    align-items: center;        /* alinea vertical */
+    gap: 6px;                   /* espacio entre icono y texto */
+    margin-top: 6px;
+    font-weight: 600;
+    color: #777;
+    font-size: 15px;
+    }
+
+    .ig-icon {
+        width: 16px;                /* ajustá si lo querés más grande */
+        height: 16px;
+        object-fit: contain;
+    }
+
+    .invoice-meta {
+        text-align: right;
+    }
+
+    .meta-title {
+        font-size: 22px; 
+        font-weight: 800;
+        color: #000000;
+        margin: 0 0 2px 0;
+        letter-spacing: 1px;
+        text-transform: uppercase;
+    }
+
+    .meta-number {
+        display: block;          /* 🔥 clave */
+        background-color: #ffe0e0;
+        color: #333;
+        font-weight: bold;
+        font-size: 18px;
+        padding: 2px 10px;
+        border-radius: 4px;
+        margin-bottom: 4px;      /* espacio con la fecha */
+        text-align: center;   /* 🔥 ESTO */
+    }
+
+    .meta-date {
+        display: block;          /* 🔥 clave */
+        margin-top: 0;
+        padding: 4px 10px;
+        background: #f5f5f5;
+        border-radius: 6px;
+        font-size: 16px;
+        font-weight: 600;
+    }
+
+    /* CLIENTE */
+    .client-box {
+        border-top: 2px solid #eee;
+        border-bottom: 2px solid #eee;
+        padding: 8px 0; 
+        margin-bottom: 10px;
+    }
+
+    .client-row {
+        display: flex;
+        margin-bottom: 5px;
+        align-items: center; 
+    }
+
+    .client-row:last-child { margin-bottom: 0; }
+
+    .c-label {
+        font-weight: bold;
+        width: 80px;
+        color: #444;
+        font-size: 16px;
+    }
+
+    .c-val {
+        flex: 1;
+        border-bottom: 1px dashed #ccc;
+        color: #000;
+        padding-left: 8px;
+        min-height: 24px;
+        font-size: 20px; 
+        font-weight: 800; 
+        line-height: 1.1;
+    }
+
+    /* TABLA */
+    .items-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: auto;
+    }
+
+    .items-table th {
+        background-color: #ffe0e0;
+        color: #000000;
+        text-align: left;
+        padding: 6px 8px; /* Padding vertical ajustado a 6px */
+        font-weight: bold;
+        font-size: 16px;
+        border-bottom: 2px solid #000000;
+    }
+
+    .items-table td {
+        /* Aumentado levemente para llenar mejor con 7 items */
+        padding: 6px 8px; 
+        border-bottom: 1px solid #f3f3f3;
+        vertical-align: top;
+        font-size: 16px;
+        font-weight: 500;
+    }
+
+    .col-cant { width: 60px; text-align: center; }
+    .col-desc { text-align: left; }
+    .col-pu { width: 100px; text-align: right; }
+    .col-tot { width: 100px; text-align: right; font-weight: bold; }
+
+    /* FOOTER */
+    .footer {
+        margin-top: 10px; 
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-end;
+        border-top: 2px solid #f0f0f0;
+        padding-top: 10px; 
+    }
+
+    .shipping-badge {
+        background-color: #ffe0e0;
+        color: #000000;
+        padding: 6px 15px;
+        border-radius: 20px;
+        font-weight: bold;
+        font-size: 15px;
+        text-transform: uppercase;
+        display: inline-flex;
+        align-items: center;
+    }
+    .shipping-badge span { margin-left: 5px; }
+
+    .total-block {
+        text-align: right;
+    }
+
+    .total-label {
+        font-size: 16px;
+        color: #888;
+        margin-right: 10px;
+        font-weight: 600;
+    }
+
+    .total-value {
+        font-size: 32px;
+        font-weight: 900;
+        color: #222;
+        line-height: 0.9; 
+    }
+    
+    .cut-indicator {
+        margin: 0;
+        border-top: 2px dashed #999;
+        position: relative;
+        width: 100%;
+        height: 2px;
+    }
+
+    .cut-indicator::before {
+        content: "✂ CORTE AQUÍ";
+        position: absolute;
+        left: 50%;
+        top: -10px;
+        transform: translateX(-50%);
+        background: #fff;
+        padding: 0 10px;
+        color: #666;
+        font-size: 11px;
+        font-weight: bold;
+    }
+</style>
+
+<div class="invoice-container">
+
+    <!-- HEADER -->
+    <div class="header">
+        <div class="company-info">
+            <div class="info-lines">
+                <span>Bermudez 331 - C.A.B.A</span>
+                <span>11 3102 7212 Jorge Blanco</span>
+                <span>11 3102 7216 Tobias Blanco</span>
+            </div>
+            <div class="instagram">
+                <img src="assets/ign.png" alt="Instagram" class="ig-icon">
+                <span>bastidoresgal</span>
+            </div>
+        </div>
+
+        <img src="assets/brand-logo.png" alt="GAL" class="brand-logo">
+
+        <div class="invoice-meta">
+            <div class="meta-title">PRESUPUESTO</div>
+            <div class="meta-number">N° <span id="invoiceNumBold"></span></div>
+            <div class="meta-date">
+                FECHA:
+                <span id="invoiceDateDay"></span>/
+                <span id="invoiceDateMonth"></span>/
+                <span id="invoiceDateYear"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CLIENTE -->
+    <div class="client-box">
+        <div class="client-row">
+            <span class="c-label">Cliente:</span>
+            <span class="c-val" id="customerName"></span>
+            <span class="c-label" style="width:50px; margin-left:15px;">Tel:</span>
+            <span class="c-val" style="flex:0.7" id="customerPhone"></span>
+        </div>
+        <div class="client-row" style="margin-top:8px;">
+            <span class="c-label">Domicilio:</span>
+            <span class="c-val" id="customerAddress"></span>
+        </div>
+    </div>
+
+    <!-- TABLA -->
+    <table class="items-table">
+        <thead>
+            <tr>
+                <th class="col-cant">Cant.</th>
+                <th class="col-desc">Descripción</th>
+                <th class="col-pu">P. Unit</th>
+                <th class="col-tot">Subtotal</th>
+            </tr>
+        </thead>
+        <tbody id="invoiceItems"></tbody>
+    </table>
+
+    <!-- FOOTER -->
+    <div class="footer">
+        <div class="shipping-badge">
+        ENVÍO: <span id="deliveryValue"></span>
+        </div>
+
+        <div class="total-block">
+            <span class="total-label">TOTAL A PAGAR $</span>
+            <span class="total-value" id="invoiceTotal">0.00</span>
+        </div>
+    </div>
+
+</div>
