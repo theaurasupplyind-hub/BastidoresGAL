@@ -53,6 +53,9 @@
     "http:allow-fetch-cancel",
     "http:allow-fetch-send",
     "http:allow-fetch-read-body",
-    "http:allow-fetch-cancel-body"
+    "http:allow-fetch-cancel-body",
+    "updater:default",
+    "updater:allow-check",
+    "updater:allow-download-install"
   ]
 }
