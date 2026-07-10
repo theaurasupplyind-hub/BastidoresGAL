@@ -40,6 +40,7 @@
   let facturacionRef: any = null;
   let kanbanRef: any = null;
   let heartbeatId: ReturnType<typeof setInterval> | undefined;
+  let stationsPollId: ReturnType<typeof setInterval> | undefined;
   let onlineUsers: any[] = $state([]);
   let usersOpen = $state(false);
   let config = $state<any>({});
@@ -48,6 +49,8 @@
     try { config = await invoke('get_config'); } catch {}
     heartbeatId = setInterval(runHeartbeat, 10000);
     runHeartbeat();
+    pollStations();
+    stationsPollId = setInterval(pollStations, 10000);
     const handler = (e: Event) => {
       onlineUsers = (e as CustomEvent).detail;
     };
@@ -59,6 +62,7 @@
 
   onDestroy(() => {
     if (heartbeatId) clearInterval(heartbeatId);
+    if (stationsPollId) clearInterval(stationsPollId);
   });
 
   async function runHeartbeat() {
@@ -83,6 +87,15 @@
         }))
       }));
     } catch { }
+  }
+
+  async function pollStations() {
+    try {
+      const stations = await invoke<any[]>('list_print_stations');
+      appStore.activeStations = stations || [];
+    } catch {
+      appStore.activeStations = [];
+    }
   }
 
   const ICONS: Record<string, string> = {
@@ -190,11 +203,21 @@
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
               Imprimir
             </button>
-            {#if config.station_api_key}
+            {#if appStore.activeStations.length > 0}
               <button class="top-btn top-btn-remote" onclick={() => facturacionRef?.sendToRemotePrint()}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-                Enviar a sucursal
+                Enviar a {appStore.selectedStation?.name?.split(' ')[0] || 'sucursal'}
               </button>
+              {#if appStore.activeStations.length > 1}
+                <select class="station-switch" value={appStore.selectedStation?.id} onchange={(e) => {
+                  const sel = appStore.activeStations.find(s => s.id == (e.target as HTMLSelectElement).value);
+                  if (sel) appStore.selectedStation = sel;
+                }}>
+                  {#each appStore.activeStations as s}
+                    <option value={s.id}>{s.name}</option>
+                  {/each}
+                </select>
+              {/if}
             {/if}
             <button class="top-btn top-btn-imgs" onclick={() => facturacionRef?.openPriceList()}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -683,6 +706,15 @@
   .top-btn-imgs:hover { background: #f5f3ff; border-color: #c4b5fd; }
   .top-btn-remote { color: #0369a1; border-color: #bae6fd; }
   .top-btn-remote:hover { background: #f0f9ff; border-color: #7dd3fc; }
+  .station-switch {
+    padding: 0.286rem 0.5rem;
+    border: 1px solid #bae6fd;
+    border-radius: 0.357rem;
+    font-size: 0.786rem;
+    color: #0369a1;
+    background: white;
+    cursor: pointer;
+  }
 
   .content {
     flex: 1;

@@ -565,12 +565,21 @@ fn register_station(
         }
     }
 
+    let user = state.user.lock().map_err(|e| e.to_string())?;
+    let user_id = user.as_ref().map(|u| u.user_id);
+    let user_name = user.as_ref().map(|u| u.user_name.clone());
+    drop(user);
+
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
         let client = reqwest::Client::new();
         let resp = client
             .post("https://api-bastidores.onrender.com/stations")
-            .json(&serde_json::json!({ "name": name }))
+            .json(&serde_json::json!({
+                "name": name,
+                "user_id": user_id,
+                "user_name": user_name,
+            }))
             .timeout(std::time::Duration::from_secs(60))
             .send()
             .await
@@ -637,13 +646,13 @@ fn submit_print_job(
     state: tauri::State<AppState>,
     pdf_path: String,
     created_by: String,
+    api_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let config = state.config.lock().map_err(|e| e.to_string())?.clone();
-    let api_key = config
-        .station_api_key
-        .as_deref()
-        .ok_or("No hay API key configurada. Registre esta estación primero.")?
-        .to_string();
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    let api_key = api_key
+        .or_else(|| config.station_api_key.clone())
+        .ok_or("No hay API key configurada. Registre esta estación primero.")?;
+    drop(config);
 
     let pdf_bytes = std::fs::read(&pdf_path).map_err(|e| format!("Error al leer PDF: {}", e))?;
     let file_name = std::path::Path::new(&pdf_path)
@@ -718,6 +727,68 @@ fn check_print_job_status(
     })
 }
 
+#[tauri::command]
+fn delete_station(
+    state: tauri::State<AppState>,
+    station_id: u32,
+) -> Result<serde_json::Value, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    let api_key = config.station_api_key.clone().unwrap_or_default();
+    drop(config);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async {
+        let client = reqwest::Client::new();
+        let resp = client
+            .delete(format!("https://api-bastidores.onrender.com/stations/{}", station_id))
+            .header("X-Api-Key", &api_key)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| format!("Error de red: {}", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("HTTP {}: {}", status, text));
+        }
+
+        resp.json().await.map_err(|e| e.to_string())
+    })
+}
+
+#[tauri::command]
+fn get_print_job_history(
+    state: tauri::State<AppState>,
+) -> Result<Vec<serde_json::Value>, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    let api_key = config
+        .station_api_key
+        .clone()
+        .ok_or("No hay API key configurada")?;
+    drop(config);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async {
+        let client = reqwest::Client::new();
+        let resp = client
+            .get("https://api-bastidores.onrender.com/print-jobs/history")
+            .header("X-Api-Key", &api_key)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| format!("Error de red: {}", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("HTTP {}: {}", status, text));
+        }
+
+        resp.json().await.map_err(|e| e.to_string())
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -729,6 +800,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -766,6 +838,8 @@ pub fn run() {
             list_print_stations,
             submit_print_job,
             check_print_job_status,
+            delete_station,
+            get_print_job_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

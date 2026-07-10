@@ -474,9 +474,11 @@
       const html = buildMoldurasHtmlByTemplate(parsed, appStore.molduraTemplate);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       const u = appStore.user;
+      const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;
       await invoke('submit_print_job', {
         pdfPath,
         createdBy: u?.user_name || 'Desconocido',
+        apiKey: targetKey,
       });
       appStore.showToast('Enviado a impresión remota');
     } catch (e: any) {
@@ -605,7 +607,7 @@
                 onclick={() => generateColumnPdf(i, true)}
                 disabled={generatingPdfCol !== null || (columns[i]?.cards.length || 0) === 0}
               >{generatingPdfCol === i ? '…' : '🖨'}</button>
-              {#if config.station_api_key}
+              {#if appStore.activeStations.length > 0}
                 <button
                   class="filter-btn pdf-btn remote-btn"
                   title="Enviar a sucursal"

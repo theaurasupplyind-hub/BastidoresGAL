@@ -808,9 +808,11 @@
         styleName: appStore.pdfStyle,
       });
       const u = appStore.user;
+      const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;
       const result = await invoke('submit_print_job', {
         pdfPath,
         createdBy: u?.user_name || 'Desconocido',
+        apiKey: targetKey,
       });
       appStore.showToast('Enviado a impresión remota');
     } catch (e: any) {

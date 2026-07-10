@@ -128,9 +128,11 @@
     try {
       const pdfPath = await invoke<string>('generate_invoices_pdf', { invoices });
       const u = appStore.user;
+      const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;
       await invoke('submit_print_job', {
         pdfPath,
         createdBy: u?.user_name || 'Desconocido',
+        apiKey: targetKey,
       });
       appStore.showToast('Enviado a impresión remota');
     } catch (e: any) {
@@ -183,7 +185,7 @@
         <button class="btn btn-print" onclick={() => handleGenerate(true)} disabled={selectedIds.size === 0 || generating}>
           {generating ? 'Generando...' : '🖨 Imprimir'}
         </button>
-        {#if config.station_api_key}
+        {#if appStore.activeStations.length > 0}
           <button class="btn btn-remote" onclick={() => handleSendToRemote()} disabled={selectedIds.size === 0 || generating}>
             {generating ? 'Generando...' : '📤 Enviar a sucursal'}
           </button>

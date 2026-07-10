@@ -175,9 +175,11 @@
       const html = buildMoldurasHtmlByTemplate(cards, appStore.molduraTemplate);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       const u = appStore.user;
+      const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;
       await invoke('submit_print_job', {
         pdfPath,
         createdBy: u?.user_name || 'Desconocido',
+        apiKey: targetKey,
       });
       appStore.showToast('Enviado a impresión remota');
     } catch (e: any) {
@@ -286,7 +288,7 @@
           <button class="btn btn-success" onclick={() => generatePDF(true)} disabled={selectedIds.size === 0 || generatingPdf}>
             🖨 Imprimir
           </button>
-          {#if config.station_api_key}
+          {#if appStore.activeStations.length > 0}
             <button class="btn btn-info" onclick={() => sendToRemotePrint()} disabled={selectedIds.size === 0 || generatingPdf}>
               📤 Enviar a sucursal
             </button>

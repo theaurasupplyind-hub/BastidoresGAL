@@ -24,6 +24,8 @@ let _fsFilterEstado = $state('TODOS');
 let _fsFilterEntrega = $state('TODOS');
 let _kanbanSelectedCount = $state(0);
 let _pendingInvoiceId = $state<number | null>(null);
+let _activeStations = $state<any[]>([]);
+let _selectedStation = $state<any | null>(null);
 
 export const appStore = {
   get user() { return _currentUser; },
@@ -81,6 +83,12 @@ export const appStore = {
 
   get pendingInvoiceId() { return _pendingInvoiceId; },
   set pendingInvoiceId(v: number | null) { _pendingInvoiceId = v; },
+
+  get activeStations() { return _activeStations; },
+  set activeStations(v) { _activeStations = v; },
+
+  get selectedStation() { return _selectedStation; },
+  set selectedStation(v) { _selectedStation = v; },
 
   showToast(message: string, type: 'success' | 'error' | 'info' = 'success') {
     _toast = { message, type };
