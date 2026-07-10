@@ -12,15 +12,25 @@
     selected_template_name: 'Original',
     selected_template_file: 'invoice_template.html',
     moldura_template: 'clasico',
+    selected_printer: null,
   });
 
   let loading = $state(true);
+  let printers = $state<string[]>([]);
+  let loadingPrinters = $state(true);
 
   onMount(async () => {
     try {
       config = await invoke<AppConfig>('get_config');
     } catch { }
     loading = false;
+
+    try {
+      printers = await invoke<string[]>('list_printers');
+    } catch {
+      printers = [];
+    }
+    loadingPrinters = false;
   });
 
   async function save() {
@@ -75,6 +85,20 @@
           <option value="clasico">Clásico (con materiales)</option>
           <option value="juli">Juli (sin materiales)</option>
         </select>
+
+        <label>Impresora</label>
+        {#if loadingPrinters}
+          <select disabled><option>Cargando...</option></select>
+        {:else if printers.length === 0}
+          <select disabled><option>No se detectaron impresoras</option></select>
+        {:else}
+          <select bind:value={config.selected_printer}>
+            <option value={null}>Usar default del sistema</option>
+            {#each printers as p}
+              <option value={p}>{p}</option>
+            {/each}
+          </select>
+        {/if}
       </div>
 
       <div class="modal-actions">

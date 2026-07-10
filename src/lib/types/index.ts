@@ -11,6 +11,11 @@ export interface AppConfig {
   selected_template_name: string;
   selected_template_file: string;
   moldura_template: string;
+  selected_printer?: string | null;
+  print_agent_enabled?: boolean;
+  station_id?: number | null;
+  station_api_key?: string | null;
+  station_name?: string | null;
 }
 
 export interface Cliente {
@@ -32,6 +37,14 @@ export interface Producto {
   medida: string;
   variante: string;
   stock: number;
+}
+
+export interface PrecioReferencia {
+  id?: number;
+  categoria: string;
+  medida: string;
+  variante: string;
+  precio: number;
 }
 
 export interface InvoiceItem {
@@ -164,4 +177,4 @@ export interface AnalisisPeriodo {
   mensaje: string;
 }
 
-export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja';
+export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent';

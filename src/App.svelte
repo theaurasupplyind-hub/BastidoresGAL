@@ -8,6 +8,7 @@
   import TitleBar from '$lib/components/TitleBar.svelte';
   import Toast from '$lib/components/Toast.svelte';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
+  import PreciosReferenciaModal from '$lib/components/PreciosReferenciaModal.svelte';
 
   let view = $state<'login' | 'splash' | 'dashboard'>('login');
 
@@ -50,6 +51,9 @@
 <Toast />
 {#if appStore.showSettings}
   <SettingsModal />
+{/if}
+{#if appStore.showPreciosRef}
+  <PreciosReferenciaModal />
 {/if}
 
 <style>

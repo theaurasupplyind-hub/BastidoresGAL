@@ -473,6 +473,48 @@ pub fn generate_invoice(
     html_to_pdf(&full_html, output_path)
 }
 
+pub fn generate_invoices_batch(
+    invoices: &[InvoiceData],
+    output_path: &str,
+) -> Result<(), String> {
+    if invoices.is_empty() {
+        return Err("No hay facturas para generar".to_string());
+    }
+
+    let style = invoices[0].style;
+    let css = get_css(style);
+
+    let mut pages_html = String::new();
+    for data in invoices {
+        let half = build_one_half(data, style);
+        pages_html.push_str(&format!(
+            r#"<div class="page-a4" style="page-break-after:always">
+<div class="invoice-half">{half}</div>
+<div class="cut-indicator"></div>
+<div class="invoice-half grayscale">{half}</div>
+</div>
+"#,
+            half = half,
+        ));
+    }
+
+    let full_html = format!(
+        r#"<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>{css}</style>
+</head>
+<body>
+{pages}</body>
+</html>"#,
+        css = css,
+        pages = pages_html,
+    );
+
+    html_to_pdf(&full_html, output_path)
+}
+
 pub fn generate_molduras_pdf(html_content: &str, output_path: &str) -> Result<(), String> {
     let dir = std::path::Path::new(output_path)
         .parent()

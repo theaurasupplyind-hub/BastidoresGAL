@@ -7,6 +7,7 @@ let _toast = $state<{ message: string; type: 'success' | 'error' | 'info' } | nu
 let _dirtyTabs = $state<Set<TabId>>(new Set());
 let _onlineCount = $state(0);
 let _showSettings = $state(false);
+let _showPreciosRef = $state(false);
 
 // Facturacion shared state for top-bar actions
 let _facturacionSaving = $state(false);
@@ -45,6 +46,9 @@ export const appStore = {
 
   get showSettings() { return _showSettings; },
   set showSettings(v: boolean) { _showSettings = v; },
+
+  get showPreciosRef() { return _showPreciosRef; },
+  set showPreciosRef(v: boolean) { _showPreciosRef = v; },
 
   get facturacionSaving() { return _facturacionSaving; },
   set facturacionSaving(v: boolean) { _facturacionSaving = v; },

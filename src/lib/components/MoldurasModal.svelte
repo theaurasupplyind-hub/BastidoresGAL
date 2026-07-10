@@ -19,10 +19,12 @@
   let searchResults = $state<Factura[]>([]);
   let loading = $state(false);
   let generatingPdf = $state(false);
+  let config = $state<any>({});
 
   let parsedCache = $state<Map<number, ReturnType<typeof parseCard>>>(new Map());
 
   onMount(async () => {
+    try { config = await invoke('get_config'); } catch {}
     selectedIds = new Set(preselectedIds);
     if (preselectedIds.length > 0) {
       await loadFacturas();
@@ -157,6 +159,36 @@
     }
   }
 
+  async function sendToRemotePrint() {
+    if (selectedIds.size === 0) return;
+    generatingPdf = true;
+    try {
+      const cards = selectedCards.map(f => {
+        const p = getParsed(f.id);
+        return {
+          cliente: p?.cliente || f.cliente_nombre || '',
+          num: p?.num || f.numero_factura || `ID:${f.id}`,
+          items: p?.items || [],
+          materials: p?.materials || [],
+        };
+      });
+      const html = buildMoldurasHtmlByTemplate(cards, appStore.molduraTemplate);
+      const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
+      const u = appStore.user;
+      await invoke('submit_print_job', {
+        pdfPath,
+        createdBy: u?.user_name || 'Desconocido',
+      });
+      appStore.showToast('Enviado a impresión remota');
+    } catch (e: any) {
+      const errMsg = e?.message ?? (typeof e === 'string' ? e : 'Error desconocido');
+      console.error('Error al enviar a impresión remota:', e);
+      appStore.showToast('Error: ' + errMsg, 'error');
+    } finally {
+      generatingPdf = false;
+    }
+  }
+
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === 'Escape') onClose();
   }
@@ -254,6 +286,11 @@
           <button class="btn btn-success" onclick={() => generatePDF(true)} disabled={selectedIds.size === 0 || generatingPdf}>
             🖨 Imprimir
           </button>
+          {#if config.station_api_key}
+            <button class="btn btn-info" onclick={() => sendToRemotePrint()} disabled={selectedIds.size === 0 || generatingPdf}>
+              📤 Enviar a sucursal
+            </button>
+          {/if}
         </div>
       </div>
     </div>

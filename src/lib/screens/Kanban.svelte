@@ -6,6 +6,7 @@
   import type { Factura, InvoiceItem } from '$lib/types';
   import { hasMolduraItems, parseCard, buildMoldurasHtmlByTemplate } from '$lib/utils/molduras';
   import { invoke } from '@tauri-apps/api/core';
+  import InvoicePrintModal from '$lib/components/InvoicePrintModal.svelte';
 
   const COLUMNS = [
     { key: 'PEDIDO',    title: 'Pedidos',     icon: '📋', color: '#dc3545' },
@@ -60,6 +61,8 @@
   let showItemsModal = $state(false);
   let modalItems = $state<InvoiceItem[]>([]);
   let modalTitle = $state('');
+  let showInvoicePrintModal = $state(false);
+  let invoicePrintColIdx = $state(-1);
 
   let columnFilters = $state<Record<ColKey, ColumnFilters>>({
     PEDIDO: defaultFilters(),
@@ -75,6 +78,7 @@
   let editFecha = $state('');
   let savingCard = $state(false);
   let generatingPdfCol = $state<number | null>(null);
+  let config = $state<any>({});
 
   function fechaToInput(fechaEntrega: string): string {
     if (!fechaEntrega) return '';
@@ -455,6 +459,43 @@
     }
   }
 
+  async function sendToRemotePrintCol(colIdx: number) {
+    const cards = columns[colIdx]?.cards;
+    if (!cards || cards.length === 0) {
+      appStore.showToast('No hay facturas en esta columna', 'info');
+      return;
+    }
+    generatingPdfCol = colIdx;
+    try {
+      const parsed = cards.map(f => {
+        const p = parseCard(f);
+        return { ...p, hasMoldura: hasMolduraItems(f) };
+      });
+      const html = buildMoldurasHtmlByTemplate(parsed, appStore.molduraTemplate);
+      const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
+      const u = appStore.user;
+      await invoke('submit_print_job', {
+        pdfPath,
+        createdBy: u?.user_name || 'Desconocido',
+      });
+      appStore.showToast('Enviado a impresión remota');
+    } catch (e: any) {
+      appStore.showToast('Error: ' + (e?.message || e), 'error');
+    } finally {
+      generatingPdfCol = null;
+    }
+  }
+
+  function openInvoicePrintModal(colIdx: number) {
+    invoicePrintColIdx = colIdx;
+    showInvoicePrintModal = true;
+  }
+
+  function closeInvoicePrintModal() {
+    showInvoicePrintModal = false;
+    invoicePrintColIdx = -1;
+  }
+
   // Drag & Drop handlers
   function handleDragStart(e: DragEvent, cardId: number, colIdx: number) {
     if (!selectedIds.has(cardId)) {
@@ -509,7 +550,10 @@
     showItemsModal = true;
   }
 
-  onMount(() => { loadData(); });
+  onMount(async () => {
+    try { config = await invoke('get_config'); } catch {}
+    loadData();
+  });
 </script>
 
 <div class="kanban">
@@ -540,6 +584,14 @@
             {:else}
               <span class="col-count">{columns[i]?.cards.length || 0}</span>
             {/if}
+            {#if col.key === 'PEDIDO' || col.key === 'LISTO'}
+              <button
+                class="filter-btn pdf-btn"
+                title="Ver facturas e imprimir"
+                onclick={() => openInvoicePrintModal(i)}
+                disabled={generatingPdfCol !== null || (columns[i]?.cards.length || 0) === 0}
+              >🧾</button>
+            {/if}
             {#if col.key === 'EN_PROCESO'}
               <button
                 class="filter-btn pdf-btn"
@@ -553,6 +605,14 @@
                 onclick={() => generateColumnPdf(i, true)}
                 disabled={generatingPdfCol !== null || (columns[i]?.cards.length || 0) === 0}
               >{generatingPdfCol === i ? '…' : '🖨'}</button>
+              {#if config.station_api_key}
+                <button
+                  class="filter-btn pdf-btn remote-btn"
+                  title="Enviar a sucursal"
+                  onclick={() => sendToRemotePrintCol(i)}
+                  disabled={generatingPdfCol !== null || (columns[i]?.cards.length || 0) === 0}
+                >{generatingPdfCol === i ? '…' : '📤'}</button>
+              {/if}
             {/if}
             <button
               class="filter-btn"
@@ -740,6 +800,13 @@
       </div>
     </div>
   {/if}
+
+  <!-- Invoice Print Modal -->
+  <InvoicePrintModal
+    show={showInvoicePrintModal}
+    cards={invoicePrintColIdx >= 0 ? (columns[invoicePrintColIdx]?.cards || []) : []}
+    onClose={closeInvoicePrintModal}
+  />
 </div>
 
 <style>
@@ -862,6 +929,8 @@
     transition: background 0.15s, color 0.15s;
   }
   .filter-btn:hover { background: rgba(255,255,255,0.35); color: white; }
+  .remote-btn { color: #0369a1; border-color: #bae6fd; background: rgba(3,105,161,0.1); }
+  .remote-btn:hover { background: rgba(3,105,161,0.2); }
   .filter-btn.filter-active {
     background: rgba(255,255,255,0.4);
     color: white;

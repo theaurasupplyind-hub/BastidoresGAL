@@ -14,6 +14,7 @@
   let cards = $state<ParsedCard[]>([]);
   let selectedIds = $state<Set<number>>(new Set());
   let generatingPdf = $state(false);
+  let config = $state<any>({});
 
   // Add manual dialog
   let showFormulaModal = $state(false);
@@ -235,6 +236,34 @@
     }
   }
 
+  async function sendToRemotePrint() {
+    if (selectedIds.size === 0) return;
+    generatingPdf = true;
+    try {
+      const selCards = cards.filter(c => selectedIds.has(c.id));
+      const data = selCards.map(c => ({
+        cliente: c.cliente,
+        num: c.num,
+        items: c.items,
+        materials: c.materials,
+      }));
+      const html = buildMoldurasHtmlByTemplate(data, appStore.molduraTemplate);
+      const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
+      const u = appStore.user;
+      await invoke('submit_print_job', {
+        pdfPath,
+        createdBy: u?.user_name || 'Desconocido',
+      });
+      appStore.showToast('Enviado a impresión remota');
+    } catch (e: any) {
+      const msg = (e as Error)?.message ?? String(e);
+      console.error('Error al enviar a impresión remota:', e);
+      appStore.showToast('Error: ' + msg, 'error');
+    } finally {
+      generatingPdf = false;
+    }
+  }
+
   const detailItem = $derived(detailCard?.items[detailItemIdx] ?? null);
   const detailItemDims = $derived.by(() => {
     if (!detailItem) return null;
@@ -409,7 +438,10 @@
     editLargQty = editLargNum * item.cantidad;
   });
 
-  onMount(() => { loadCards(); });
+  onMount(async () => {
+    try { config = await invoke('get_config'); } catch {}
+    loadCards();
+  });
 </script>
 
 <div class="molduras">
@@ -426,6 +458,11 @@
       <button class="btn btn-sm btn-success" onclick={() => generatePDF(true)} disabled={selectedIds.size === 0 || generatingPdf}>
         🖨 Imprimir Sel.
       </button>
+      {#if config.station_api_key}
+        <button class="btn btn-sm btn-info" onclick={() => sendToRemotePrint()} disabled={selectedIds.size === 0 || generatingPdf}>
+          📤 Enviar a sucursal
+        </button>
+      {/if}
       <button class="btn btn-sm btn-secondary" onclick={() => showFormulaModal = true}>📐 Fórmula</button>
       <button class="btn btn-sm btn-primary" onclick={loadCards} disabled={loading}>
         {loading ? 'Cargando...' : '🔄 Refrescar'}

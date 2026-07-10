@@ -12,6 +12,16 @@ pub struct AppConfig {
     pub selected_template_name: String,
     pub selected_template_file: String,
     pub moldura_template: String,
+    #[serde(default)]
+    pub selected_printer: Option<String>,
+    #[serde(default)]
+    pub print_agent_enabled: bool,
+    #[serde(default)]
+    pub station_id: Option<u32>,
+    #[serde(default)]
+    pub station_api_key: Option<String>,
+    #[serde(default)]
+    pub station_name: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -24,6 +34,11 @@ impl Default for AppConfig {
             selected_template_name: "Original".into(),
             selected_template_file: "invoice_template.html".into(),
             moldura_template: "clasico".into(),
+            selected_printer: None,
+            print_agent_enabled: false,
+            station_id: None,
+            station_api_key: None,
+            station_name: None,
         }
     }
 }

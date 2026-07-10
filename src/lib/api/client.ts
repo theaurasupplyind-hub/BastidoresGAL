@@ -260,4 +260,10 @@ export const api = {
 
   getAnalisisHistorial: (usuarioId: number) =>
     handleResponse(request<import('$lib/types').AnalisisPeriodo[]>('GET', `/analisis/mensual/historial?usuario_id=${usuarioId}`, undefined, 10), []),
+
+  getPreciosReferencia: () =>
+    handleResponse(request<import('$lib/types').PrecioReferencia[]>('GET', '/precios-referencia', undefined, 10), []),
+
+  importPreciosReferencia: (rows: import('$lib/types').PrecioReferencia[]) =>
+    request<{ status: string; imported: number }>('POST', '/precios-referencia/import', { rows }, 15),
 };

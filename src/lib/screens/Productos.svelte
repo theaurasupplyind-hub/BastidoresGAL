@@ -109,6 +109,7 @@
     <h2>Productos</h2>
     <div class="header-actions">
       <span class="stock-total">Stock total: {totalStock}</span>
+      <button class="btn-secondary" onclick={() => appStore.showPreciosRef = true}>$ Precios Ref</button>
       <button class="btn-primary" onclick={openNew}>+ Nuevo Producto</button>
     </div>
   </div>

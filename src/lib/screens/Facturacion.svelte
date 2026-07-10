@@ -783,6 +783,43 @@
     }
   }
 
+  export async function sendToRemotePrint() {
+    if (tipo === 'PRESUPUESTO' && (id === null || !numero_factura)) {
+      appStore.showToast('Guarde la factura primero', 'error');
+      return;
+    }
+    try {
+      const pdfPath = await invoke('generate_pdf', {
+        numPresupuesto: numero_presupuesto,
+        numFactura: numero_factura,
+        fecha,
+        clienteNombre: cliente_nombre,
+        clienteDomicilio: cliente_domicilio,
+        clienteTelefono: cliente_telefono,
+        items: items.map(i => ({
+          cantidad: i.cantidad,
+          descripcion: i.descripcion,
+          precio_unitario: i.precio_unitario ?? 0,
+          total: i.total || (i.cantidad * (i.precio_unitario ?? 0)),
+        })),
+        total: totalConEnvio,
+        envio,
+        isPresupuesto: true,
+        styleName: appStore.pdfStyle,
+      });
+      const u = appStore.user;
+      const result = await invoke('submit_print_job', {
+        pdfPath,
+        createdBy: u?.user_name || 'Desconocido',
+      });
+      appStore.showToast('Enviado a impresión remota');
+    } catch (e: any) {
+      const errMsg = e?.message ?? (typeof e === 'string' ? e : 'Error desconocido');
+      console.error('Error al enviar a impresión remota:', e);
+      appStore.showToast('Error: ' + errMsg, 'error');
+    }
+  }
+
   export function openPriceList() {
     showPriceList = true;
   }

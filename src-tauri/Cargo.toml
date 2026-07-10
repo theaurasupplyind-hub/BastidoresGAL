@@ -30,6 +30,7 @@ tauri-plugin-http = "2"
 tauri-plugin-process = "2"
 dirs = "6"
 chrono = "0.4"
+dunce = "1.0"
 base64 = "0.22"
-reqwest = { version = "0.12", features = ["json", "blocking"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "multipart"] }
 tokio = { version = "1", features = ["full"] }

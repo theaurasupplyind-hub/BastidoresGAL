@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { slide } from 'svelte/transition';
+  import { invoke } from '@tauri-apps/api/core';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { mapaStore } from '$lib/stores/mapaStore.svelte';
@@ -19,15 +20,14 @@
   import AnalisisUSD from './AnalisisUSD.svelte';
   import GastoRapido from './GastoRapido.svelte';
   import Caja from './Caja.svelte';
+  import PrintAgent from './PrintAgent.svelte';
 
   let { onLogout }: { onLogout: () => void } = $props();
 
   const TABS: { id: TabId; icon: string; label: string }[] = [
     { id: 'kanban', icon: 'home', label: 'Kanban' },
-    { id: 'gasto-rapido', icon: 'zap', label: 'Gasto Rápido' },
     { id: 'facturacion', icon: 'file', label: 'Facturación' },
     { id: 'ficha-semanal', icon: 'dollar', label: 'Ficha Semanal' },
-    { id: 'gastos', icon: 'dollar', label: 'Gastos' },
     { id: 'molduras', icon: 'frame', label: 'Molduras' },
     { id: 'productos', icon: 'box', label: 'Productos' },
     { id: 'clientes', icon: 'user', label: 'Clientes' },
@@ -35,16 +35,17 @@
     { id: 'analisis-usd', icon: 'usd', label: 'USD' },
     { id: 'mapa', icon: 'map', label: 'Mapa' },
     { id: 'papelera', icon: 'trash', label: 'Papelera' },
-    { id: 'caja', icon: 'wallet', label: 'Caja' },
-  ];
+];
 
   let facturacionRef: any = null;
   let kanbanRef: any = null;
   let heartbeatId: ReturnType<typeof setInterval> | undefined;
   let onlineUsers: any[] = $state([]);
   let usersOpen = $state(false);
+  let config = $state<any>({});
 
-  onMount(() => {
+  onMount(async () => {
+    try { config = await invoke('get_config'); } catch {}
     heartbeatId = setInterval(runHeartbeat, 10000);
     runHeartbeat();
     const handler = (e: Event) => {
@@ -98,6 +99,7 @@
     gear: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
     zap: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>',
     wallet: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7H5a2 2 0 0 1 0-4h14v4"/><path d="M3 5v14a2 2 0 0 0 2 2h16v-5"/><path d="M18 12a2 2 0 0 0 0 4h4v-4Z"/></svg>',
+    printer: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>',
   };
 
   function selectTab(tab: TabId) {
@@ -117,7 +119,7 @@
           class="tab-btn"
           class:active={appStore.currentTab === tab.id}
           onclick={() => selectTab(tab.id)}
-          title={tab.label}
+          data-label={tab.label}
         >
           <span class="tab-icon">{@html ICONS[tab.icon]}</span>
         </button>
@@ -147,6 +149,15 @@
         </div>
       {/if}
     </div>
+    <div class="sidebar-divider"></div>
+    <button
+      class="tab-btn print-agent-btn"
+      class:active={appStore.currentTab === 'print-agent'}
+      onclick={() => selectTab('print-agent')}
+      data-label="Impresión"
+    >
+      <span class="tab-icon">{@html ICONS['printer']}</span>
+    </button>
     <div class="sidebar-settings">
       <button class="settings-btn" onclick={() => appStore.showSettings = true} title="Configuración">
         <span class="settings-icon">{@html ICONS['gear']}</span>
@@ -179,6 +190,12 @@
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
               Imprimir
             </button>
+            {#if config.station_api_key}
+              <button class="top-btn top-btn-remote" onclick={() => facturacionRef?.sendToRemotePrint()}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V2h12v7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Enviar a sucursal
+              </button>
+            {/if}
             <button class="top-btn top-btn-imgs" onclick={() => facturacionRef?.openPriceList()}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
               Lista
@@ -279,6 +296,8 @@
         <AnalisisUSD />
       {:else if appStore.currentTab === 'caja'}
         <Caja />
+      {:else if appStore.currentTab === 'print-agent'}
+        <PrintAgent />
       {/if}
     </main>
 
@@ -326,6 +345,26 @@
     border-left-color: #3498db;
   }
   .tab-icon { display: block; line-height: 1; }
+  .tab-btn::after {
+    content: attr(data-label);
+    position: absolute;
+    left: calc(100% + 0.6rem);
+    top: 50%;
+    transform: translateY(-50%);
+    white-space: nowrap;
+    background: #1a252f;
+    color: #ecf0f1;
+    padding: 0.3rem 0.6rem;
+    border-radius: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    box-shadow: 0 0.143rem 0.429rem rgba(0,0,0,0.35);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.12s;
+    z-index: 50;
+  }
+  .tab-btn:hover::after { opacity: 1; }
 
   .sidebar-users {
     border-top: 0.071rem solid rgba(255,255,255,0.08);
@@ -352,6 +391,13 @@
   .users-toggle:hover { background: rgba(255,255,255,0.06); color: #ecf0f1; }
   .users-dot { font-size: 1rem; line-height: 1; }
   .users-online-count { font-size: 0.65rem; font-weight: 700; }
+
+  .sidebar-divider {
+    height: 0.071rem;
+    background: rgba(255,255,255,0.08);
+    margin: 0.286rem 0.571rem;
+    flex-shrink: 0;
+  }
 
   .sidebar-settings {
     border-top: 0.071rem solid rgba(255,255,255,0.08);
@@ -635,6 +681,8 @@
   .top-btn-wa:hover { background: #f0fdf4; border-color: #86efac; }
   .top-btn-imgs { color: #9333ea; border-color: #ddd6fe; }
   .top-btn-imgs:hover { background: #f5f3ff; border-color: #c4b5fd; }
+  .top-btn-remote { color: #0369a1; border-color: #bae6fd; }
+  .top-btn-remote:hover { background: #f0f9ff; border-color: #7dd3fc; }
 
   .content {
     flex: 1;
