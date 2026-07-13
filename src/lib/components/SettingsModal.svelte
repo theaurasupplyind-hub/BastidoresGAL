@@ -106,6 +106,7 @@
         <label>Estilo Molduras</label>
         <select bind:value={config.moldura_template}>
           <option value="clasico">Clásico (con materiales)</option>
+          <option value="clasico-modificado">Clásico (Modificado)</option>
           <option value="juli">Juli (sin materiales)</option>
         </select>
 

@@ -384,6 +384,127 @@ export function buildMoldurasHtml(cards: Array<{
 </div></body></html>`;
 }
 
+export function buildMoldurasHtmlClasicoModificado(cards: Array<{
+  cliente: string;
+  num: string;
+  items: CardItem[];
+  materials: CardMaterial[];
+}>): string {
+  const left: typeof cards = [];
+  const right: typeof cards = [];
+  cards.forEach((card, i) => {
+    (i % 2 === 0 ? left : right).push(card);
+  });
+
+  function renderCard(card: typeof cards[0], side: 'left' | 'right'): string {
+    const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
+    const summaryRows = validItems.map(it => {
+      return `
+        <tr>
+          <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
+          <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
+          <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
+        </tr>`;
+    }).join('');
+
+    const matItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
+    const larRows: string[] = [];
+    const travRows: string[] = [];
+    for (const item of matItems) {
+      const dims = item.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
+      if (!dims) continue;
+      const w = parseFloat(dims[1]), h = parseFloat(dims[2]);
+      const vs = (item.varilla ?? '').split(' ').filter(Boolean).map(s => {
+        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+      });
+      const ls = (item.larguero ?? '').split(' ').filter(Boolean).map(s => {
+        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+      });
+      const ts = (item.travesaño ?? '').split(' ').filter(Boolean).map(s => {
+        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+      });
+      vs.forEach((v, i) => {
+        const withLonger = (w > h && i === 0) || (w < h && i === 1) || (w === h && i === 1);
+        if (!withLonger) {
+          larRows.push(`<tr>
+      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
+      <td class='td-lar val-cell'>${ls[0] ? ls[0].qty : ''}</td><td class='td-lar val-cell'>${ls[0] ? ls[0].cm : ''}</td>
+      <td class='td-tra val-cell'></td><td class='td-tra val-cell'></td>
+    </tr>`);
+        } else {
+          travRows.push(`<tr>
+      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
+      ${ts[0] ? `<td class='td-lar val-cell' colspan='2'><span style='font-size:32px;color:#000;font-weight:900;'>➡</span></td>` : `<td class='td-lar val-cell'></td><td class='td-lar val-cell'></td>`}
+      <td class='td-tra val-cell'>${ts[0] ? ts[0].qty : ''}</td><td class='td-tra val-cell'>${ts[0] ? ts[0].cm : ''}</td>
+    </tr>`);
+        }
+      });
+    }
+    const matBody = [...larRows, ...travRows].join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
+
+    const cliente = card.cliente.length > 25 ? card.cliente.slice(0, 25) : card.cliente;
+
+    const squareLeft = side === 'left'
+      ? `<div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-right:10px;'></div><div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div>`
+      : `<div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div><div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-left:10px;'></div>`;
+
+    return `
+<div class='card'>
+  <div class='header' style='display:flex;align-items:center;justify-content:space-between;padding:4px 8px;'>
+    ${squareLeft}
+  </div>
+  <table class='summary-table'>
+    <tbody>${summaryRows}</tbody>
+  </table>
+  <table class='mat-table'>
+    <thead>
+      <tr><th colspan='2' class='th-var'>VARILLA</th><th colspan='2' class='th-lar'>LARGUERO</th><th colspan='2' class='th-tra'>TRAV.</th></tr>
+      <tr><th width='12%' class='td-var'>#</th><th width='21%' class='td-var'>CM</th><th width='12%' class='td-lar'>#</th><th width='21%' class='td-lar'>CM</th><th width='12%' class='td-tra'>#</th><th width='21%' class='td-tra'>CM</th></tr>
+    </thead>
+    <tbody>${matBody}</tbody>
+  </table>
+</div>`;
+  }
+
+  const leftHtml = left.map(c => renderCard(c, 'left')).join('');
+  const rightHtml = right.map(c => renderCard(c, 'right')).join('');
+
+  return `<html><head><meta charset='utf-8'>
+<style>
+    @page { margin: 5px; size: A4; }
+    body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; }
+    .grid { display: flex; gap: 10px; width: 100%; }
+    .col-left, .col-right { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+    .card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
+    .header { background: #000; color: #fff; text-align: center; }
+    .client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
+    .order-id { font-size: 14px; color: #ddd; }
+    .summary-table { width: 100%; border-collapse: collapse; background: #eee; border-bottom: 3px solid #000; }
+    .summary-table td { padding: 2px; border: 1px solid #444; vertical-align: middle; }
+    .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
+    .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
+    .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
+    .mat-cell { text-align: center; vertical-align: middle; padding: 1px 4px; }
+    .mat-detail { font-size: 13px; font-weight: 900; color: #000; white-space: nowrap; }
+    .mat-table { width: 100%; border-collapse: collapse; text-align: center; }
+    .mat-table th { border: 1px solid #000; padding: 2px; font-size: 18px; font-weight: 900; text-transform: uppercase; }
+    .mat-table td { border: 1px solid #000; padding: 0; height: 30px; }
+    .th-var { background: #2c3e50; color: #fff; }
+    .td-var { background: #ebf5fb; }
+    .th-lar { background: #27ae60; color: #fff; }
+    .td-lar { background: #e9f7ef; }
+    .th-tra { background: #d35400; color: #fff; }
+    .td-tra { background: #fdf2e9; }
+    .val-cell { font-weight: 900; font-size: 26px; line-height: 1; }
+</style>
+</head>
+<body>
+<div class='grid'>
+  <div class='col-left'>${leftHtml}</div>
+  <div class='col-right'>${rightHtml}</div>
+</div></body></html>`;
+}
+
 export function buildMoldurasHtmlJuli(cards: Array<{
   cliente: string;
   num: string;
@@ -466,5 +587,6 @@ export function buildMoldurasHtmlByTemplate(cards: Array<{
   materials: CardMaterial[];
 }>, template: string): string {
   if (template === 'juli') return buildMoldurasHtmlJuli(cards);
+  if (template === 'clasico-modificado') return buildMoldurasHtmlClasicoModificado(cards);
   return buildMoldurasHtml(cards);
 }
