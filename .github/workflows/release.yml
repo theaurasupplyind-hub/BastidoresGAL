@@ -51,3 +51,20 @@ jobs:
           uploadUpdaterJson: true
           uploadUpdaterSignatures: true
           args: --target ${{ matrix.target }}
+
+      - name: Upload latest.json to Render
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download ${{ github.ref_name }} --pattern "latest.json" --skip-existing
+          if (-not (Test-Path "latest.json")) { throw "latest.json not found in release assets" }
+          curl -X POST "https://api-bastidores.onrender.com/updater/manifest" `
+            --connect-timeout 10 `
+            --max-time 120 `
+            --retry 3 `
+            --retry-delay 15 `
+            --retry-max-time 300 `
+            -H "Authorization: Bearer ${{ secrets.UPDATER_TOKEN }}" `
+            -H "Content-Type: application/json" `
+            --data-binary "@latest.json" `
+            -f
