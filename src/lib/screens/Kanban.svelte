@@ -706,6 +706,13 @@
     {/each}
   </div>
 
+  {#if selectedIds.size > 0}
+    <div class="kanban-footer">
+      <span class="kanban-footer-count">{selectedIds.size} seleccionada(s)</span>
+      <button class="kanban-footer-deselect" onclick={deselectAll}>✕ Deseleccionar</button>
+    </div>
+  {/if}
+
   <!-- Filter Popover -->
   {#if filterOpen}
     {@const colKey = filterOpen}
@@ -818,7 +825,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.571rem;
-    background: #f5f6fa;
+    background: var(--bg-page);
     overflow: hidden;
   }
 
@@ -841,27 +848,27 @@
   .nav-btn {
     width: 1.714rem;
     height: 1.714rem;
-    border: 0.071rem solid #ddd;
+    border: 0.071rem solid var(--border);
     border-radius: 0.286rem;
-    background: white;
+    background: var(--bg-card);
     font-size: 1.1rem;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
     transition: all 0.12s;
-    color: #555;
+    color: var(--text-secondary);
     padding: 0;
     line-height: 1;
   }
-  .nav-btn:hover:not(:disabled) { background: #f0f4ff; border-color: #3498db; color: #3498db; }
+  .nav-btn:hover:not(:disabled) { background: var(--accent-light); border-color: var(--accent); color: var(--accent); }
   .nav-btn:disabled { opacity: 0.3; cursor: default; }
 
   /* === Column === */
   .kanban-col {
     display: flex;
     flex-direction: column;
-    background: #f0f1f5;
+    background: var(--bg-hover);
     border-radius: 0.571rem;
     overflow: hidden;
     border: 0.143rem solid transparent;
@@ -869,9 +876,9 @@
     min-width: 0;
   }
   .kanban-col.highlight {
-    border-color: #3498db;
+    border-color: var(--accent);
     box-shadow: inset 0 0 0 0.143rem rgba(52,152,219,0.15);
-    background: #eef5ff;
+    background: var(--accent-light);
   }
   .col-header {
     background: var(--col-color);
@@ -902,11 +909,11 @@
   }
   .col-loading, .col-empty {
     text-align: center;
-    color: #aaa;
+    color: var(--text-muted);
     padding: 1.429rem;
     font-size: 0.82rem;
   }
-  .col-empty.filtered { color: #e67e22; font-style: italic; }
+  .col-empty.filtered { color: var(--warning); font-style: italic; }
 
   /* === Column Header Right === */
   .col-header-right {
@@ -953,7 +960,7 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: white;
+    background: var(--bg-card);
     box-shadow: 0 0.571rem 2.143rem rgba(0,0,0,0.2);
   }
   .filter-col-header {
@@ -995,13 +1002,13 @@
     justify-content: flex-end;
     gap: 0.429rem;
     padding: 0.571rem 0.857rem;
-    border-top: 0.071rem solid #e9ecef;
+    border-top: 0.071rem solid var(--border-light);
     flex-shrink: 0;
   }
 
   .filter-section { display: flex; flex-direction: column; gap: 0.357rem; }
-  .filter-label { font-size: 0.78rem; font-weight: 600; color: #6c757d; text-transform: uppercase; letter-spacing: 0.03em; }
-  .filter-sep { height: 0.071rem; background: #e9ecef; margin: 0.357rem 0; }
+  .filter-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+  .filter-sep { height: 0.071rem; background: var(--border-light); margin: 0.357rem 0; }
 
   /* Presets */
   .preset-grid {
@@ -1011,16 +1018,16 @@
   }
   .preset-btn {
     padding: 0.357rem 0.571rem;
-    border: 0.071rem solid #ddd;
+    border: 0.071rem solid var(--border);
     border-radius: 0.357rem;
-    background: #f8f9fa;
+    background: var(--bg-page);
     font-size: 0.78rem;
     cursor: pointer;
     text-align: left;
     transition: all 0.12s;
-    color: #495057;
+    color: var(--text-secondary);
   }
-  .preset-btn:hover { border-color: #3498db; background: #eef5ff; }
+  .preset-btn:hover { border-color: var(--accent); background: var(--accent-light); }
   .preset-btn.preset-active {
     border-color: #3498db;
     background: #d6eaf8;
@@ -1032,16 +1039,16 @@
   .filter-chip-row { display: flex; flex-wrap: wrap; gap: 0.286rem; }
   .filter-chip {
     padding: 0.214rem 0.643rem;
-    border: 0.071rem solid #ddd;
+    border: 0.071rem solid var(--border);
     border-radius: 1.071rem;
-    background: #f8f9fa;
+    background: var(--bg-page);
     font-size: 0.78rem;
     cursor: pointer;
     transition: all 0.12s;
-    color: #495057;
+    color: var(--text-secondary);
     white-space: nowrap;
   }
-  .filter-chip:hover { border-color: #adb5bd; }
+  .filter-chip:hover { border-color: var(--text-muted); }
   .filter-chip.chip-active {
     border-color: #3498db;
     background: #3498db;
@@ -1050,13 +1057,13 @@
 
   .filter-search {
     padding: 0.429rem 0.643rem;
-    border: 0.071rem solid #ddd;
+    border: 0.071rem solid var(--border);
     border-radius: 0.357rem;
     font-size: 0.82rem;
     outline: none;
     transition: border-color 0.15s;
   }
-  .filter-search:focus { border-color: #3498db; }
+  .filter-search:focus { border-color: var(--accent); }
 
   .kanban-card.editing {
     border-color: var(--col-color, #3498db);
@@ -1072,28 +1079,28 @@
   .edit-select {
     flex: 1;
     padding: 0.286rem 0.357rem;
-    border: 0.071rem solid #ddd;
+    border: 0.071rem solid var(--border);
     border-radius: 0.286rem;
     font-size: 0.78rem;
-    background: white;
-    color: #333;
+    background: var(--bg-card);
+    color: var(--text-primary);
     outline: none;
     min-width: 0;
   }
-  .edit-select:focus { border-color: #3498db; }
+  .edit-select:focus { border-color: var(--accent); }
   .edit-date {
     flex: 1;
     padding: 0.286rem 0.357rem;
-    border: 0.071rem solid #ddd;
+    border: 0.071rem solid var(--border);
     border-radius: 0.286rem;
     font-size: 0.78rem;
-    background: white;
-    color: #333;
+    background: var(--bg-card);
+    color: var(--text-primary);
     outline: none;
     min-width: 0;
     font-family: inherit;
   }
-  .edit-date:focus { border-color: #3498db; }
+  .edit-date:focus { border-color: var(--accent); }
   .card-edit-actions {
     display: flex;
     gap: 0.357rem;
@@ -1117,25 +1124,25 @@
   .edit-save:hover:not(:disabled) { background: #2e86c1; }
   .edit-save:disabled { opacity: 0.5; cursor: default; }
   .edit-cancel {
-    background: #e9ecef;
-    color: #6c757d;
+    background: var(--bg-hover);
+    color: var(--text-muted);
   }
-  .edit-cancel:hover { background: #dee2e6; }
+  .edit-cancel:hover { background: var(--bg-active); }
 
   /* === Card === */
   .kanban-card {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.429rem;
     overflow: hidden;
     cursor: pointer;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
-    border: 0.143rem solid #e0e0e0;
+    border: 0.143rem solid var(--border);
     transition: border-color 0.12s, box-shadow 0.12s, opacity 0.15s;
     user-select: none;
     flex-shrink: 0;
     min-height: 6.429rem;
   }
-  .kanban-card:hover { border-color: #bbb; box-shadow: 0 0.143rem 0.429rem rgba(0,0,0,0.08); }
+  .kanban-card:hover { border-color: var(--text-muted); box-shadow: 0 0.143rem 0.429rem rgba(0,0,0,0.08); }
   .kanban-card.selected { border-color: var(--col-color, #dc3545); box-shadow: 0 0 0 0.143rem rgba(var(--col-color), 0.15); }
   .kanban-card.dragging { opacity: 0.4; }
 
@@ -1143,25 +1150,24 @@
   .card-body { padding: 0.429rem 0.571rem; display: flex; flex-direction: column; gap: 0.286rem; }
 
   .card-header-row { display: flex; justify-content: space-between; align-items: center; }
-  .card-cliente { font-size: 1.1rem; font-weight: 700; color: #212529; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .card-fecha { font-size: 0.85rem; color: #adb5bd; flex-shrink: 0; }
-
-  .card-addr { font-size: 0.85rem; color: #6c757d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-cliente { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card-fecha { font-size: 0.85rem; color: var(--text-muted); flex-shrink: 0; }
+  .card-addr { font-size: 0.85rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   .card-entrega { display: flex; flex-wrap: wrap; align-items: center; gap: 0.429rem; }
 
   .card-items { display: flex; align-items: center; gap: 0.286rem; font-size: 0.9rem; }
-  .card-items.empty { color: #bbb; font-style: italic; }
-  .item-preview { font-weight: 500; color: #333; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-  .item-more { font-size: 0.8rem; color: #3498db; font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
+  .card-items.empty { color: var(--text-muted); font-style: italic; }
+  .item-preview { font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+  .item-more { font-size: 0.8rem; color: var(--accent); font-weight: 600; cursor: pointer; white-space: nowrap; flex-shrink: 0; }
   .item-more:hover { text-decoration: underline; }
 
-  .card-sep { height: 0.071rem; background: #e9ecef; margin: 0.143rem 0; }
+  .card-sep { height: 0.071rem; background: var(--border-light); margin: 0.143rem 0; }
 
   .card-footer { display: flex; justify-content: space-between; align-items: center; }
-  .card-num { font-size: 0.72rem; color: #adb5bd; }
-  .card-open { font-size: 0.88rem; color: #ced4da; cursor: pointer; padding: 0.143rem 0.286rem; line-height: 1; transition: color 0.12s; }
-  .card-open:hover { color: #3498db; }
+  .card-num { font-size: 0.72rem; color: var(--text-muted); }
+  .card-open { font-size: 0.88rem; color: var(--text-muted); cursor: pointer; padding: 0.143rem 0.286rem; line-height: 1; transition: color 0.12s; }
+  .card-open:hover { color: var(--accent); }
 
   /* === Badges === */
   .badge {
@@ -1175,8 +1181,8 @@
     line-height: 1.4;
   }
   .badge-fecha {
-    background: #e9ecef;
-    color: #495057;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
   }
 
   /* === Legend Popover === */
@@ -1190,7 +1196,7 @@
     z-index: 1000;
   }
   .legend-popover {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.857rem;
     padding: 1.429rem;
     min-width: 18.571rem;
@@ -1200,11 +1206,43 @@
     flex-direction: column;
     gap: 0.714rem;
   }
-  .legend-popover h3 { margin: 0; font-size: 1rem; color: #2c3e50; }
+  .legend-popover h3 { margin: 0; font-size: 1rem; color: var(--text-primary); }
   .items-modal { min-width: 25rem; max-height: 70vh; overflow-y: auto; }
   .items-list { display: flex; flex-direction: column; gap: 0.286rem; max-height: 18rem; overflow-y: auto; }
-  .items-row { display: flex; gap: 0.571rem; padding: 0.286rem 0; border-bottom: 0.071rem solid #f0f0f0; font-size: 0.85rem; }
-  .item-qty { font-weight: 700; color: #6c757d; min-width: 2.571rem; }
+  .items-row { display: flex; gap: 0.571rem; padding: 0.286rem 0; border-bottom: 0.071rem solid var(--border-light); font-size: 0.85rem; }
+  .item-qty { font-weight: 700; color: var(--text-muted); min-width: 2.571rem; }
   .item-desc { flex: 1; }
-  .items-empty { text-align: center; color: #bbb; padding: 1rem; }
+  .items-empty { text-align: center; color: var(--text-muted); padding: 1rem; }
+
+  /* === Footer === */
+  .kanban-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 1rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 0.571rem;
+    flex-shrink: 0;
+  }
+  .kanban-footer-count {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .kanban-footer-deselect {
+    padding: 0.357rem 0.857rem;
+    border: 1px solid var(--border);
+    border-radius: 0.357rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.12s;
+  }
+  .kanban-footer-deselect:hover {
+    background: var(--bg-hover);
+    border-color: var(--border-focus);
+  }
 </style>

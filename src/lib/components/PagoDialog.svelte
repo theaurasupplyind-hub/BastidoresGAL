@@ -179,7 +179,7 @@
     z-index: 1000;
   }
   .modal {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.857rem;
     padding: 1.429rem;
     min-width: 22.857rem;
@@ -191,39 +191,39 @@
     flex-direction: column;
     gap: 0.714rem;
   }
-  .modal h3 { margin: 0; font-size: 1.1rem; color: #2c3e50; }
+  .modal h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
   .modal-body { display: flex; flex-direction: column; gap: 0.714rem; }
   .pago-dialog-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
     padding: 0.571rem 0.714rem;
-    background: #f0f4ff;
+    background: var(--accent-light);
     border-radius: 0.429rem;
     font-size: 0.85rem;
   }
-  .pago-dialog-cliente { font-weight: 700; color: #2c3e50; }
+  .pago-dialog-cliente { font-weight: 700; color: var(--text-primary); }
   .pago-dialog-balance { font-weight: 600; color: #198754; }
   .form-group { display: flex; flex-direction: column; gap: 0.286rem; }
-  .form-group label { font-size: 0.78rem; font-weight: 600; color: #6c757d; text-transform: uppercase; letter-spacing: 0.03em; }
+  .form-group label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
   .form-group input, .form-group select {
     padding: 0.5rem 0.643rem;
-    border: 0.071rem solid #ddd;
+    border: 0.071rem solid var(--border);
     border-radius: 0.357rem;
     font-size: 0.92rem;
     outline: none;
   }
   .form-group input:focus, .form-group select:focus { border-color: #3498db; }
-  .input-readonly { background: #f8f9fa; color: #6c757d; }
+  .input-readonly { background: var(--bg-page); color: var(--text-muted); }
   .vincular-section {
-    border: 0.071rem solid #e0e0e0;
+    border: 0.071rem solid var(--border);
     border-radius: 0.571rem;
     padding: 0.857rem;
     display: flex;
     flex-direction: column;
     gap: 0.571rem;
-    background: #fafafa;
+    background: var(--bg-page);
   }
-  .vincular-title { font-size: 0.82rem; font-weight: 700; color: #495057; }
-  .modal-footer { display: flex; justify-content: flex-end; gap: 0.571rem; padding-top: 0.714rem; border-top: 0.071rem solid #e9ecef; }
+  .vincular-title { font-size: 0.82rem; font-weight: 700; color: var(--text-secondary); }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 0.571rem; padding-top: 0.714rem; border-top: 0.071rem solid var(--border-light); }
 </style>

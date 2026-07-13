@@ -131,41 +131,39 @@
     justify-content: space-between;
     align-items: center;
   }
-  .trash-header h2 { margin: 0; font-size: 1.3rem; color: #2c3e50; }
+  .trash-header h2 { margin: 0; font-size: 1.3rem; color: var(--text-primary); }
   .trash-actions { display: flex; align-items: center; gap: 0.571rem; }
-  .selected-count { font-size: 0.8rem; color: #3498db; font-weight: 600; min-width: 6rem; text-align: right; }
+  .selected-count { font-size: 0.8rem; color: var(--accent); font-weight: 600; min-width: 6rem; text-align: right; }
 
   .trash-table-wrap {
     flex: 1;
     overflow: auto;
-    background: white;
-    border-radius: 0.571rem;
-    box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
-  }
-  .trash-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: var(--text-sm);
-  }
+     background: var(--bg-card);
+   }
+   .trash-table {
+     width: 100%;
+     border-collapse: collapse;
+     font-size: var(--text-sm);
+   }
   .trash-table th {
-    background: #f8f9fa;
+    background: var(--bg-page);
     padding: 0.571rem 0.857rem;
     text-align: left;
     font-weight: 600;
-    color: #555;
+    color: var(--text-secondary);
     font-size: 0.78rem;
     text-transform: uppercase;
     position: sticky;
     top: 0;
-    border-bottom: 0.143rem solid #e9ecef;
+    border-bottom: 0.143rem solid var(--border-light);
   }
   .trash-table td {
     padding: 0.5rem 0.857rem;
     border-bottom: 0.071rem solid #f0f0f0;
   }
   .trash-row { cursor: pointer; transition: background 0.1s; }
-  .trash-row:hover { background: #f8f9ff; }
-  .trash-row.selected { background: #eef2ff; outline: 0.071rem solid #6366f1; outline-offset: -0.071rem; }
+  .trash-row:hover { background: var(--accent-light); }
+  .trash-row.selected { background: var(--accent-light); outline: 0.071rem solid var(--accent); outline-offset: -0.071rem; }
   .col-date { min-width: 6rem; color: var(--text-secondary); }
   .col-num { font-family: monospace; min-width: 6rem; font-weight: 600; }
   .col-cliente { min-width: 10rem; }
@@ -177,8 +175,8 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #999;
+    color: var(--text-muted);
     gap: 0.857rem;
   }
-  .trash-hint { font-size: 0.82rem; color: #bbb; }
+  .trash-hint { font-size: 0.82rem; color: var(--text-muted); }
 </style>

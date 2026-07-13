@@ -211,51 +211,50 @@
 <style>
   .screen { padding: 1.429rem; }
   .screen-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.143rem; }
-  .screen-header h2 { margin: 0; font-size: 1.429rem; color: #2c3e50; }
+  .screen-header h2 { margin: 0; font-size: 1.429rem; color: var(--text-primary); }
   .header-actions { display: flex; align-items: center; gap: 0.857rem; }
-  .stock-total { font-size: 0.929rem; color: #7f8c8d; }
+  .stock-total { font-size: 0.929rem; color: var(--text-muted); }
   .search-bar { margin-bottom: 0.857rem; }
   .search-bar input {
-    width: 100%; padding: 0.714rem 1rem; border: 1px solid #ddd; border-radius: 0.571rem;
+    width: 100%; padding: 0.714rem 1rem; border: 1px solid var(--border); border-radius: 0.571rem;
     font-size: 1rem; box-sizing: border-box;
   }
   .table-wrap { overflow-x: auto; }
   table {
-    width: 100%; border-collapse: collapse; background: white; border-radius: 0.571rem;
+    width: 100%; border-collapse: collapse; background: var(--bg-card); border-radius: 0.571rem;
     overflow: hidden; box-shadow: 0 0.071rem 0.286rem rgba(0,0,0,0.08);
   }
-  th, td { padding: 0.714rem 1rem; text-align: left; font-size: 0.929rem; border-bottom: 1px solid #eee; }
-  th { background: #f8f9fa; font-weight: 600; color: #555; }
-  tr:hover { background: #f8f9fa; }
-  .loading { text-align: center; color: #999; padding: 2.857rem; }
-  .empty { text-align: center; color: #999; padding: 4.286rem 1.429rem; }
+  th, td { padding: 0.714rem 1rem; text-align: left; font-size: 0.929rem; border-bottom: 1px solid var(--border-light); }
+  th { background: var(--bg-page); font-weight: 600; color: var(--text-secondary); }
+  tr:hover { background: var(--bg-hover); }
+  .loading, .empty { text-align: center; color: var(--text-muted); padding: 2.857rem; }
   .btn-primary {
-    padding: 0.571rem 1.286rem; background: #007bff; color: white; border: none;
+    padding: 0.571rem 1.286rem; background: var(--accent); color: white; border: none;
     border-radius: 0.429rem; cursor: pointer; font-size: 0.929rem; font-weight: 500;
   }
   .btn-sm {
     padding: 0.286rem 0.571rem; border: none; background: none; cursor: pointer; font-size: 1.071rem; border-radius: 0.286rem;
   }
-  .btn-sm:hover { background: #f0f0f0; }
+  .btn-sm:hover { background: var(--bg-hover); }
   .btn-danger:hover { background: #fde8e8; }
   .overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.4);
     display: flex; align-items: center; justify-content: center; z-index: 1000;
   }
   .modal {
-    background: white; border-radius: 0.857rem; padding: 1.714rem; width: 34.286rem;
+    background: var(--bg-card); border-radius: 0.857rem; padding: 1.714rem; width: 34.286rem;
     box-shadow: 0 0.571rem 2.286rem rgba(0,0,0,0.2);
   }
   .modal h3 { margin: 0 0 1.143rem; }
-  .modal label { display: block; font-size: 0.929rem; color: #555; margin: 0.571rem 0 0.286rem; }
+  .modal label { display: block; font-size: 0.929rem; color: var(--text-secondary); margin: 0.571rem 0 0.286rem; }
   .modal input, .modal select {
-    width: 100%; padding: 0.571rem 0.714rem; border: 1px solid #ddd; border-radius: 0.429rem;
+    width: 100%; padding: 0.571rem 0.714rem; border: 1px solid var(--border); border-radius: 0.429rem;
     font-size: 0.929rem; box-sizing: border-box;
   }
   .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.857rem; }
   .modal-actions { display: flex; gap: 0.571rem; justify-content: flex-end; margin-top: 1.143rem; }
   .btn-secondary {
-    padding: 0.571rem 1.286rem; background: #ecf0f1; color: #555; border: none;
+    padding: 0.571rem 1.286rem; background: var(--bg-hover); color: var(--text-secondary); border: none;
     border-radius: 0.429rem; cursor: pointer; font-size: 0.929rem;
   }
 </style>

@@ -312,20 +312,20 @@
     display: flex;
     flex-direction: column;
     gap: 0.857rem;
-    background: #f5f6fa;
+    background: var(--bg-page);
     overflow: auto;
   }
 
   .gr-header h2 {
     margin: 0;
     font-size: 1.3rem;
-    color: #2c3e50;
+    color: var(--text-primary);
   }
 
   .gr-loading {
     padding: 2rem;
     text-align: center;
-    color: #999;
+    color: var(--text-muted);
     font-size: 0.9rem;
   }
 
@@ -336,14 +336,14 @@
 
   .gr-input-wrap {
     display: flex;
-    background: white;
-    border: 2px solid #ddd;
+    background: var(--bg-card);
+    border: 2px solid var(--border);
     border-radius: 0.643rem;
     transition: border-color 0.15s;
   }
 
   .gr-input-wrap:focus-within {
-    border-color: #3498db;
+    border-color: var(--accent);
   }
 
   .gr-input-wrap.gr-has-suggestions {
@@ -358,17 +358,17 @@
     font-size: 1.05rem;
     font-family: inherit;
     outline: none;
-    color: #2c3e50;
+    color: var(--text-primary);
   }
 
   .gr-input::placeholder {
-    color: #bbb;
+    color: var(--text-muted);
   }
 
   .gr-clear-btn {
     background: none;
     border: none;
-    color: #bbb;
+    color: var(--text-muted);
     font-size: 0.9rem;
     padding: 0 0.857rem;
     cursor: pointer;
@@ -379,8 +379,8 @@
   }
 
   .gr-suggestions {
-    background: white;
-    border: 2px solid #3498db;
+    background: var(--bg-card);
+    border: 2px solid var(--accent);
     border-top: none;
     border-radius: 0 0 0.643rem 0.643rem;
     overflow: hidden;
@@ -404,7 +404,7 @@
 
   .gr-sug-item:hover,
   .gr-sug-selected {
-    background: #e8f4fd;
+    background: var(--accent-light);
   }
 
   .gr-sug-icon {
@@ -414,7 +414,7 @@
 
   .gr-sug-label {
     font-weight: 600;
-    color: #2c3e50;
+    color: var(--text-primary);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -423,12 +423,12 @@
 
   .gr-sug-sub {
     font-size: 0.72rem;
-    color: #999;
+    color: var(--text-muted);
     flex-shrink: 0;
   }
 
   .gr-preview {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     padding: 1rem 1.143rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
@@ -437,7 +437,7 @@
   .gr-preview h3 {
     margin: 0 0 0.714rem;
     font-size: 0.85rem;
-    color: #888;
+    color: var(--text-muted);
     text-transform: uppercase;
     letter-spacing: 0.036rem;
   }
@@ -457,13 +457,13 @@
   .gr-preview-label {
     min-width: 5.714rem;
     font-size: 0.78rem;
-    color: #888;
+    color: var(--text-muted);
     flex-shrink: 0;
   }
 
   .gr-preview-value {
     font-size: 0.9rem;
-    color: #2c3e50;
+    color: var(--text-primary);
     font-weight: 500;
   }
 
@@ -492,13 +492,13 @@
     display: inline-flex;
     align-items: center;
     gap: 0.429rem;
-    color: #27ae60;
+    color: var(--success);
     font-weight: 600;
   }
 
   .gr-entity-type {
     font-size: 0.68rem;
-    color: #888;
+    color: var(--text-muted);
     font-weight: 400;
     background: #f0f0f0;
     padding: 0.071rem 0.357rem;
@@ -506,7 +506,7 @@
   }
 
   .gr-entity-none {
-    color: #999;
+    color: var(--text-muted);
     font-style: italic;
     font-size: 0.82rem;
   }
@@ -518,7 +518,7 @@
     padding: 0.714rem;
     border: none;
     border-radius: 0.429rem;
-    background: #27ae60;
+    background: var(--success);
     color: white;
     font-size: 1rem;
     font-weight: 700;
@@ -538,14 +538,14 @@
   .gr-empty-preview {
     padding: 1.5rem;
     text-align: center;
-    color: #bbb;
+    color: var(--text-muted);
     font-size: 0.85rem;
-    border: 2px dashed #e0e0e0;
+    border: 2px dashed var(--border);
     border-radius: 0.571rem;
   }
 
   .gr-recent {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     padding: 0.857rem 1rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
@@ -554,7 +554,7 @@
   .gr-recent h3 {
     margin: 0 0 0.571rem;
     font-size: 0.82rem;
-    color: #888;
+    color: var(--text-muted);
     font-weight: 600;
   }
 
@@ -580,19 +580,19 @@
   }
 
   .gr-recent-entity {
-    color: #2c3e50;
+    color: var(--text-primary);
     font-weight: 500;
     flex: 1;
   }
 
   .gr-recent-type {
     font-size: 0.72rem;
-    color: #999;
+    color: var(--text-muted);
   }
 
   .gr-recent-date {
     font-family: monospace;
     font-size: 0.72rem;
-    color: #aaa;
+    color: var(--text-muted);
   }
 </style>

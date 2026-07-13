@@ -13,6 +13,9 @@
   let view = $state<'login' | 'splash' | 'dashboard'>('login');
 
   onMount(async () => {
+    const saved = localStorage.getItem('theme-dark');
+    document.documentElement.setAttribute('data-theme', saved === 'true' ? 'dark' : 'light');
+
     try {
       const user = await invoke<{ user_id: number; user_name: string } | null>('get_user');
       if (user) {
@@ -59,5 +62,5 @@
 <style>
   :global(*) { margin: 0; padding: 0; box-sizing: border-box; }
   :global(body) { font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
-  .app-shell { display: flex; flex-direction: column; height: calc(100vh - 2.143rem); }
+  .app-shell { display: flex; flex-direction: column; height: calc(100vh - 3.5rem); }
 </style>

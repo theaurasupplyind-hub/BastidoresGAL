@@ -302,42 +302,42 @@
 <style>
   .modal-molduras { min-width: 42.857rem; max-width: 90vw; max-height: 85vh; display: flex; flex-direction: column; }
   .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.857rem; }
-  .modal-header h3 { margin: 0; font-size: 1.1rem; color: #2c3e50; }
-  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: #999; padding: 0.286rem; border-radius: 0.286rem; }
-  .modal-close:hover { background: #f0f0f0; color: #333; }
+  .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .modal-body { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 0.714rem; }
-  .modal-loading, .modal-empty { padding: 2.857rem; text-align: center; color: #999; }
-  .modal-hint { font-size: 0.78rem; color: #bbb; }
+  .modal-loading, .modal-empty { padding: 2.857rem; text-align: center; color: var(--text-muted); }
+  .modal-hint { font-size: 0.78rem; color: var(--text-muted); }
 
   .search-add { position: relative; }
-  .search-input { width: 100%; padding: 0.571rem 0.857rem; border: 1px solid #ddd; border-radius: 0.429rem; font-size: 0.88rem; box-sizing: border-box; }
-  .search-results { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #ddd; border-radius: 0 0 0.429rem 0.429rem; max-height: 14.286rem; overflow: auto; z-index: 10; box-shadow: 0 0.286rem 0.857rem rgba(0,0,0,0.1); }
-  .search-item { display: flex; gap: 0.571rem; padding: 0.429rem 0.714rem; cursor: pointer; border-bottom: 1px solid #f0f0f0; font-size: 0.82rem; align-items: center; transition: background 0.1s; }
-  .search-item:hover { background: #f0f4ff; }
+  .search-input { width: 100%; padding: 0.571rem 0.857rem; border: 1px solid var(--border); border-radius: 0.429rem; font-size: 0.88rem; box-sizing: border-box; }
+  .search-results { position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 0 0 0.429rem 0.429rem; max-height: 14.286rem; overflow: auto; z-index: 10; box-shadow: 0 0.286rem 0.857rem rgba(0,0,0,0.1); }
+  .search-item { display: flex; gap: 0.571rem; padding: 0.429rem 0.714rem; cursor: pointer; border-bottom: 1px solid var(--border-light); font-size: 0.82rem; align-items: center; transition: background 0.1s; }
+  .search-item:hover { background: var(--accent-light); }
   .search-num { font-family: monospace; min-width: 5.714rem; font-weight: 600; }
   .search-cliente { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .search-total { font-family: monospace; min-width: 4.286rem; text-align: right; color: #555; }
+  .search-total { font-family: monospace; min-width: 4.286rem; text-align: right; color: var(--text-secondary); }
   .search-moldura { min-width: 1.429rem; text-align: center; font-size: 0.88rem; }
   .search-add-btn { color: #27ae60; font-weight: 700; font-size: 1.1rem; min-width: 1.429rem; text-align: center; }
 
   .selected-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17.143rem, 1fr)); gap: 0.571rem; }
-  .sel-card { background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 0.571rem; overflow: hidden; }
+  .sel-card { background: var(--bg-page); border: 1px solid var(--border); border-radius: 0.571rem; overflow: hidden; }
   .sel-card-header { background: #2c3e50; color: white; padding: 0.357rem 0.571rem; display: flex; align-items: center; gap: 0.429rem; font-size: 0.78rem; }
   .sel-card-num { font-weight: 600; font-size: 0.82rem; }
-  .sel-card-cliente { flex: 1; color: #bdc3c7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
+  .sel-card-cliente { flex: 1; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
   .sel-card-remove { background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 0.857rem; padding: 0.143rem; border-radius: 0.214rem; opacity: 0.7; }
   .sel-card-remove:hover { opacity: 1; background: rgba(231,76,60,0.1); }
   .sel-card-body { padding: 0.429rem 0.571rem; }
-  .sel-no-items { font-size: 0.75rem; color: #bbb; text-align: center; padding: 0.429rem; }
+  .sel-no-items { font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 0.429rem; }
   .sel-summary { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-bottom: 0.286rem; }
-  .sel-summary th { background: #e9ecef; padding: 0.143rem 0.286rem; text-align: left; font-size: 0.65rem; text-transform: uppercase; color: #666; }
-  .sel-summary td { padding: 0.143rem 0.286rem; border-bottom: 1px solid #eee; }
+  .sel-summary th { background: var(--bg-hover); padding: 0.143rem 0.286rem; text-align: left; font-size: 0.65rem; text-transform: uppercase; color: var(--text-secondary); }
+  .sel-summary td { padding: 0.143rem 0.286rem; border-bottom: 1px solid var(--border-light); }
   .sel-qty { font-weight: 700; font-size: 0.88rem; width: 1.714rem; }
   .sel-measure { font-weight: 600; font-size: 0.82rem; }
-  .sel-tipo { font-weight: 400; color: #888; font-size: 0.72rem; }
+  .sel-tipo { font-weight: 400; color: var(--text-muted); font-size: 0.72rem; }
   .sel-moldura-indicator { font-size: 0.72rem; padding: 0.214rem 0; text-align: center; }
 
-  .modal-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 0.857rem; padding-top: 0.714rem; border-top: 1px solid #eee; }
-  .modal-count { font-size: 0.82rem; color: #666; font-weight: 500; }
+  .modal-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 0.857rem; padding-top: 0.714rem; border-top: 1px solid var(--border-light); }
+  .modal-count { font-size: 0.82rem; color: var(--text-secondary); font-weight: 500; }
   .modal-actions { display: flex; gap: 0.571rem; }
 </style>

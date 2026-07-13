@@ -216,7 +216,7 @@
       <div>
         <span style="font-weight:600;">v2.1.0</span>
         {#if updateVersion}
-          <span style="color:#007bff;font-weight:600;margin-left:0.5rem;">→ v{updateVersion} disponible</span>
+          <span style="color:var(--accent);font-weight:600;margin-left:0.5rem;">→ v{updateVersion} disponible</span>
         {/if}
       </div>
       <div style="display:flex;gap:0.5rem;">
@@ -412,14 +412,14 @@
   .update-notes {
     margin-top: 0.714rem;
     padding: 0.714rem;
-    background: #f8f9fa;
+    background: var(--bg-page);
     border-radius: 0.429rem;
     font-size: 0.857rem;
-    color: #555;
+    color: var(--text-secondary);
     white-space: pre-wrap;
   }
   .card {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.714rem;
     padding: 1.429rem;
     margin-bottom: 1.143rem;
@@ -430,7 +430,7 @@
     font-size: 1.143rem;
   }
   .hint {
-    color: #666;
+    color: var(--text-secondary);
     font-size: 0.857rem;
     margin-bottom: 1rem;
   }
@@ -440,19 +440,19 @@
   .form-row label {
     display: block;
     font-size: 0.857rem;
-    color: #555;
+    color: var(--text-secondary);
     margin-bottom: 0.357rem;
   }
   .form-row input, .form-row select {
     width: 100%;
     padding: 0.571rem;
-    border: 1px solid #ddd;
-    border-radius: 0.429rem;
-    font-size: 0.929rem;
-    box-sizing: border-box;
-  }
-  .status-header {
-    display: flex;
+     border: 1px solid var(--border);
+     border-radius: 0.429rem;
+     font-size: 0.929rem;
+     box-sizing: border-box;
+   }
+   .status-header {
+     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-bottom: 1rem;
@@ -462,7 +462,7 @@
   }
   .station-id {
     font-size: 0.786rem;
-    color: #999;
+    color: var(--text-muted);
   }
   .status-badge {
     padding: 0.286rem 0.857rem;
@@ -490,14 +490,14 @@
   .stat-label {
     display: block;
     font-size: 0.786rem;
-    color: #999;
+    color: var(--text-muted);
     margin-bottom: 0.214rem;
   }
   .stat-value {
     display: block;
     font-size: 0.929rem;
     font-weight: 600;
-    color: #333;
+    color: var(--text-primary);
   }
   .error-box {
     background: #fff3cd;
@@ -514,7 +514,7 @@
   }
   .btn-primary {
     padding: 0.571rem 1.429rem;
-    background: #007bff;
+    background: var(--accent);
     color: white;
     border: none;
     border-radius: 0.429rem;
@@ -527,15 +527,15 @@
   }
   .btn-secondary {
     padding: 0.571rem 1.429rem;
-    background: #ecf0f1;
-    color: #555;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
     border: none;
     border-radius: 0.429rem;
     cursor: pointer;
   }
   .btn-danger {
     padding: 0.571rem 1.429rem;
-    background: #dc3545;
+    background: var(--danger);
     color: white;
     border: none;
     border-radius: 0.429rem;
@@ -566,12 +566,12 @@
   }
   .station-name {
     font-weight: 600;
-    color: #333;
+    color: var(--text-primary);
     font-size: 0.929rem;
   }
   .station-meta {
     font-size: 0.786rem;
-    color: #999;
+    color: var(--text-muted);
   }
   .station-status-badge {
     padding: 0.214rem 0.714rem;
@@ -628,11 +628,11 @@
   .job-name {
     font-weight: 600;
     font-size: 0.857rem;
-    color: #333;
+    color: var(--text-primary);
   }
   .job-meta {
     font-size: 0.714rem;
-    color: #999;
+    color: var(--text-muted);
   }
   .job-status {
     padding: 0.214rem 0.714rem;

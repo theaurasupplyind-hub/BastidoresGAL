@@ -42,13 +42,19 @@
     "clipboard-manager:allow-write-image",
     "clipboard-manager:allow-write-text",
     "core:window:allow-set-always-on-top",
+    "core:window:allow-start-dragging",
     "core:webview:default",
     "core:webview:allow-create-webview-window",
     "process:default",
     "process:allow-restart",
     {
       "identifier": "http:allow-fetch",
-      "allow": [{ "url": "https://api-bastidores.onrender.com/**" }]
+      "allow": [
+        { "url": "https://api-bastidores.onrender.com/**" },
+        { "url": "https://nominatim.openstreetmap.org/**" },
+        { "url": "https://router.project-osrm.org/**" },
+        { "url": "https://photon.komoot.io/**" }
+      ]
     },
     "http:allow-fetch-cancel",
     "http:allow-fetch-send",

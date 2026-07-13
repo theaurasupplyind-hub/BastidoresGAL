@@ -56,10 +56,10 @@
     background: none;
     cursor: pointer;
     font-size: 0.8rem;
-    color: #666;
+    color: var(--text-secondary);
     border-radius: 0.286rem;
     transition: all 0.12s;
   }
-  .g-tab-btn:hover { background: rgba(255,255,255,0.5); }
-  .g-tab-btn.active { background: white; color: #2c3e50; font-weight: 600; box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.08); }
+  .g-tab-btn:hover { background: var(--bg-card); }
+  .g-tab-btn.active { background: var(--bg-card); color: var(--text-primary); font-weight: 600; box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.08); }
 </style>

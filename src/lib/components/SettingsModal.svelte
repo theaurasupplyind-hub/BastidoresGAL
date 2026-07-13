@@ -15,6 +15,7 @@
     selected_printer: null,
   });
 
+  let darkMode = $state(false);
   let loading = $state(true);
   let printers = $state<string[]>([]);
   let loadingPrinters = $state(true);
@@ -31,7 +32,21 @@
       printers = [];
     }
     loadingPrinters = false;
+
+    const saved = localStorage.getItem('theme-dark');
+    darkMode = saved === 'true';
+    applyTheme();
   });
+
+  function applyTheme() {
+    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
+  }
+
+  function toggleDark() {
+    darkMode = !darkMode;
+    localStorage.setItem('theme-dark', String(darkMode));
+    applyTheme();
+  }
 
   async function save() {
     try {
@@ -58,6 +73,14 @@
       <p class="loading">Cargando...</p>
     {:else}
       <div class="form-grid">
+        <label>Tema Oscuro</label>
+        <button class="toggle-btn" class:active={darkMode} onclick={toggleDark} type="button">
+          <span class="toggle-track">
+            <span class="toggle-thumb"></span>
+          </span>
+          <span class="toggle-label">{darkMode ? 'On' : 'Off'}</span>
+        </button>
+
         <label>Tema Visual</label>
         <select bind:value={config.theme}>
           <option value="flatly">Flatly</option>
@@ -116,33 +139,52 @@
     z-index: 1000;
   }
   .modal {
-    background: white; border-radius: 0.857rem; padding: 1.714rem;
+    background: var(--bg-card); border-radius: 0.857rem; padding: 1.714rem;
     width: 28.571rem; max-height: 80vh; overflow-y: auto;
     box-shadow: 0 0.571rem 2.286rem rgba(0,0,0,0.2);
+    color: var(--text-primary);
   }
   .modal-header {
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 1.429rem;
   }
   .modal-header h2 { margin: 0; font-size: 1.286rem; }
-  .close { background: none; border: none; font-size: 1.429rem; cursor: pointer; color: #999; }
+  .close { background: none; border: none; font-size: 1.429rem; cursor: pointer; color: var(--text-muted); }
   .form-grid {
     display: grid; grid-template-columns: 1fr 1fr; gap: 0.857rem;
   }
-  label { font-size: 0.929rem; color: #555; align-self: center; }
+  label { font-size: 0.929rem; color: var(--text-secondary); align-self: center; }
   select, input {
-    padding: 0.571rem; border: 1px solid #ddd; border-radius: 0.429rem; font-size: 0.929rem;
+    padding: 0.571rem; border: 1px solid var(--border); border-radius: 0.429rem; font-size: 0.929rem;
+    background: var(--bg-card); color: var(--text-primary);
   }
   .modal-actions {
     display: flex; gap: 0.571rem; justify-content: flex-end; margin-top: 1.429rem;
   }
   .btn-primary {
-    padding: 0.571rem 1.429rem; background: #007bff; color: white; border: none;
+    padding: 0.571rem 1.429rem; background: var(--accent); color: white; border: none;
     border-radius: 0.429rem; cursor: pointer; font-weight: 500;
   }
   .btn-secondary {
-    padding: 0.571rem 1.429rem; background: #ecf0f1; color: #555; border: none;
+    padding: 0.571rem 1.429rem; background: var(--bg-hover); color: var(--text-secondary); border: none;
     border-radius: 0.429rem; cursor: pointer;
   }
-  .loading { text-align: center; color: #999; padding: 1.429rem; }
+  .loading { text-align: center; color: var(--text-muted); padding: 1.429rem; }
+
+  .toggle-btn {
+    display: flex; align-items: center; gap: 0.5rem; background: none; border: none;
+    cursor: pointer; padding: 0; font-size: 0.85rem; color: var(--text-secondary);
+  }
+  .toggle-track {
+    width: 2.4rem; height: 1.3rem; background: var(--border); border-radius: 0.65rem;
+    position: relative; transition: background 0.2s;
+  }
+  .toggle-btn.active .toggle-track { background: var(--accent); }
+  .toggle-thumb {
+    position: absolute; top: 0.15rem; left: 0.15rem;
+    width: 1rem; height: 1rem; background: white; border-radius: 50%;
+    transition: transform 0.2s;
+  }
+  .toggle-btn.active .toggle-thumb { transform: translateX(1.1rem); }
+  .toggle-label { font-weight: 500; }
 </style>

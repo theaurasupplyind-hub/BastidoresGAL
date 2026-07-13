@@ -266,4 +266,17 @@ export const api = {
 
   importPreciosReferencia: (rows: import('$lib/types').PrecioReferencia[]) =>
     request<{ status: string; imported: number }>('POST', '/precios-referencia/import', { rows }, 15),
+
+  // ---- Tasks ----
+  listTasks: () =>
+    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null }[]>('GET', '/tasks', undefined, 10), []),
+
+  createTask: (data: { text: string }) =>
+    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null }>('POST', '/tasks', data),
+
+  updateTask: (id: number, data: { text?: string; done?: boolean; position?: number }) =>
+    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null }>('PUT', `/tasks/${id}`, data),
+
+  deleteTask: (id: number) =>
+    request<{ status: string }>('DELETE', `/tasks/${id}`),
 };

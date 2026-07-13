@@ -177,7 +177,7 @@
     display: flex;
     gap: 0.571rem;
     align-items: center;
-    background: white;
+    background: var(--bg-card);
     padding: 0.571rem 0.857rem;
     border-radius: 0.571rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
@@ -185,7 +185,7 @@
   .g-att-toolbar input,
   .g-att-toolbar select {
     padding: 0.357rem 0.571rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border);
     border-radius: 0.357rem;
     font-size: 0.85rem;
   }
@@ -193,37 +193,35 @@
   .g-att-grid {
     flex: 1;
     overflow: auto;
-    background: white;
-    border-radius: 0.571rem;
-    box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
-  }
-  .att-table {
-    border-collapse: collapse;
-    font-size: 0.75rem;
-  }
+     background: var(--bg-card);
+   }
+   .att-table {
+     border-collapse: collapse;
+     font-size: 0.75rem;
+   }
   .att-table th {
-    background: #f8f9fa;
+    background: var(--bg-page);
     padding: 0.286rem 0.214rem;
     font-weight: 600;
-    color: #666;
+    color: var(--text-secondary);
     font-size: 0.68rem;
     position: sticky;
     top: 0;
     z-index: 1;
-    border-bottom: 2px solid #e9ecef;
+    border-bottom: 2px solid var(--border-light);
     text-align: center;
     min-width: 1.857rem;
   }
-  .att-th-emp { text-align: left; min-width: 8.571rem; position: sticky; left: 0; z-index: 2; background: #f8f9fa; }
-  .att-th-day.weekend { color: #ccc; }
-  .att-day-name { display: block; font-size: 0.6rem; color: #aaa; }
+  .att-th-emp { text-align: left; min-width: 8.571rem; position: sticky; left: 0; z-index: 2; background: var(--bg-page); }
+  .att-th-day.weekend { color: var(--text-muted); }
+  .att-day-name { display: block; font-size: 0.6rem; color: var(--text-muted); }
   .att-table td {
     padding: 0.214rem;
     text-align: center;
     border-bottom: 1px solid #f0f0f0;
     cursor: pointer;
   }
-  .att-td-emp { text-align: left; font-weight: 500; position: sticky; left: 0; background: white; z-index: 1; min-width: 8.571rem; }
+  .att-td-emp { text-align: left; font-weight: 500; position: sticky; left: 0; background: var(--bg-card); z-index: 1; min-width: 8.571rem; }
   .att-cell { transition: background 0.12s; }
   .att-cell:hover { filter: brightness(0.9); }
   .att-cell.weekend { background: #f9f9f9; cursor: default; }
@@ -233,5 +231,5 @@
   .att-vacation { background: #d1ecf1; color: #0c5460; }
   .att-license { background: #e2d9f3; color: #5a3d8a; }
   .att-none { color: #ddd; }
-  .g-empty { padding: 1.429rem; text-align: center; color: #bbb; font-size: 0.82rem; }
+  .g-empty { padding: 1.429rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
 </style>

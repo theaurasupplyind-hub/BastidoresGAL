@@ -249,7 +249,7 @@
   }
   .g-emp-sidebar {
     width: 15.714rem;
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
     display: flex;
@@ -264,14 +264,14 @@
     cursor: pointer;
     border-bottom: 1px solid #f5f5f5;
   }
-  .g-emp-item:hover { background: #f8f9fa; }
-  .g-emp-item.active { background: #e8f4fd; border-left: 0.214rem solid #3498db; }
+  .g-emp-item:hover { background: var(--bg-page); }
+  .g-emp-item.active { background: var(--accent-light); border-left: 0.214rem solid var(--accent); }
   .g-emp-name { display: block; font-weight: 600; font-size: 0.85rem; }
-  .g-emp-type { font-size: 0.7rem; color: #999; }
+  .g-emp-type { font-size: 0.7rem; color: var(--text-muted); }
 
   .g-emp-detail {
     flex: 1;
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
     display: flex;
@@ -291,8 +291,8 @@
     font-size: 0.68rem;
     padding: 0.143rem 0.571rem;
     border-radius: 0.571rem;
-    background: #e9ecef;
-    color: #555;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
   }
   .g-emp-actions { margin-left: auto; display: flex; gap: 0.286rem; }
   .g-emp-info {
@@ -301,11 +301,11 @@
     gap: 0.857rem;
     padding: 0.571rem 1rem;
     font-size: 0.78rem;
-    color: #888;
+    color: var(--text-muted);
     border-bottom: 1px solid #f0f0f0;
   }
   .g-pays-list { flex: 1; overflow: auto; padding: 0.429rem 0.714rem; }
-  .g-pays-list h4 { margin: 0.429rem 0; font-size: 0.82rem; color: #555; }
+  .g-pays-list h4 { margin: 0.429rem 0; font-size: 0.82rem; color: var(--text-secondary); }
   .g-pay-item {
     display: flex;
     align-items: center;
@@ -314,8 +314,8 @@
     border-bottom: 1px solid #f5f5f5;
     font-size: 0.8rem;
   }
-  .g-pay-date { font-family: monospace; font-size: 0.72rem; color: #888; min-width: 3.929rem; }
+  .g-pay-date { font-family: monospace; font-size: 0.72rem; color: var(--text-muted); min-width: 3.929rem; }
   .g-pay-concept { flex: 1; }
   .g-pay-amount { font-family: monospace; font-weight: 600; min-width: 4.286rem; text-align: right; }
-  .g-empty { padding: 1.429rem; text-align: center; color: #bbb; font-size: 0.82rem; }
+  .g-empty { padding: 1.429rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
 </style>

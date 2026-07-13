@@ -69,7 +69,7 @@
     background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
   }
   .login-card {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.857rem;
     padding: 2.857rem;
     width: 24.286rem;
@@ -82,13 +82,13 @@
   .login-header h1 {
     margin: 0;
     font-size: 1.714rem;
-    color: #2c3e50;
-  }
-  .subtitle {
-    color: #7f8c8d;
-    margin: 0.286rem 0 0;
-    font-size: 1rem;
-  }
+     color: var(--text-primary);
+   }
+    .subtitle {
+      color: var(--text-muted);
+     margin: 0.286rem 0 0;
+     font-size: 1rem;
+   }
   .login-form {
     display: flex;
     flex-direction: column;
@@ -96,12 +96,12 @@
   }
   label {
     font-size: 1rem;
-    color: #555;
+    color: var(--text-secondary);
     font-weight: 500;
   }
   input {
     padding: 0.714rem 1rem;
-    border: 2px solid #ddd;
+    border: 2px solid var(--border);
     border-radius: 0.571rem;
     font-size: 1.071rem;
     text-align: center;
@@ -109,11 +109,11 @@
     transition: border-color 0.2s;
   }
   input:focus {
-    border-color: #3498db;
+    border-color: var(--accent);
   }
   button {
     padding: 0.857rem;
-    background: #007bff;
+    background: var(--accent);
     color: white;
     border: none;
     border-radius: 0.571rem;
@@ -122,7 +122,7 @@
     cursor: pointer;
     transition: background 0.2s;
   }
-  button:hover:not(:disabled) { background: #0056b3; }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
   button:disabled { opacity: 0.6; cursor: not-allowed; }
-  .error { color: #e74c3c; font-size: 0.929rem; margin: 0; text-align: center; }
+  .error { color: var(--danger); font-size: 0.929rem; margin: 0; text-align: center; }
 </style>

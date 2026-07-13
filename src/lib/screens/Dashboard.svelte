@@ -1,11 +1,10 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
-  import { slide } from 'svelte/transition';
   import { invoke } from '@tauri-apps/api/core';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { mapaStore } from '$lib/stores/mapaStore.svelte';
-  import type { TabId, OnlineUser } from '$lib/types';
+  import type { TabId } from '$lib/types';
   import Clientes from './Clientes.svelte';
   import Productos from './Productos.svelte';
   import Facturacion from './Facturacion.svelte';
@@ -17,32 +16,20 @@
   import Kanban from './Kanban.svelte';
   import Papelera from './Papelera.svelte';
   import MapaClientes from './MapaClientes.svelte';
+  import AddressAutocomplete from '$lib/components/AddressAutocomplete.svelte';
+  let mapaRef: any = null;
   import AnalisisUSD from './AnalisisUSD.svelte';
   import GastoRapido from './GastoRapido.svelte';
   import Caja from './Caja.svelte';
   import PrintAgent from './PrintAgent.svelte';
+  import PanelControl from './PanelControl.svelte';
 
   let { onLogout }: { onLogout: () => void } = $props();
 
-  const TABS: { id: TabId; icon: string; label: string }[] = [
-    { id: 'kanban', icon: 'home', label: 'Kanban' },
-    { id: 'facturacion', icon: 'file', label: 'Facturación' },
-    { id: 'ficha-semanal', icon: 'dollar', label: 'Ficha Semanal' },
-    { id: 'molduras', icon: 'frame', label: 'Molduras' },
-    { id: 'productos', icon: 'box', label: 'Productos' },
-    { id: 'clientes', icon: 'user', label: 'Clientes' },
-    { id: 'estadisticas', icon: 'chart', label: 'Estadísticas' },
-    { id: 'analisis-usd', icon: 'usd', label: 'USD' },
-    { id: 'mapa', icon: 'map', label: 'Mapa' },
-    { id: 'papelera', icon: 'trash', label: 'Papelera' },
-];
-
   let facturacionRef: any = null;
-  let kanbanRef: any = null;
+
   let heartbeatId: ReturnType<typeof setInterval> | undefined;
   let stationsPollId: ReturnType<typeof setInterval> | undefined;
-  let onlineUsers: any[] = $state([]);
-  let usersOpen = $state(false);
   let config = $state<any>({});
 
   onMount(async () => {
@@ -52,7 +39,7 @@
     pollStations();
     stationsPollId = setInterval(pollStations, 10000);
     const handler = (e: Event) => {
-      onlineUsers = (e as CustomEvent).detail;
+      appStore.onlineUsers = (e as CustomEvent).detail;
     };
     window.addEventListener('users-update', handler);
     return () => {
@@ -99,6 +86,7 @@
   }
 
   const ICONS: Record<string, string> = {
+    grid: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
     home: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>',
     file: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>',
     dollar: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>',
@@ -125,59 +113,6 @@
 </script>
 
 <div class="app-layout">
-  <nav class="sidebar">
-    <div class="sidebar-tabs">
-      {#each TABS as tab}
-        <button
-          class="tab-btn"
-          class:active={appStore.currentTab === tab.id}
-          onclick={() => selectTab(tab.id)}
-          data-label={tab.label}
-        >
-          <span class="tab-icon">{@html ICONS[tab.icon]}</span>
-        </button>
-      {/each}
-    </div>
-    <div class="sidebar-users">
-      <button class="users-toggle" onclick={() => usersOpen = !usersOpen} title="Usuarios conectados">
-        <span class="users-dot">🟢</span>
-        <span class="users-online-count">{appStore.onlineCount}</span>
-      </button>
-      {#if usersOpen}
-        <div class="users-panel" transition:slide={{ duration: 120 }}>
-          <div class="users-panel-header">
-            <span>Conectados</span>
-            <button class="users-panel-close" onclick={() => usersOpen = false}>✕</button>
-          </div>
-          {#each onlineUsers as u}
-            <div class="user-row">
-              <span class="user-name">{u.user_name || u.name || '?'}</span>
-              {#if u.activity}
-                <span class="user-activity">{u.activity}</span>
-              {/if}
-            </div>
-          {:else}
-            <div class="user-row muted">Sin usuarios conectados</div>
-          {/each}
-        </div>
-      {/if}
-    </div>
-    <div class="sidebar-divider"></div>
-    <button
-      class="tab-btn print-agent-btn"
-      class:active={appStore.currentTab === 'print-agent'}
-      onclick={() => selectTab('print-agent')}
-      data-label="Impresión"
-    >
-      <span class="tab-icon">{@html ICONS['printer']}</span>
-    </button>
-    <div class="sidebar-settings">
-      <button class="settings-btn" onclick={() => appStore.showSettings = true} title="Configuración">
-        <span class="settings-icon">{@html ICONS['gear']}</span>
-      </button>
-    </div>
-  </nav>
-
   <div class="main-area">
     <header class="top-bar">
       {#if appStore.currentTab === 'facturacion'}
@@ -257,31 +192,44 @@
           <button class="filter-clear-btn" onclick={() => { appStore.fsStartDate = ''; appStore.fsEndDate = ''; appStore.fsFilterCliente = ''; appStore.fsFilterEstado = 'TODOS'; appStore.fsFilterEntrega = 'TODOS'; }} title="Limpiar">✕</button>
         </div>
       {/if}
-      {#if appStore.currentTab === 'kanban'}
-        <div class="kanban-bar">
-          <span class="kanban-status">Click: seleccionar · Ctrl+Click: multiselect · Arrastrar: mover</span>
-          <span class="kanban-count">{appStore.kanbanSelectedCount > 0 ? `${appStore.kanbanSelectedCount} seleccionada(s)` : ''}</span>
-          <button class="top-btn" onclick={() => kanbanRef?.deselectAll()} disabled={appStore.kanbanSelectedCount === 0}>✕ Deseleccionar</button>
-        </div>
-      {/if}
       {#if appStore.currentTab === 'mapa'}
         <div class="mapa-bar">
           <div class="mapa-bar-left">
             <label class="mapa-bar-label" for="mapa-fecha-input">Fecha</label>
             <input id="mapa-fecha-input" type="date" bind:value={mapaStore.fecha} class="mapa-bar-fecha" />
+            <div class="mapa-bar-filter">
+              <button class="mapa-filter-btn" class:mapa-filter-activo={!mapaStore.filtroPendientes} onclick={() => mapaStore.filtroPendientes = false}>Todos</button>
+              <button class="mapa-filter-btn" class:mapa-filter-activo={mapaStore.filtroPendientes} onclick={() => mapaStore.filtroPendientes = true}>Pendientes</button>
+            </div>
           </div>
           <div class="mapa-bar-center">
-            <input type="text" placeholder="Buscar cliente..." bind:value={mapaStore.busqueda} class="mapa-bar-buscar" />
+            <div class="search-wrap">
+              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <AddressAutocomplete
+                value={mapaStore.busqueda}
+                onchange={(v: string) => { mapaStore.busqueda = v; if (!v) mapaStore.busquedaCoords = null; }}
+                onselect={(data: { label: string; lat: number; lng: number }) => { mapaStore.busqueda = data.label; mapaStore.busquedaCoords = { lat: data.lat, lng: data.lng }; }}
+                className="mapa-bar-buscar"
+                placeholder="Buscar cliente..."
+              />
+            </div>
           </div>
           <div class="mapa-bar-right">
             {#if mapaStore.editandoOrigen}
-              <input type="text" bind:value={mapaStore.origenDireccion} class="mapa-bar-origen-input" placeholder="Dirección..." />
+              <AddressAutocomplete
+                value={mapaStore.origenDireccion}
+                onchange={(v: string) => { mapaStore.origenDireccion = v; }}
+                onselect={(data: { label: string; lat: number; lng: number }) => { mapaStore.origenDireccion = data.label; mapaStore.origenCoords = { lat: data.lat, lng: data.lng }; }}
+                className="mapa-bar-origen-input"
+                placeholder="Dirección..."
+              />
               <button class="mapa-bar-btn-geo" onclick={() => mapaStore.geocodificarOrigen?.()} disabled={mapaStore.geocodificandoOrigen || !mapaStore.origenDireccion.trim()}>🌍</button>
               <button class="mapa-bar-btn-save" onclick={() => mapaStore.guardarOrigen?.()}>💾</button>
             {:else}
               <span class="mapa-bar-origen-label">📍 Salida:</span>
               <span class="mapa-bar-origen-text">{mapaStore.origenDireccion}</span>
               <button class="mapa-bar-btn-edit" onclick={() => mapaStore.editandoOrigen = true}>✏️</button>
+              <button class="mapa-bar-btn-wa" onclick={() => mapaRef?.copiarRutaAlPortapapeles()} title="Copiar link de la ruta">📋</button>
             {/if}
           </div>
         </div>
@@ -290,7 +238,7 @@
 
     <main class="content">
       <div class="tab-contents" class:tab-oculto={appStore.currentTab !== 'kanban'}>
-        <Kanban bind:this={kanbanRef} />
+        <Kanban />
       </div>
       <div class="tab-contents" class:tab-oculto={appStore.currentTab !== 'facturacion'}>
         <Facturacion bind:this={facturacionRef} />
@@ -308,7 +256,7 @@
       {:else if appStore.currentTab === 'clientes'}
         <Clientes />
       {:else if appStore.currentTab === 'mapa'}
-        <MapaClientes />
+        <MapaClientes bind:this={mapaRef} />
       {:else if appStore.currentTab === 'estadisticas'}
         <Estadisticas />
       {:else if appStore.currentTab === 'gastos'}
@@ -321,6 +269,8 @@
         <Caja />
       {:else if appStore.currentTab === 'print-agent'}
         <PrintAgent />
+      {:else if appStore.currentTab === 'panel-control'}
+        <PanelControl />
       {/if}
     </main>
 
@@ -330,164 +280,17 @@
 <style>
   .app-layout {
     display: flex;
+    flex-direction: column;
     height: 100%;
     overflow: hidden;
   }
-
-  .sidebar {
-    width: 3.5rem;
-    flex-shrink: 0;
-    background: linear-gradient(180deg, #1a252f, #2c3e50);
-    display: flex;
-    flex-direction: column;
-    overflow: visible;
-    position: relative;
-    z-index: 20;
-  }
-  .sidebar-tabs {
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-  }
-  .tab-btn {
-    padding: 0.643rem 0;
-    border: none;
-    background: none;
-    cursor: pointer;
-    font-size: 1.3rem;
-    color: #95a5a6;
-    text-align: center;
-    border-left: 0.214rem solid transparent;
-    transition: all 0.12s;
-    position: relative;
-  }
-  .tab-btn:hover { background: rgba(255,255,255,0.06); color: #ecf0f1; }
-  .tab-btn.active {
-    color: white;
-    background: rgba(255,255,255,0.12);
-    border-left-color: #3498db;
-  }
-  .tab-icon { display: block; line-height: 1; }
-  .tab-btn::after {
-    content: attr(data-label);
-    position: absolute;
-    left: calc(100% + 0.6rem);
-    top: 50%;
-    transform: translateY(-50%);
-    white-space: nowrap;
-    background: #1a252f;
-    color: #ecf0f1;
-    padding: 0.3rem 0.6rem;
-    border-radius: 0.3rem;
-    font-size: 0.75rem;
-    font-weight: 500;
-    box-shadow: 0 0.143rem 0.429rem rgba(0,0,0,0.35);
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.12s;
-    z-index: 50;
-  }
-  .tab-btn:hover::after { opacity: 1; }
-
-  .sidebar-users {
-    border-top: 0.071rem solid rgba(255,255,255,0.08);
-    flex-shrink: 0;
-    position: relative;
-  }
-  .users-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.143rem;
-    width: 100%;
-    padding: 0.5rem 0;
-    border: none;
-    background: none;
-    color: #95a5a6;
-    font-size: 0.714rem;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background 0.12s, color 0.12s;
-    text-align: center;
-    flex-direction: column;
-  }
-  .users-toggle:hover { background: rgba(255,255,255,0.06); color: #ecf0f1; }
-  .users-dot { font-size: 1rem; line-height: 1; }
-  .users-online-count { font-size: 0.65rem; font-weight: 700; }
-
-  .sidebar-divider {
-    height: 0.071rem;
-    background: rgba(255,255,255,0.08);
-    margin: 0.286rem 0.571rem;
-    flex-shrink: 0;
-  }
-
-  .sidebar-settings {
-    border-top: 0.071rem solid rgba(255,255,255,0.08);
-    flex-shrink: 0;
-  }
-  .settings-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    padding: 0.5rem 0;
-    border: none;
-    background: none;
-    color: #95a5a6;
-    cursor: pointer;
-    transition: background 0.12s, color 0.12s;
-  }
-  .settings-btn:hover { background: rgba(255,255,255,0.06); color: #ecf0f1; }
-  .settings-icon { display: block; line-height: 1; font-size: 1rem; }
-
-  .users-panel {
-    position: absolute;
-    left: 100%;
-    bottom: 0;
-    width: 13rem;
-    background: #1a252f;
-    border-left: 0.071rem solid rgba(255,255,255,0.1);
-    border-radius: 0 0.571rem 0.571rem 0;
-    box-shadow: 0.286rem 0 0.571rem rgba(0,0,0,0.3);
-    overflow: hidden;
-    z-index: 30;
-  }
-  .users-panel-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.571rem 0.714rem;
-    color: #ecf0f1;
-    font-size: 0.82rem;
-    font-weight: 600;
-    border-bottom: 0.071rem solid rgba(255,255,255,0.08);
-  }
-  .users-panel-close {
-    background: none;
-    border: none;
-    color: #7f8c8d;
-    cursor: pointer;
-    font-size: 0.857rem;
-    padding: 0.143rem;
-  }
-  .users-panel-close:hover { color: #ecf0f1; }
-  .user-row {
-    display: flex;
-    flex-direction: column;
-    gap: 0.071rem;
-    padding: 0.357rem 0.714rem;
-    font-size: 0.786rem;
-  }
-  .user-name { color: #ecf0f1; font-weight: 500; }
-  .user-activity { color: #7f8c8d; font-size: 0.714rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .user-row.muted { color: #7f8c8d; font-style: italic; }
 
   .main-area {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
+    overflow: hidden;
   }
 
   .top-bar {
@@ -495,7 +298,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.429rem 1rem;
-    background: #fff;
+    background: var(--bg-card);
     border-bottom: 0.071rem solid var(--border);
     flex-shrink: 0;
     gap: 0.571rem;
@@ -510,7 +313,7 @@
   .tipo-btn-bar {
     padding: 0.286rem 1rem;
     border: none;
-    background: #fff;
+    background: var(--bg-card);
     color: var(--text-secondary);
     font-size: 0.95rem;
     font-weight: 600;
@@ -522,15 +325,6 @@
     background: var(--accent);
     color: #fff;
   }
-  .kanban-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.571rem;
-    flex: 1;
-  }
-  .kanban-status { font-size: 0.72rem; color: #999; }
-  .kanban-count { font-size: 0.78rem; color: #3498db; font-weight: 600; }
-
   .mapa-bar {
     display: flex;
     align-items: center;
@@ -540,9 +334,34 @@
   .mapa-bar-left {
     display: flex;
     align-items: center;
-    gap: 0.286rem;
+    gap: 0.357rem;
     flex: 1;
   }
+  .mapa-bar-filter {
+    display: flex;
+    border: 1px solid #d1d5db;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .mapa-filter-btn {
+    padding: 2px 8px;
+    border: none;
+    background: #fff;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: var(--font);
+    color: #6b7280;
+    transition: all 0.15s;
+  }
+  .mapa-filter-btn:not(:last-child) { border-right: 1px solid #d1d5db; }
+  .mapa-filter-btn:hover { background: #f3f4f6; }
+  .mapa-filter-activo {
+    background: #2563eb;
+    color: white;
+    font-weight: 600;
+  }
+  .mapa-filter-activo:hover { background: #1d4ed8; }
   .mapa-bar-label {
     font-size: 0.75rem;
     font-weight: 600;
@@ -558,17 +377,37 @@
     background: #fff;
   }
   .mapa-bar-center {
-    flex: 0 1 auto;
-    max-width: 260px;
+    flex: 1;
+    display: flex;
+    justify-content: center;
   }
-  .mapa-bar-buscar {
+  .search-wrap {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 260px;
+  }
+  .search-icon {
+    position: absolute;
+    left: 8px;
+    pointer-events: none;
+    color: #9ca3af;
+    z-index: 1;
+  }
+  :global(.mapa-bar-buscar) {
     width: 100%;
-    padding: 0.286rem 0.5rem;
+    padding: 0.286rem 0.5rem 0.286rem 28px;
     border: 0.071rem solid var(--border);
     border-radius: var(--radius-sm);
     font-size: 0.82rem;
     font-family: var(--font);
     background: #fff;
+    transition: border-color 0.15s, box-shadow 0.15s;
+    outline: none;
+  }
+  :global(.mapa-bar-buscar:focus) {
+    border-color: var(--border-focus, #2563eb);
+    box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
   }
   .mapa-bar-right {
     display: flex;
@@ -599,6 +438,9 @@
     font-size: 0.78rem;
     font-family: var(--font);
   }
+  .mapa-bar-right :global(.ac-wrapper) {
+    width: auto;
+  }
   .mapa-bar-btn-edit {
     background: none;
     border: none;
@@ -608,6 +450,15 @@
     color: var(--text-muted);
   }
   .mapa-bar-btn-edit:hover { color: var(--text); }
+  .mapa-bar-btn-wa {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 0.071rem 0.286rem;
+    color: #25D366;
+  }
+  .mapa-bar-btn-wa:hover { color: #1ebe5b; }
   .mapa-bar-btn-geo {
     padding: 0.214rem 0.357rem;
     font-size: 0.78rem;
@@ -640,7 +491,7 @@
     border: 0.071rem solid var(--border);
     border-radius: var(--radius-sm);
     font-size: 0.85rem;
-    background: white;
+    background: var(--bg-card);
     color: var(--text-primary);
     outline: none;
     font-family: inherit;
@@ -686,7 +537,7 @@
     gap: 0.286rem;
     padding: 0.429rem 1rem;
     border: 0.071rem solid var(--border);
-    background: #fff;
+    background: var(--bg-card);
     color: var(--text-primary);
     font-size: 0.95rem;
     font-weight: 600;
@@ -712,7 +563,7 @@
     border-radius: 0.357rem;
     font-size: 0.786rem;
     color: #0369a1;
-    background: white;
+    background: var(--bg-card);
     cursor: pointer;
   }
 

@@ -1,4 +1,5 @@
 @import 'leaflet/dist/leaflet.css';
+@import 'leaflet-routing-machine/dist/leaflet-routing-machine.css';
 
 @keyframes pulso-mapa-global {
   0%, 100% { box-shadow: 0 0 0 3px rgba(239,68,68,0.3); }
@@ -43,6 +44,28 @@
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+}
+
+[data-theme="dark"] {
+  --bg-page: #0f1117;
+  --bg-card: #1a1d27;
+  --bg-hover: #252830;
+  --bg-active: #2a2d38;
+  --border: #2e3140;
+  --border-light: #383b4a;
+  --border-focus: #3b82f6;
+  --text-primary: #e4e6eb;
+  --text-secondary: #9ca3b0;
+  --text-muted: #6b7280;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-light: rgba(59,130,246,0.12);
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --success: #22c55e;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
 }
 
 html {
@@ -98,4 +121,12 @@ input:focus, select:focus, textarea:focus {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #9ca3af;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #3a3d4a;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #4a4d5a;
 }

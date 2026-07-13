@@ -377,6 +377,7 @@
   }
 
   let initialized = $state(false);
+  let showKpis = $state(true);
 
   onMount(() => {
     const d = getDefaultDates();
@@ -393,6 +394,7 @@
 
 <div class="ficha-semanal">
   <!-- KPI Cards -->
+  {#if showKpis}
   <div class="fs-kpis">
     <div class="kpi-card">
       <span class="kpi-label">VENTAS</span>
@@ -415,9 +417,13 @@
       <span class="kpi-sub">Global: {kpis.n_g}</span>
     </div>
   </div>
+  {/if}
 
   <!-- Summary Strip -->
   <div class="fs-summary">
+    <button class="kpi-toggle" onclick={() => showKpis = !showKpis} title={showKpis ? 'Ocultar cards' : 'Mostrar cards'}>
+      {showKpis ? '▲' : '▼'}
+    </button>
     <span>{summaryStats.totalRows} facturas</span>
     <span>Ventas: {formatCurrency(summaryStats.totalVentas)}</span>
     <span>Cobrado: {formatCurrency(summaryStats.totalPagado)}</span>
@@ -666,7 +672,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.857rem;
-    background: #f5f6fa;
+    background: var(--bg-page);
   }
 
 
@@ -677,28 +683,39 @@
     gap: 0.714rem;
   }
   .kpi-card {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     padding: 0.857rem 1rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
     display: flex;
     flex-direction: column;
   }
-  .kpi-label { font-size: 0.85rem; text-transform: uppercase; color: #888; font-weight: 600; }
-  .kpi-value { font-size: 1.4rem; font-weight: 700; color: #2c3e50; }
-  .kpi-sub { font-size: 0.85rem; color: #aaa; }
+  .kpi-label { font-size: 0.85rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+  .kpi-value { font-size: 1.4rem; font-weight: 700; color: var(--text-primary); }
+  .kpi-sub { font-size: 0.85rem; color: var(--text-muted); }
 
   .fs-summary {
     display: flex;
     gap: 1rem;
     flex-wrap: wrap;
-    background: white;
+    align-items: center;
+    background: var(--bg-card);
     padding: 0.571rem 1rem;
     border-radius: 0.571rem;
     font-size: 0.92rem;
-    color: #555;
+    color: var(--text-secondary);
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
   }
+  .kpi-toggle {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 2px 4px;
+    line-height: 1;
+    color: var(--text-muted);
+  }
+  .kpi-toggle:hover { color: var(--text-primary); }
 
   .fs-body {
     display: flex;
@@ -709,7 +726,7 @@
 
   .fs-table-container {
     flex: 1;
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     overflow: auto;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
@@ -721,23 +738,23 @@
     font-size: 0.95rem;
   }
   .fs-table th {
-    background: #f8f9fa;
+    background: var(--bg-page);
     padding: 0.714rem 0.857rem;
     text-align: left;
     font-weight: 600;
-    color: #555;
+    color: var(--text-secondary);
     font-size: 0.88rem;
     text-transform: uppercase;
     position: sticky;
     top: 0;
-    border-bottom: 2px solid #e9ecef;
+    border-bottom: 2px solid var(--border-light);
   }
   .fs-table td {
     padding: 0.714rem 0.857rem;
     border-bottom: 1px solid #f0f0f0;
     cursor: pointer;
   }
-  .fs-table tr:hover { background: #f8f9ff; }
+  .fs-table tr:hover { background: var(--accent-light); }
   .td-number { text-align: right; font-family: monospace; font-size: 0.95rem; }
   .td-numero { font-family: monospace; font-size: 0.92rem; }
 
@@ -763,7 +780,7 @@
   .entrega-btn:hover { background: #f0f0f0; }
   .entrega-listp { color: #2980b9; }
   .entrega-pend { color: #e67e22; }
-  .entrega-date { font-size: 0.85rem; color: #999; }
+  .entrega-date { font-size: 0.85rem; color: var(--text-muted); }
   .entrega-confirm {
     display: flex;
     align-items: center;
@@ -779,8 +796,8 @@
   .ctx-menu {
     position: fixed;
     z-index: 1000;
-    background: white;
-    border: 1px solid #ddd;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 0.5rem;
     box-shadow: 0 0.286rem 1rem rgba(0,0,0,0.15);
     min-width: 10rem;
@@ -796,9 +813,9 @@
     font-size: 0.92rem;
     text-align: left;
     border-radius: 0.286rem;
-    color: #2c3e50;
+    color: var(--text-primary);
   }
-  .ctx-item:hover { background: #eef2ff; }
+  .ctx-item:hover { background: var(--accent-light); }
 
   .fs-right {
     width: 22.857rem;
@@ -809,7 +826,7 @@
   }
 
   .fs-right-section {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     padding: 0.714rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
@@ -819,7 +836,7 @@
   .fs-right-section h3 {
     margin: 0 0 0.429rem;
     font-size: 0.92rem;
-    color: #2c3e50;
+    color: var(--text-primary);
   }
 
   .fs-pagos-list {
@@ -836,11 +853,11 @@
     cursor: pointer;
     align-items: center;
   }
-  .fs-pago-item:hover { background: #f0f4ff; }
-  .pago-date { color: #888; min-width: 4.286rem; }
+  .fs-pago-item:hover { background: var(--accent-light); }
+  .pago-date { color: var(--text-muted); min-width: 4.286rem; }
   .pago-cliente { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pago-amount { font-family: monospace; font-weight: 600; min-width: 5rem; text-align: right; }
-  .pago-method { font-size: 0.85rem; color: #999; min-width: 3.571rem; text-align: right; }
+  .pago-method { font-size: 0.85rem; color: var(--text-muted); min-width: 3.571rem; text-align: right; }
 
   .fs-pagination {
     display: flex;
@@ -863,19 +880,19 @@
     font-size: 0.92rem;
     align-items: center;
   }
-  .debtor-rank { color: #888; min-width: 1.571rem; font-weight: 600; }
+  .debtor-rank { color: var(--text-muted); min-width: 1.571rem; font-weight: 600; }
   .debtor-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .debtor-amount { font-family: monospace; min-width: 4.643rem; text-align: right; color: #e74c3c; }
 
   .fs-loading, .fs-empty {
     padding: 2.857rem;
     text-align: center;
-    color: #999;
+    color: var(--text-muted);
   }
   .fs-empty-sm {
     padding: 0.857rem;
     text-align: center;
-    color: #bbb;
+    color: var(--text-muted);
     font-size: 0.88rem;
   }
 
@@ -883,13 +900,13 @@
 
   .input-readonly {
     background: #f5f5f5;
-    color: #666;
+    color: var(--text-secondary);
   }
   .input-bold { font-weight: 700; font-size: 1rem; }
 
   .pago-dialog-header {
-    background: #f0f7ff;
-    border: 1px solid #d0e3f7;
+    background: var(--accent-light);
+    border: 1px solid var(--border);
     border-radius: 0.571rem;
     padding: 0.714rem 1rem;
     display: flex;
@@ -899,7 +916,7 @@
   .pago-dialog-cliente {
     font-weight: 700;
     font-size: 1.1rem;
-    color: #2c3e50;
+    color: var(--text-primary);
   }
   .pago-dialog-balance {
     font-weight: 700;
@@ -933,7 +950,7 @@
     z-index: 1000;
   }
   :global(.modal) {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.857rem;
     padding: 1.429rem;
     min-width: 30rem;
@@ -943,7 +960,7 @@
     box-shadow: 0 0.571rem 2.143rem rgba(0,0,0,0.15);
   }
   :global(.modal-lg) { min-width: 35.714rem; min-height: 21.429rem; }
-  :global(.modal h3) { margin: 0 0 1rem; color: #2c3e50; }
+  :global(.modal h3) { margin: 0 0 1rem; color: var(--text-primary); }
   :global(.modal-body) { display: flex; flex-direction: column; gap: 0.714rem; }
   :global(.modal-footer) {
     display: flex;
@@ -951,7 +968,7 @@
     gap: 0.571rem;
     margin-top: 1rem;
     padding-top: 0.857rem;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--border-light);
   }
   :global(.form-group) {
     display: flex;
@@ -960,20 +977,18 @@
   }
   :global(.form-group label) {
     font-size: 0.88rem;
-    color: #666;
-    font-weight: 500;
+    color: var(--text-secondary);
   }
-  :global(.form-group input),
   :global(.form-group select) {
     padding: 0.571rem 0.714rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border);
     border-radius: 0.429rem;
     font-size: 0.95rem;
   }
   :global(.form-group input:focus),
   :global(.form-group select:focus) {
     outline: none;
-    border-color: #3498db;
+    border-color: var(--accent);
     box-shadow: 0 0 0 0.143rem rgba(52,152,219,0.15);
   }
 
@@ -988,10 +1003,11 @@
   }
   :global(.btn:hover) { filter: brightness(0.95); }
   :global(.btn:disabled) { opacity: 0.5; cursor: default; }
-  :global(.btn-primary) { background: #3498db; color: white; }
-  :global(.btn-secondary) { background: #ecf0f1; color: #555; }
-  :global(.btn-success) { background: #27ae60; color: white; }
-  :global(.btn-danger) { background: #e74c3c; color: white; }
+  :global(.btn-primary) {     background: var(--accent);
+    color: white; }
+  :global(.btn-secondary) { background: var(--bg-hover); color: var(--text-secondary); }
+  :global(.btn-success) { background: var(--success); color: white; }
+  :global(.btn-danger) { background: var(--danger); color: white; }
   :global(.btn-sm) { padding: 0.429rem 0.857rem; font-size: 0.88rem; }
   :global(.btn-xs) { padding: 0.286rem 0.714rem; font-size: 0.82rem; }
 </style>

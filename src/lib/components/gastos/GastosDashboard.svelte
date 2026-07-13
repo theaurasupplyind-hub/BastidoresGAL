@@ -111,11 +111,11 @@
 
 <style>
   .g-dashboard { display: flex; flex-direction: column; gap: 0.857rem; }
-  .g-loading { padding: 2rem; text-align: center; color: #999; font-size: 0.9rem; }
+  .g-loading { padding: 2rem; text-align: center; color: var(--text-muted); font-size: 0.9rem; }
   .g-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.714rem; }
-  .g-kpi-card { background: white; border-radius: 0.571rem; padding: 1rem; box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06); }
-  .g-kpi-label { font-size: 0.7rem; text-transform: uppercase; color: #888; font-weight: 600; }
-  .g-kpi-value { font-size: 1.3rem; font-weight: 700; color: #2c3e50; }
-  .g-kpi-sub { font-size: 0.75rem; color: #999; }
+  .g-kpi-card { background: var(--bg-card); border-radius: 0.571rem; padding: 1rem; box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06); }
+  .g-kpi-label { font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+  .g-kpi-value { font-size: 1.3rem; font-weight: 700; color: var(--text-primary); }
+  .g-kpi-sub { font-size: 0.75rem; color: var(--text-muted); }
   .g-dash-actions { display: flex; gap: 0.571rem; }
 </style>

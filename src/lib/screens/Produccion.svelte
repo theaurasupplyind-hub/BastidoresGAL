@@ -268,7 +268,7 @@
   }
   .prod-header h2 { margin: 0; font-size: 1.3rem; color: #2c3e50; }
   .prod-actions { display: flex; align-items: center; gap: 0.571rem; }
-  .selected-count { font-size: 0.8rem; color: #3498db; font-weight: 600; min-width: 8.571rem; text-align: right; }
+  .selected-count { font-size: 0.8rem; color: var(--accent); font-weight: 600; min-width: 8.571rem; text-align: right; }
 
   .prod-grid {
     display: grid;
@@ -280,15 +280,15 @@
   }
 
   .prod-card {
-    background: white;
-    border: 0.143rem solid #e0e0e0;
+    background: var(--bg-card);
+    border: 0.143rem solid var(--border);
     border-radius: 0.714rem;
     overflow: hidden;
     cursor: pointer;
     transition: border-color 0.15s, box-shadow 0.15s;
   }
-  .prod-card:hover { border-color: #bbb; box-shadow: 0 0.143rem 0.571rem rgba(0,0,0,0.06); }
-  .prod-card.selected { border-color: #3498db; box-shadow: 0 0 0 0.143rem rgba(52,152,219,0.2); }
+  .prod-card:hover { border-color: var(--border); box-shadow: 0 0.143rem 0.571rem rgba(0,0,0,0.06); }
+  .prod-card.selected { border-color: var(--accent); box-shadow: 0 0 0 0.143rem rgba(52,152,219,0.2); }
 
   .card-header {
     background: #2c3e50;
@@ -299,7 +299,7 @@
     align-items: center;
   }
   .card-num { font-weight: 600; font-size: 0.88rem; }
-  .card-cliente { font-size: 0.78rem; color: #bdc3c7; }
+  .card-cliente { font-size: 0.78rem; color: var(--text-muted); }
 
   .card-body { padding: 0.571rem 0.857rem; }
   .card-item {
@@ -314,17 +314,17 @@
     font-size: 1rem;
     font-weight: 700;
     min-width: 2rem;
-    color: #2c3e50;
+    color: var(--text-primary);
   }
   .item-measure {
     font-size: 0.9rem;
     font-weight: 700;
     min-width: 5rem;
-    color: #555;
+    color: var(--text-secondary);
   }
   .item-desc {
     font-size: 0.8rem;
-    color: #888;
+    color: var(--text-muted);
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -337,14 +337,14 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #999;
+    color: var(--text-muted);
     gap: 0.857rem;
   }
 
   .modal-add { min-width: 35.714rem; max-height: 70vh; }
   .add-search {
     padding: 0.571rem 0.857rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border);
     border-radius: 0.429rem;
     font-size: 0.88rem;
     width: 100%;
@@ -353,7 +353,7 @@
   .add-list {
     max-height: 25rem;
     overflow: auto;
-    border: 1px solid #eee;
+    border: 1px solid var(--border-light);
     border-radius: 0.429rem;
   }
   .add-row {
@@ -365,11 +365,11 @@
     font-size: 0.82rem;
     align-items: center;
   }
-  .add-row:hover { background: #f0f4ff; }
-  .add-selected { background: #e8f4fd; }
+  .add-row:hover { background: var(--accent-light); }
+  .add-selected { background: var(--accent-light); }
   .add-num { font-family: monospace; min-width: 5.714rem; font-weight: 600; }
   .add-cliente { flex: 1; }
-  .add-total { font-family: monospace; min-width: 4.286rem; text-align: right; color: #555; }
-  .add-check { min-width: 1.429rem; color: #27ae60; font-weight: 700; text-align: center; }
-  .add-empty { padding: 1.429rem; text-align: center; color: #bbb; font-size: 0.82rem; }
+  .add-total { font-family: monospace; min-width: 4.286rem; text-align: right; color: var(--text-secondary); }
+  .add-check { min-width: 1.429rem; color: var(--success); font-weight: 700; text-align: center; }
+  .add-empty { padding: 1.429rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
 </style>

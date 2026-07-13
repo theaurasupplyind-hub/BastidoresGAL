@@ -92,9 +92,9 @@
     display: grid;
     width: 100%;
     gap: 0;
-    border: 3px solid #333;
+    border: 3px solid var(--border);
     border-radius: 4px;
-    background: #fafbfc;
+    background: var(--bg-page);
     overflow: visible;
     position: relative;
   }
@@ -136,13 +136,13 @@
     z-index: 2;
     line-height: 1;
   }
-  .lbl-var { color: #333; }
+  .lbl-var { color: var(--text-primary); }
   .lbl-lar { color: #3b82f6; }
   .lbl-tra { color: #ef4444; }
   .rotulo {
     margin-top: 0.35rem;
     font-size: 0.85rem;
     font-weight: 700;
-    color: #555;
+    color: var(--text-secondary);
   }
 </style>

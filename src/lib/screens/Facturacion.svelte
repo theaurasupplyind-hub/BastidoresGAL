@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { untrack } from 'svelte';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
@@ -64,6 +64,12 @@
     } else if (e.key === 'F2') {
       e.preventDefault();
       newInvoice();
+    } else if (e.key === 'd' && e.ctrlKey) {
+      e.preventDefault();
+      const rowEl = (document.activeElement as HTMLElement | null)?.closest('.items-row') as HTMLElement | null;
+      if (!rowEl) return;
+      const ri = parseInt(rowEl.dataset.index ?? '');
+      if (!isNaN(ri)) duplicateItemRow(ri);
     }
   }
 
@@ -188,10 +194,16 @@
   let productSearch = $state<string[]>(['']);
   let selectedProdIndex = $state<number[]>([-1]);
   let showProdResults = $state<boolean[]>([false]);
+  let showQtyDropdown = $state<boolean[]>([false]);
+
+  // Drag to duplicate rows
+  let dragStartIndex = $state<number | null>(null);
+  let dragHighlightedSet = $state<Set<number>>(new Set());
+  let isDragging = $state(false);
 
   // Combo options
   const tiposEntrega = ['Retira', 'Envio', 'Retiro y Envio'];
-  const cantidades = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
+  const cantidades = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
   let filteredHistory = $derived.by(() => {
     const q = searchHistory.toLowerCase();
@@ -274,6 +286,13 @@
       await newInvoice();
     }
     _initialized = true;
+    document.addEventListener('mousemove', dragMove);
+    document.addEventListener('mouseup', dragEnd);
+  });
+
+  onDestroy(() => {
+    document.removeEventListener('mousemove', dragMove);
+    document.removeEventListener('mouseup', dragEnd);
   });
 
   $effect(() => {
@@ -437,6 +456,7 @@
     selectedProdIndex = [...selectedProdIndex, -1];
     showProdResults = [...showProdResults, false];
     productSuggestions = [...productSuggestions, []];
+    showQtyDropdown = [...showQtyDropdown, false];
   }
 
   function removeItem(index: number) {
@@ -446,12 +466,84 @@
     selectedProdIndex = selectedProdIndex.filter((_, i) => i !== index);
     showProdResults = showProdResults.filter((_, i) => i !== index);
     productSuggestions = productSuggestions.filter((_, i) => i !== index);
+    showQtyDropdown = showQtyDropdown.filter((_, i) => i !== index);
   }
 
   function updateItemTotal(index: number) {
     const item = items[index];
     item.total = item.cantidad * (item.precio_unitario ?? 0);
     items = items; // trigger reactivity
+  }
+
+  function duplicateItemRow(index: number) {
+    const src = items[index];
+    const emptyIdx = items.findIndex((it, i) => i > index && !it.descripcion.trim());
+    let targetIdx: number;
+    if (emptyIdx >= 0) {
+      targetIdx = emptyIdx;
+    } else {
+      addItem();
+      targetIdx = items.length - 1;
+    }
+    items[targetIdx] = { ...src, total: src.cantidad * (src.precio_unitario ?? 0) };
+    productSearch[targetIdx] = productSearch[index];
+    items = items;
+    productSearch = productSearch;
+    updateItemTotal(targetIdx);
+  }
+
+  function dragStart(index: number, e: MouseEvent) {
+    e.preventDefault();
+    dragStartIndex = index;
+    isDragging = true;
+    dragHighlightedSet = new Set();
+  }
+
+  function dragMove(e: MouseEvent) {
+    if (dragStartIndex === null) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    let idx = -1;
+    if (el) {
+      const row = (el as HTMLElement).closest('.items-row') as HTMLElement | null;
+      if (row) {
+        idx = parseInt(row.dataset.index ?? '');
+      }
+    }
+    if (isNaN(idx) || idx < 0) {
+      const body = document.querySelector('.items-body') as HTMLElement;
+      if (!body) return;
+      const bodyRect = body.getBoundingClientRect();
+      const my = e.clientY - bodyRect.top + body.scrollTop;
+      const rh = body.scrollHeight > 0 && items.length > 0 ? body.scrollHeight / items.length : 30;
+      idx = Math.floor(my / rh);
+    }
+    if (idx <= dragStartIndex) {
+      dragHighlightedSet = new Set();
+      return;
+    }
+    const maxIdx = Math.min(idx, dragStartIndex + 5);
+    const targets = new Set<number>();
+    for (let j = dragStartIndex + 1; j <= maxIdx; j++) targets.add(j);
+    dragHighlightedSet = targets;
+  }
+
+  function dragEnd(_e: MouseEvent) {
+    if (dragStartIndex === null) return;
+    const src = items[dragStartIndex];
+    const targets = [...dragHighlightedSet].sort((a, b) => a - b);
+    for (const idx of targets) {
+      while (idx >= items.length) addItem();
+      items[idx].cantidad = src.cantidad;
+      items[idx].descripcion = src.descripcion;
+      items[idx].precio_unitario = src.precio_unitario ?? 0;
+      productSearch[idx] = productSearch[dragStartIndex];
+      updateItemTotal(idx);
+    }
+    items = items;
+    appStore.showToast('Filas duplicadas', 'success');
+    dragStartIndex = null;
+    dragHighlightedSet = new Set();
+    isDragging = false;
   }
 
   export async function loadInvoice(id: number) {
@@ -485,6 +577,7 @@
     selectedProdIndex = items.map(() => -1);
     showProdResults = items.map(() => false);
     productSuggestions = items.map(() => []);
+    showQtyDropdown = items.map(() => false);
     pagoRapidoMonto = 0;
     pagoRapidoAplicado = false;
     clienteSearch = f.cliente_nombre;
@@ -511,6 +604,7 @@
     selectedProdIndex = Array.from({ length: 7 }, () => -1);
     showProdResults = Array.from({ length: 7 }, () => false);
     productSuggestions = Array.from({ length: 7 }, () => []);
+    showQtyDropdown = Array.from({ length: 7 }, () => false);
     pagoRapidoMonto = 0;
     pagoRapidoAplicado = false;
     clienteSearch = '';
@@ -531,6 +625,24 @@
     } catch {
       numero_factura = 'F-00001';
       numero_presupuesto = 'P-00001';
+    }
+  }
+
+  export async function duplicateInvoice() {
+    if (id === null) {
+      appStore.showToast('Seleccione una factura primero', 'info');
+      return;
+    }
+    try {
+      const nextNum = await api.nextInvoiceNumber('F');
+      id = null;
+      numero_factura = nextNum;
+      numero_presupuesto = nextNum.replace('F', 'P');
+      fecha = new Date().toLocaleDateString('es-AR');
+      currentIndex = -1;
+      appStore.showToast('Copia creada. Guarde para confirmar.', 'info');
+    } catch {
+      appStore.showToast('Error al generar número', 'error');
     }
   }
 
@@ -740,7 +852,7 @@
         clienteNombre: cliente_nombre,
         clienteDomicilio: cliente_domicilio,
         clienteTelefono: cliente_telefono,
-        items: items.map(i => ({
+        items: items.filter(i => i.descripcion.trim()).map(i => ({
           cantidad: i.cantidad,
           descripcion: i.descripcion,
           precio_unitario: i.precio_unitario ?? 0,
@@ -796,7 +908,7 @@
         clienteNombre: cliente_nombre,
         clienteDomicilio: cliente_domicilio,
         clienteTelefono: cliente_telefono,
-        items: items.map(i => ({
+        items: items.filter(i => i.descripcion.trim()).map(i => ({
           cantidad: i.cantidad,
           descripcion: i.descripcion,
           precio_unitario: i.precio_unitario ?? 0,
@@ -1018,16 +1130,39 @@
               <span class="col-desc">Detalle</span>
               <span class="col-price">P. Unit.</span>
               <span class="col-total">Total</span>
+              <span class="col-drag"></span>
               <span class="col-del"></span>
             </div>
             <div class="items-body">
             {#each items as item, i}
-              <div class="items-row">
-                <select class="col-qty" bind:value={item.cantidad} onchange={() => updateItemTotal(i)}>
-                  {#each cantidades as c}
-                    <option value={c}>{c}</option>
-                  {/each}
-                </select>
+              <div class="items-row" data-index={i} class:drag-target={dragHighlightedSet.has(i)} class:dragging={i === dragStartIndex && isDragging} class:desc-only={item.cantidad === 0}>
+                <div class="combobox-wrap col-qty">
+                  <input type="text" inputmode="decimal" class="combobox-input"
+                    value={item.cantidad}
+                    oninput={(e) => {
+                      const v = parseFloat(e.currentTarget.value);
+                      item.cantidad = isNaN(v) || v < 0 ? 1 : v;
+                      updateItemTotal(i);
+                    }}
+                    onfocus={() => { showQtyDropdown[i] = true; showQtyDropdown = showQtyDropdown; }}
+                    onblur={() => setTimeout(() => { showQtyDropdown[i] = false; showQtyDropdown = showQtyDropdown; }, 200)}
+                    onkeydown={(e) => { if (e.key === 'Enter' || e.key === 'Escape') { showQtyDropdown[i] = false; showQtyDropdown = showQtyDropdown; } }}
+                  />
+                  <button type="button" class="combobox-toggle" tabindex="-1"
+                    onmousedown={(e) => { e.preventDefault(); showQtyDropdown[i] = !showQtyDropdown[i]; showQtyDropdown = showQtyDropdown; }}>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                  {#if showQtyDropdown[i]}
+                    <div class="combobox-menu">
+                      {#each cantidades as c}
+                        <button type="button" class="combobox-item"
+                          onmousedown={(e) => { e.preventDefault(); item.cantidad = c; updateItemTotal(i); showQtyDropdown[i] = false; showQtyDropdown = showQtyDropdown; }}>
+                          {c}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
                 <div class="autocomplete-wrap col-desc">
                   <input
                     type="text"
@@ -1088,7 +1223,10 @@
                   {/if}
                 </div>
                 <input class="col-price" type="number" bind:value={item.precio_unitario} oninput={() => updateItemTotal(i)} min="0" step="0.01" />
-                <span class="col-total">${(item.total || item.cantidad * (item.precio_unitario ?? 0)).toFixed(0)}</span>
+                <span class="col-total" class:desc-only={item.cantidad === 0}>{item.cantidad === 0 ? '—' : `$${(item.total || item.cantidad * (item.precio_unitario ?? 0)).toFixed(0)}`}</span>
+                <button type="button" class="col-drag btn-drag" onmousedown={(e) => dragStart(i, e)} title="Arrastrar para duplicar" tabindex="-1">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="9" x2="19" y2="9"/><line x1="5" y1="15" x2="19" y2="15"/><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>
+                </button>
                 <button class="col-del btn-del" onclick={() => removeItem(i)} disabled={items.length <= 1} aria-label="Eliminar fila">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
@@ -1238,7 +1376,12 @@
     <div class="history-panel">
       <div class="history-header">
         <h3>Historial</h3>
-        <button class="trash-btn" onclick={deleteCurrentInvoice} title="Eliminar factura actual"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+        <div class="history-header-actions">
+          <button class="duplicate-btn" onclick={duplicateInvoice} title="Duplicar factura actual">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+          </button>
+          <button class="trash-btn" onclick={deleteCurrentInvoice} title="Eliminar factura actual"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg></button>
+        </div>
       </div>
       <div class="search-wrap">
         <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -1548,13 +1691,12 @@
   }
   .autocomplete-item .prod-tag {
     font-size: 0.68rem;
-    color: #d97706;
-    font-weight: 600;
-    margin-left: 0.429rem;
+    color: var(--text-muted);
     white-space: nowrap;
   }
+
   .autocomplete-item .prod-tag.estimated {
-    color: #2563eb;
+    color: var(--accent);
   }
   .autocomplete-label {
     font-size: 0.68rem;
@@ -1578,7 +1720,7 @@
   }
   .items-header {
     display: grid;
-    grid-template-columns: 3.143rem 1fr 5.714rem 6.429rem 2.286rem;
+    grid-template-columns: 3.8rem 1fr 5.714rem 6.429rem 2rem 2rem;
     gap: 0.571rem;
     background: var(--bg-hover);
     padding: 0.571rem 0.857rem;
@@ -1591,7 +1733,7 @@
   }
   .items-row {
     display: grid;
-    grid-template-columns: 3.143rem 1fr 5.714rem 6.429rem 2.286rem;
+    grid-template-columns: 3.8rem 1fr 5.714rem 6.429rem 2rem 2rem;
     gap: 0.571rem;
     align-items: center;
     padding: 0.429rem 0.857rem;
@@ -1601,7 +1743,69 @@
   .items-row:hover { background: var(--bg-hover); }
   .items-row:last-child { border-bottom: none; }
 
-  .col-qty { width: auto; }
+  .combobox-wrap { position: relative; width: auto; display: flex; align-items: center; }
+  .items-row .combobox-input {
+    width: 100%;
+    padding: 0.357rem 1.4rem 0.357rem 0.286rem;
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    outline: none;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .items-row .combobox-input:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 0.214rem rgba(37,99,235,0.12);
+  }
+  .combobox-toggle {
+    position: absolute;
+    right: 0.143rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.1rem;
+    height: 1.1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-tertiary);
+    padding: 0;
+    border-radius: 0.143rem;
+  }
+  .combobox-toggle:hover { color: var(--text-primary); background: var(--bg-hover); }
+  .combobox-menu {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    min-width: 100%;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 100;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .combobox-item {
+    display: block;
+    width: 100%;
+    padding: 0.286rem 0.429rem;
+    font-size: var(--text-sm);
+    text-align: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+  }
+  .combobox-item:hover { background: var(--bg-hover); }
   .col-desc { width: auto; min-width: 0; position: relative; }
   .col-price { width: auto; }
   .col-total {
@@ -1613,27 +1817,43 @@
     font-variant-numeric: tabular-nums;
     color: var(--text-primary);
   }
+  .col-total.desc-only {
+    color: var(--text-muted);
+    font-weight: 400;
+  }
   .col-del { width: auto; text-align: center; }
+  .col-drag { width: auto; text-align: center; }
 
-  .items-row select {
-    width: 100%;
-    padding: 0.357rem 0.143rem;
-    border: 1.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: var(--text-sm);
-    font-weight: 600;
-    background: var(--bg-card);
-    color: var(--text-primary);
-    outline: none;
-    transition: border-color 0.15s, box-shadow 0.15s;
-    cursor: pointer;
-    text-align: center;
-    font-variant-numeric: tabular-nums;
+  .btn-drag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: grab;
+    padding: 0.286rem;
+    border-radius: 0.286rem;
+    transition: color 0.12s, background 0.12s;
+    opacity: 0.3;
   }
-  .items-row select:focus {
-    border-color: var(--border-focus);
-    box-shadow: 0 0 0 0.214rem rgba(37,99,235,0.12);
+  .items-row:hover .btn-drag { opacity: 0.7; }
+  .btn-drag:hover { color: var(--accent); background: var(--bg-hover); opacity: 1; }
+  .dragging .btn-drag { cursor: grabbing; opacity: 1; color: var(--accent); }
+  .items-row.drag-target {
+    background: #e3f2fd;
+    outline: 0.071rem solid #90caf9;
+    outline-offset: -0.071rem;
   }
+  .items-row.dragging { background: #e8f5e9; }
+  .items-row.desc-only {
+    color: var(--text-muted);
+  }
+  .items-row.desc-only .col-desc input {
+    font-style: italic;
+    color: var(--text-muted);
+  }
+
   .items-row input {
     padding: 0.357rem 0.571rem;
     border: 1.5px solid var(--border);
@@ -1651,8 +1871,6 @@
   .items-row input:focus {
     border-color: var(--border-focus);
     box-shadow: 0 0 0 0.214rem rgba(37,99,235,0.12);
-  }
-  .items-row .col-desc input {
     font-family: var(--font);
     text-align: left;
   }
@@ -1743,7 +1961,7 @@
   .date-btn svg { flex-shrink: 0; color: var(--text-muted); }
   .date-text {
     font-weight: 700;
-    color: #1a1d23;
+    color: var(--text-primary);
   }
   .date-picker-hidden { display: none; }
 
@@ -1770,7 +1988,7 @@
   }
   .rapid-payment-header svg {
     flex-shrink: 0;
-    color: #22c55e;
+    color: var(--success);
   }
   .payment-row {
     display: flex;
@@ -1794,8 +2012,8 @@
     padding: 0.429rem 0.857rem;
     border: none;
     border-radius: var(--radius-sm);
-    background: #16a34a;
-    color: #fff;
+    background: var(--success);
+    color: white;
     font-size: var(--text-sm);
     font-weight: 600;
     cursor: pointer;
@@ -1816,9 +2034,7 @@
   .payment-applied-label {
     font-size: var(--text-xs);
     font-weight: 600;
-    color: #16a34a;
-  }
-  .payment-applied-value {
+    color: var(--success);
     font-size: var(--text-base);
     font-weight: 700;
     color: #15803d;
@@ -1828,7 +2044,7 @@
   /* === Delivery Section === */
   .delivery-sticky {
     flex-shrink: 0;
-    background: white;
+    background: var(--bg-card);
     border: 0.071rem solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: 0 0.143rem 0.571rem rgba(0,0,0,0.1);
@@ -1853,7 +2069,7 @@
   .segmented-control button {
     padding: 0.5rem 0.857rem;
     border: none;
-    background: white;
+    background: var(--bg-card);
     font-size: var(--text-sm);
     font-weight: 600;
     cursor: pointer;
@@ -1890,7 +2106,7 @@
     font-size: var(--text-sm);
     font-weight: 600;
     border: 0.071rem solid #b7f0d1;
-    background: white;
+    background: var(--bg-card);
     color: #25D366;
     cursor: pointer;
     border-radius: var(--radius-sm);
@@ -1914,7 +2130,7 @@
     font-size: var(--text-sm);
     font-weight: 600;
     border: 0.071rem solid #fcd34d;
-    background: white;
+    background: var(--bg-card);
     color: #d97706;
     cursor: pointer;
     border-radius: var(--radius-sm);
@@ -1941,7 +2157,7 @@
   .discount-tabs button {
     padding: 0.429rem 0.857rem;
     border: none;
-    background: white;
+    background: var(--bg-card);
     font-size: var(--text-sm);
     font-weight: 600;
     cursor: pointer;
@@ -2080,14 +2296,17 @@
   .history-panel {
     width: 21.429rem;
     flex-shrink: 0;
-    background: #f0f2f5;
-    border-left: 0.143rem solid #d0d3d9;
+    background: var(--bg-page);
+    border-left: 0.143rem solid var(--border);
     display: flex;
     flex-direction: column;
     overflow: hidden;
   }
   .history-header {
     padding: 1rem 1.143rem 0.714rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
   }
   .history-header h3 {
     margin: 0;
@@ -2095,10 +2314,15 @@
     font-weight: 600;
     color: var(--text-primary);
   }
-  .trash-btn {
+  .history-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.286rem;
+  }
+  .trash-btn:not(.active) {
     background: none;
     border: none;
-    color: #bbb;
+    color: var(--text-muted);
     cursor: pointer;
     padding: 0.143rem 0.286rem;
     border-radius: 0.286rem;
@@ -2106,7 +2330,19 @@
     display: flex;
     align-items: center;
   }
-  .trash-btn:hover { color: #e74c3c; }
+  .trash-btn:hover { color: var(--danger); }
+  .duplicate-btn:not(.active) {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.143rem 0.286rem;
+    border-radius: 0.286rem;
+    transition: color 0.12s;
+    display: flex;
+    align-items: center;
+  }
+  .duplicate-btn:hover { color: var(--accent); }
 
   .search-wrap {
     position: relative;
@@ -2146,21 +2382,21 @@
   }
   .history-sel-count {
     font-size: 0.72rem;
-    color: #3498db;
+    color: var(--accent);
     font-weight: 600;
   }
   .top-btn-molduras {
     font-size: 0.78rem;
     padding: 0.214rem 0.571rem;
     border: 0.071rem solid var(--border);
-    background: #fff;
+    background: var(--bg-card);
     color: var(--text-primary);
     cursor: pointer;
     border-radius: var(--radius-sm);
     white-space: nowrap;
     transition: all 0.12s;
   }
-  .top-btn-molduras:hover { background: var(--bg-hover); border-color: #3498db; }
+  .top-btn-molduras:hover { background: var(--bg-hover); border-color: var(--accent); }
   .top-btn-molduras:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 
   .history-list {
@@ -2178,18 +2414,18 @@
     margin-bottom: 0.286rem;
     transition: all 0.12s;
     border-left: 0.214rem solid transparent;
-    background: white;
+    background: var(--bg-card);
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
     border: 0.071rem solid #e8eaed;
   }
-  .history-item:hover { border-color: #c8ccd0; }
+  .history-item:hover { border-color: var(--border); }
   .history-item.active {
     background: var(--accent-light);
     border-left-color: var(--accent);
     border-color: var(--accent);
   }
   .history-item.selected {
-    background: #eef2ff;
+    background: var(--accent-light);
     border-left-color: #6366f1;
     border-color: #6366f1;
   }
@@ -2230,7 +2466,8 @@
   .loading-overlay {
     position: absolute;
     inset: 0;
-    background: rgba(255,255,255,0.85);
+    background: var(--bg-card);
+    opacity: 0.85;
     display: flex;
     align-items: center;
     justify-content: center;

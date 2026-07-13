@@ -192,12 +192,12 @@
     justify-content: space-between;
     align-items: center;
   }
-  .au-toolbar h2 { margin: 0; font-size: 1.3rem; color: #2c3e50; }
+  .au-toolbar h2 { margin: 0; font-size: 1.3rem;     color: var(--text-primary); }
 
   .btn { cursor: pointer; border-radius: 0.357rem; border: none; font-weight: 600; font-family: inherit; }
   .btn-sm { font-size: 0.78rem; padding: 0.357rem 0.714rem; }
-  .btn-secondary { background: #e9ecef; color: #555; }
-  .btn-secondary:hover { background: #dee2e6; }
+  .btn-secondary { background: var(--bg-hover); color: var(--text-secondary); }
+  .btn-secondary:hover { background: var(--bg-active); }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .au-cards {
@@ -207,7 +207,7 @@
   }
 
   .au-card {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
     overflow: hidden;
@@ -229,28 +229,28 @@
   }
   .au-card-badge.mensual { background: #e8f0fe; color: #4361ee; }
   .au-card-badge.semanal { background: #fef3e8; color: #e67e22; }
-  .au-card-period { font-size: 0.82rem; font-weight: 600; color: #2c3e50; }
+  .au-card-period { font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
 
   .au-card-body { padding: 0.857rem 1rem; display: flex; flex-direction: column; gap: 0.571rem; }
   .au-stat { text-align: center; padding: 0.429rem 0; }
-  .au-stat-value { font-size: 1.4rem; font-weight: 700; color: #2c3e50; }
-  .au-stat-label { font-size: 0.72rem; color: #999; text-transform: uppercase; font-weight: 600; }
+  .au-stat-value { font-size: 1.4rem; font-weight: 700; color: var(--text-primary); }
+  .au-stat-label { font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; }
 
   .au-stat-row { display: flex; justify-content: space-between; font-size: 0.85rem; padding: 0.143rem 0; }
-  .au-stat-row span:first-child { color: #888; }
-  .au-stat-bold { font-weight: 700; color: #2c3e50; font-family: monospace; }
+  .au-stat-row span:first-child { color: var(--text-muted); }
+  .au-stat-bold { font-weight: 700; color: var(--text-primary); font-family: monospace; }
 
   .au-var-row { display: flex; justify-content: space-between; margin-top: 0.286rem; }
   .au-var { font-size: 0.82rem; font-weight: 600; padding: 0.214rem 0.429rem; border-radius: 0.286rem; }
-  .au-var.positive { color: #27ae60; }
-  .au-var.negative { color: #e74c3c; }
+  .au-var.positive { color: var(--success); }
+  .au-var.negative { color: var(--danger); }
 
-  .au-msg { font-size: 0.78rem; color: #666; font-style: italic; padding: 0.571rem; background: #f8f9fa; border-radius: 0.357rem; line-height: 1.4; margin-top: 0.286rem; }
+  .au-msg { font-size: 0.78rem; color: var(--text-secondary); font-style: italic; padding: 0.571rem; background: var(--bg-page); border-radius: 0.357rem; line-height: 1.4; margin-top: 0.286rem; }
 
-  .au-empty { text-align: center; padding: 1.429rem; color: #bbb; }
+  .au-empty { text-align: center; padding: 1.429rem; color: var(--text-muted); }
 
   .au-historial {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     padding: 0.857rem 1rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
@@ -258,23 +258,23 @@
   .au-historial h3 {
     margin: 0 0 0.571rem;
     font-size: 0.9rem;
-    color: #2c3e50;
-  }
-  .au-table-wrap { overflow-x: auto; }
+     color: var(--text-primary);
+   }
+   .au-table-wrap { overflow-x: auto; }
   .au-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.92rem;
   }
   .au-table th {
-    background: #f8f9fa;
+    background: var(--bg-page);
     padding: 0.5rem 0.714rem;
     text-align: left;
     font-weight: 600;
-    color: #555;
+    color: var(--text-secondary);
     font-size: 0.78rem;
     text-transform: uppercase;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--border);
   }
   .au-table td {
     padding: 0.429rem 0.714rem;
@@ -285,7 +285,7 @@
   .au-table th:nth-child(2), .au-table td:nth-child(2),
   .au-table th:nth-child(3), .au-table td:nth-child(3),
   .au-table th:nth-child(4), .au-table td:nth-child(4) { width: 22%; }
-  .au-table .month-name { font-weight: 600; color: #2c3e50; font-size: 0.92rem; }
+  .au-table .month-name { font-weight: 600; color: var(--text-primary); font-size: 0.92rem; }
   .au-table th.td-r { text-align: right; }
   .td-r { text-align: right; font-family: monospace; font-size: 0.85rem; }
 </style>

@@ -6,7 +6,7 @@
   let { onDone }: { onDone: () => void } = $props();
 
   let statusMsg = $state('Iniciando conexión...');
-  let statusColor = $state('#f39c12');
+  let statusColor = $state('var(--accent)');
   let ready = $state(false);
 
   function sleep(ms: number) {
@@ -24,7 +24,7 @@
         await invoke('wake_server');
         ready = true;
         statusMsg = '¡Servidor listo!';
-        statusColor = '#27ae60';
+        statusColor = 'var(--success)';
         break;
       } catch { }
       await sleep(2000);
@@ -32,7 +32,7 @@
 
     if (!ready) {
       statusMsg = 'El servidor tarda en responder, abriendo igual...';
-      statusColor = '#e74c3c';
+      statusColor = 'var(--danger)';
     }
 
     await sleep(1000);
@@ -59,18 +59,18 @@
     align-items: center;
     justify-content: center;
     height: 100vh;
-    background: #2c3e50;
+    background: var(--bg-page);
   }
   .splash-card {
     text-align: center;
-    color: white;
+    color: var(--text-primary);
   }
   h1 {
     font-size: 2.286rem;
     margin: 0 0 0.571rem;
   }
   .user-greeting {
-    color: #bdc3c7;
+    color: var(--text-muted);
     font-size: 1rem;
     margin: 0 0 1.714rem;
   }
@@ -82,8 +82,8 @@
   .spinner {
     width: 2.286rem;
     height: 2.286rem;
-    border: 0.214rem solid rgba(255,255,255,0.2);
-    border-top-color: #f39c12;
+    border: 0.214rem solid var(--border);
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
     margin: 0 auto;

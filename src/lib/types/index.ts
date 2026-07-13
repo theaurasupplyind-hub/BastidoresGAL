@@ -177,4 +177,4 @@ export interface AnalisisPeriodo {
   mensaje: string;
 }
 
-export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent';
+export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent' | 'panel-control';

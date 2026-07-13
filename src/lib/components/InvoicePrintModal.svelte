@@ -206,7 +206,7 @@
     z-index: 1000;
   }
   .modal {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.714rem;
     width: 90%;
     max-width: 500px;
@@ -220,7 +220,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 1rem 1.286rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-light);
   }
   .modal-header h3 { margin: 0; font-size: 1.143rem; }
   .modal-close {
@@ -228,10 +228,8 @@
     border: none;
     font-size: 1.429rem;
     cursor: pointer;
-    color: #999;
-    padding: 0 0.357rem;
+    color: var(--text-muted);
   }
-  .modal-close:hover { color: #333; }
   .modal-body {
     flex: 1;
     overflow-y: auto;
@@ -243,12 +241,12 @@
     align-items: center;
     margin-bottom: 0.714rem;
     font-size: 0.857rem;
-    color: #666;
+    color: var(--text-secondary);
   }
   .btn-link {
     background: none;
     border: none;
-    color: #007bff;
+    color: var(--accent);
     cursor: pointer;
     font-size: 0.857rem;
     text-decoration: underline;
@@ -264,12 +262,12 @@
     align-items: center;
     gap: 0.714rem;
     padding: 0.571rem 0.714rem;
-    border: 1px solid #eee;
+    border: 1px solid var(--border-light);
     border-radius: 0.429rem;
     cursor: pointer;
   }
-  .invoice-item.selected { background: #f0f7ff; border-color: #b6d4fe; }
-  .invoice-item:hover { background: #f8f9fa; }
+  .invoice-item.selected { background: var(--accent-light); border-color: var(--accent); }
+  .invoice-item:hover { background: var(--bg-page); }
   .invoice-item input[type="checkbox"] { margin: 0; }
   .invoice-info {
     display: flex;
@@ -294,10 +292,10 @@
     font-size: 0.929rem;
   }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-pdf { background: #ecf0f1; color: #555; }
-  .btn-print { background: #007bff; color: white; }
-  .btn-remote { background: #0369a1; color: white; }
-  .btn-pdf:hover:not(:disabled) { background: #d5dbdb; }
+  .btn-pdf { background: var(--bg-hover); color: var(--text-secondary); }
+  .btn-print { background: var(--accent); color: white; }
+  .btn-remote { background: var(--accent-hover); color: white; }
+  .btn-pdf:hover:not(:disabled) { background: var(--bg-hover); }
   .btn-print:hover:not(:disabled) { background: #0069d9; }
   .btn-remote:hover:not(:disabled) { background: #024f7a; }
 </style>

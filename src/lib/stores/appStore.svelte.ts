@@ -6,6 +6,7 @@ let _isLoading = $state(false);
 let _toast = $state<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 let _dirtyTabs = $state<Set<TabId>>(new Set());
 let _onlineCount = $state(0);
+let _onlineUsers = $state<any[]>([]);
 let _showSettings = $state(false);
 let _showPreciosRef = $state(false);
 
@@ -45,6 +46,9 @@ export const appStore = {
 
   get onlineCount() { return _onlineCount; },
   set onlineCount(v: number) { _onlineCount = v; },
+
+  get onlineUsers() { return _onlineUsers; },
+  set onlineUsers(v: any[]) { _onlineUsers = v; },
 
   get showSettings() { return _showSettings; },
   set showSettings(v: boolean) { _showSettings = v; },

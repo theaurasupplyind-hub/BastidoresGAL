@@ -234,20 +234,21 @@
     display: flex;
     flex-direction: column;
     gap: 0.714rem;
-    background: #f5f6fa;
+    background: var(--bg-page);
     overflow: auto;
   }
 
   .caja-header h2 {
     margin: 0;
     font-size: 1.3rem;
-    color: #2c3e50;
+    color: var(--text-primary);
   }
 
-  .caja-loading {
+  .caja-loading,
+  .caja-empty {
     padding: 2rem;
     text-align: center;
-    color: #999;
+    color: var(--text-muted);
     font-size: 0.9rem;
   }
 
@@ -258,7 +259,7 @@
   }
 
   .caja-card {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     padding: 1rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
@@ -270,26 +271,26 @@
   .caja-card-label {
     font-size: 0.72rem;
     text-transform: uppercase;
-    color: #888;
+    color: var(--text-muted);
     font-weight: 600;
   }
 
   .caja-card-value {
     font-size: 1.3rem;
     font-weight: 700;
-    color: #2c3e50;
+    color: var(--text-primary);
   }
 
-  .caja-value-positive { color: #27ae60; }
+  .caja-value-positive { color: var(--success); }
   .caja-value-negative { color: #e74c3c; }
-  .caja-card-saldo.positive { border-left: 0.286rem solid #27ae60; }
-  .caja-card-saldo.negative { border-left: 0.286rem solid #e74c3c; }
+  .caja-card-saldo.positive { border-left: 0.286rem solid var(--success); }
+  .caja-card-saldo.negative { border-left: 0.286rem solid var(--danger); }
 
   .caja-filters {
     display: flex;
     align-items: flex-end;
     gap: 0.714rem;
-    background: white;
+    background: var(--bg-card);
     padding: 0.571rem 0.857rem;
     border-radius: 0.571rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
@@ -304,7 +305,7 @@
 
   .caja-filter-label {
     font-size: 0.68rem;
-    color: #999;
+    color: var(--text-muted);
     font-weight: 600;
     text-transform: uppercase;
   }
@@ -312,24 +313,24 @@
   .caja-filter-input,
   .caja-filter-select {
     padding: 0.357rem 0.571rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border);
     border-radius: 0.357rem;
     font-size: 0.82rem;
     font-family: inherit;
-    background: white;
+    background: var(--bg-card);
   }
 
   .caja-filter-count {
     margin-left: auto;
     font-size: 0.78rem;
-    color: #999;
+    color: var(--text-muted);
     padding: 0.357rem 0;
   }
 
   .caja-table-wrap {
     flex: 1;
     overflow: auto;
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
   }
@@ -341,16 +342,16 @@
   }
 
   .caja-table th {
-    background: #f8f9fa;
+    background: var(--bg-page);
     padding: 0.5rem 0.714rem;
     font-weight: 600;
-    color: #666;
+    color: var(--text-secondary);
     font-size: 0.72rem;
     text-transform: uppercase;
     position: sticky;
     top: 0;
     z-index: 1;
-    border-bottom: 2px solid #e9ecef;
+    border-bottom: 2px solid var(--border-light);
     white-space: nowrap;
   }
 
@@ -374,7 +375,7 @@
   .caja-td-date {
     font-family: monospace;
     font-size: 0.78rem;
-    color: #888;
+    color: var(--text-muted);
   }
 
   .caja-type-badge {
@@ -403,11 +404,11 @@
     align-items: center;
     gap: 0.286rem;
     font-size: 0.78rem;
-    color: #555;
+    color: var(--text-secondary);
   }
 
   .caja-td-desc {
-    color: #2c3e50;
+    color: var(--text-primary);
     max-width: 14rem;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -415,7 +416,7 @@
   }
 
   .caja-td-entity {
-    color: #888;
+    color: var(--text-muted);
     font-size: 0.78rem;
   }
 
@@ -427,13 +428,13 @@
     white-space: nowrap;
   }
 
-  .caja-td-amount.ingreso { color: #27ae60; }
-  .caja-td-amount.egreso { color: #e74c3c; }
+  .caja-td-amount.ingreso { color: var(--success); }
+  .caja-td-amount.egreso { color: var(--danger); }
 
   .caja-empty {
     text-align: center;
     padding: 2rem !important;
-    color: #bbb;
+    color: var(--text-muted);
     font-size: 0.85rem;
   }
 </style>

@@ -86,7 +86,7 @@
   }
 
   .modal {
-    background: #fff;
+    background: var(--bg-card);
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.2);
     width: 480px;
@@ -107,24 +107,24 @@
     margin: 0;
     font-size: 17px;
     font-weight: 700;
-    color: #111;
+    color: var(--text-primary);
   }
 
   .close-btn {
     width: 28px;
     height: 28px;
     border: none;
-    background: #f3f4f6;
+    background: var(--bg-page);
     border-radius: 50%;
     font-size: 14px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #6b7280;
+    color: var(--text-secondary);
     transition: background 0.12s;
   }
-  .close-btn:hover { background: #e5e7eb; }
+  .close-btn:hover { background: var(--bg-hover); }
 
   .modal-body {
     padding: 16px 20px;
@@ -134,14 +134,14 @@
 
   .empty-text {
     text-align: center;
-    color: #9ca3af;
+    color: var(--text-muted);
     font-size: 14px;
     padding: 32px 0;
   }
 
   .info-text {
     font-size: 13px;
-    color: #6b7280;
+    color: var(--text-secondary);
     margin: 0 0 12px;
   }
 
@@ -171,7 +171,7 @@
   .grupo-num {
     font-size: 15px;
     font-weight: 700;
-    color: #111;
+    color: var(--text-primary);
   }
 
   .grupo-count {
@@ -193,12 +193,12 @@
 
   .barrio-chip {
     font-size: 13px;
-    color: #374151;
+    color: var(--text-primary);
     font-weight: 500;
   }
 
   .barrio-sep {
-    color: #d1d5db;
+    color: var(--text-muted);
     font-weight: 700;
   }
 
@@ -228,7 +228,7 @@
     border: 1px solid #d1d5db;
     border-radius: 8px;
     background: #fff;
-    color: #374151;
+    color: var(--text-primary);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;

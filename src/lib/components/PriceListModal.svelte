@@ -305,15 +305,15 @@
       transition: all 0.15s;
     }
     .nav-dot.active {
-      border-color: #6366f1;
-      background: #6366f1;
+      border-color: var(--accent);
+      background: var(--accent);
     }
     .nav-dot.has-image {
       border-color: #818cf8;
       background: #e0e7ff;
     }
     .nav-dot.has-image.active {
-      background: #6366f1;
+      background: var(--accent);
     }
 
     .image-area {
@@ -412,7 +412,7 @@
     }
     .name-field input:focus {
       outline: none;
-      border-color: #6366f1;
+      border-color: var(--accent);
       box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
     }
 
@@ -428,7 +428,7 @@
     .zoom-slider {
       flex: 1;
       height: 4px;
-      accent-color: #6366f1;
+      accent-color: var(--accent);
       cursor: pointer;
     }
     .zoom-label {
@@ -457,9 +457,9 @@
     }
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-upload {
-      background: #6366f1;
+      background: var(--accent);
       color: #fff;
-      border-color: #6366f1;
+      border-color: var(--accent);
       flex: 1;
     }
     .btn-upload:hover:not(:disabled) { background: #5558e6; }
@@ -471,15 +471,15 @@
     }
     .btn-download:hover { background: #dcfce7; }
     .btn-delete {
-      background: #fff;
+      background: var(--bg-card);
       color: #ef4444;
       border-color: #fecaca;
       padding: 0.429rem 0.643rem;
     }
     .btn-delete:hover { background: #fef2f2; }
     .btn-cerrar {
-      background: #f3f4f6;
-      color: #374151;
+      background: var(--bg-page);
+      color: var(--text-primary);
       border-color: #d1d5db;
       width: 100%;
       justify-content: center;

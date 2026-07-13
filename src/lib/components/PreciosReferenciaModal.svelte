@@ -186,41 +186,41 @@
     display: flex; align-items: center; justify-content: center; z-index: 9999;
   }
   .modal {
-    background: #ffffff; border-radius: 0.571rem; box-shadow: 0 0.286rem 1.143rem rgba(0,0,0,0.25);
+    background: var(--bg-card); border-radius: 0.571rem; box-shadow: 0 0.286rem 1.143rem rgba(0,0,0,0.25);
     min-width: 34rem; max-width: 92vw; max-height: 85vh; display: flex; flex-direction: column;
   }
   .modal-header {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 0.857rem 1.143rem; border-bottom: 0.071rem solid #e0e0e0;
+    padding: 0.857rem 1.143rem; border-bottom: 0.071rem solid var(--border);
   }
-  .modal-header h2 { margin: 0; font-size: 1.143rem; color: #2c3e50; }
+  .modal-header h2 { margin: 0; font-size: 1.143rem; color: var(--text-primary); }
   .close {
     background: none; border: none; font-size: 1.143rem; cursor: pointer;
-    color: #999; padding: 0.286rem 0.571rem; border-radius: 0.286rem;
+    color: var(--text-muted); padding: 0.286rem 0.571rem; border-radius: 0.286rem;
   }
-  .close:hover { background: #f0f0f0; color: #333; }
+  .close:hover { color: var(--text-primary); }
   .modal-body { padding: 1.143rem; overflow-y: auto; }
-  .help-text { font-size: 0.857rem; color: #666; margin-bottom: 0.857rem; line-height: 1.5; }
+  .help-text { font-size: 0.857rem; color: var(--text-secondary); margin-bottom: 0.857rem; line-height: 1.5; }
   .file-area { margin-bottom: 0.857rem; }
   .file-input { display: none; }
   .file-label {
-    display: inline-block; padding: 0.571rem 1.143rem; background: #007bff; color: #fff;
+    display: inline-block; padding: 0.571rem 1.143rem; background: var(--accent); color: #fff;
     border-radius: 0.357rem; cursor: pointer; font-size: 0.929rem;
   }
   .file-label:hover { opacity: 0.9; }
   .err { color: #c0392b; font-size: 0.857rem; margin: 0.571rem 0; }
   .ok { color: #27ae60; font-size: 0.857rem; margin: 0.571rem 0; }
-  .status { font-size: 0.857rem; color: #555; margin: 0.571rem 0; }
-  .table-wrap { max-height: 21rem; overflow-y: auto; margin: 0.571rem 0; border: 0.071rem solid #e0e0e0; border-radius: 0.286rem; }
+  .status { font-size: 0.857rem; color: var(--text-secondary); margin: 0.571rem 0; }
+  .table-wrap { max-height: 21rem; overflow-y: auto; margin: 0.571rem 0; border: 0.071rem solid var(--border); border-radius: 0.286rem; }
   .table-wrap.mini { max-height: 14rem; }
   table { width: 100%; border-collapse: collapse; font-size: 0.857rem; }
-  th { background: #f8f9fa; padding: 0.5rem 0.571rem; text-align: left; position: sticky; top: 0; font-weight: 600; color: #555; }
-  td { padding: 0.357rem 0.571rem; border-bottom: 0.071rem solid #eee; }
+  th { background: var(--bg-page); padding: 0.5rem 0.571rem; text-align: left; position: sticky; top: 0; font-weight: 600; color: var(--text-secondary); }
+  td { padding: 0.357rem 0.571rem; border-bottom: 0.071rem solid var(--border-light); }
   .num { text-align: right; white-space: nowrap; }
-  .more { font-size: 0.786rem; color: #999; text-align: center; margin: 0.286rem 0; }
-  hr { border: none; border-top: 0.071rem solid #eee; margin: 0.857rem 0; }
+  .more { font-size: 0.786rem; color: var(--text-muted); text-align: center; margin: 0.286rem 0; }
+  hr { border: none; border-top: 0.071rem solid var(--border-light); margin: 0.857rem 0; }
   .btn { padding: 0.571rem 1.143rem; border-radius: 0.357rem; border: none; cursor: pointer; font-size: 0.929rem; font-weight: 600; }
-  .btn-primary { background: #007bff; color: #fff; }
+  .btn-primary { background: var(--accent); color: #fff; }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-secondary { padding: 0.571rem 1.286rem; background: #ecf0f1; color: #555; border: none; border-radius: 0.429rem; cursor: pointer; font-size: 0.929rem; }
+  .btn-secondary { padding: 0.571rem 1.286rem; background: var(--bg-hover); color: var(--text-secondary); border: none; border-radius: 0.429rem; cursor: pointer; font-size: 0.929rem; }
 </style>

@@ -314,7 +314,7 @@
           <div class="pp-summary-block">
             <span class="pp-summary-label">💰 Deuda</span>
             <span class="pp-summary-value" style="color:{detailDebt > 0 ? '#dc3545' : '#28a745'}; font-size:1.4rem">{formatCurrency(detailDebt)}</span>
-            <span style="font-size:0.75rem;color:#999">{detailDebt > 0 ? '🔴 Pendiente' : '🟢 Al día'}</span>
+            <span style="font-size:0.75rem;color:var(--text-muted)">{detailDebt > 0 ? '🔴 Pendiente' : '🟢 Al día'}</span>
           </div>
           <div class="pp-summary-block">
             <span class="pp-summary-label">📦 Stock</span>
@@ -465,12 +465,12 @@
   /* ============ GRID VIEW ============ */
   .pp-grid { display: flex; flex-direction: column; gap: 0.714rem; flex: 1; min-height: 0; }
   .pp-grid-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.571rem; }
-  .pp-grid-header h3 { margin: 0; font-size: 1.05rem; color: #2c3e50; }
+  .pp-grid-header h3 { margin: 0; font-size: 1.05rem; color: var(--text-primary); }
   .pp-grid-toolbar { display: flex; gap: 0.429rem; align-items: center; }
   .pp-search-wrap { position: relative; }
   .pp-search {
     padding: 0.357rem 0.571rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border);
     border-radius: 0.357rem;
     font-size: 0.82rem;
     width: 12rem;
@@ -486,8 +486,8 @@
   }
 
   .pp-card {
-    background: white;
-    border: 1px solid #e5e7eb;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 0.571rem;
     display: flex;
     flex-direction: column;
@@ -499,7 +499,7 @@
     gap: 0.429rem;
     padding: 0.857rem 1rem 0.286rem;
   }
-  .pp-card-title { font-weight: 600; font-size: 1.05rem; color: #2c3e50; flex: 1; }
+  .pp-card-title { font-weight: 600; font-size: 1.05rem; color: var(--text-primary); flex: 1; }
 
   .pp-card-body { padding: 0.286rem 1rem 0.714rem; flex: 1; }
 
@@ -510,8 +510,8 @@
     gap: 0.571rem;
     margin-bottom: 0.357rem;
   }
-  .pp-debt { font-size: 1.5rem; font-weight: 700; color: #2c3e50; }
-  .pp-stock { font-size: 0.8rem; color: #999; }
+  .pp-debt { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
+  .pp-stock { font-size: 0.8rem; color: var(--text-muted); }
 
   .pp-card-chips {
     display: flex;
@@ -521,24 +521,24 @@
   }
   .pp-chip {
     font-size: 0.72rem;
-    color: #555;
+    color: var(--text-secondary);
   }
   .pp-chip-label {
-    color: #888;
+    color: var(--text-muted);
     margin-right: 0.286rem;
     font-weight: 500;
   }
 
   .pp-lastmove {
     font-size: 0.72rem;
-    color: #999;
+    color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     margin-top: 0.286rem;
   }
   .pp-lastmove-label {
-    color: #bbb;
+    color: var(--text-muted);
     margin-right: 0.214rem;
   }
 
@@ -547,7 +547,7 @@
     align-items: center;
     gap: 0.357rem;
     padding: 0.571rem 1rem;
-    border-top: 1px solid #f0f0f0;
+    border-top: 1px solid var(--border-light);
   }
 
   .pp-act-btn {
@@ -557,17 +557,17 @@
     gap: 0.286rem;
     flex: 1;
     padding: 0.429rem 0.571rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border);
     border-radius: 0.286rem;
-    background: white;
+    background: var(--bg-card);
     font-size: 0.78rem;
     font-weight: 500;
     cursor: pointer;
-    color: #555;
+    color: var(--text-secondary);
     font-family: inherit;
     transition: background 0.1s, border-color 0.1s;
   }
-  .pp-act-btn:hover { background: #f5f6fa; border-color: #bbb; }
+  .pp-act-btn:hover { background: var(--bg-page); border-color: var(--text-muted); }
   .pp-act-btn svg { flex-shrink: 0; }
 
   .pp-act-del {
@@ -581,7 +581,7 @@
     border-radius: 0.286rem;
     background: none;
     cursor: pointer;
-    color: #ccc;
+    color: var(--text-muted);
     flex-shrink: 0;
     transition: color 0.1s, background 0.1s;
   }
@@ -592,7 +592,7 @@
     grid-column: 1 / -1;
     padding: 2rem;
     text-align: center;
-    color: #bbb;
+    color: var(--text-muted);
     font-size: 0.85rem;
   }
 
@@ -610,11 +610,11 @@
     align-items: center;
     gap: 0.714rem;
     padding: 0.571rem 0.857rem;
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
   }
-  .pp-detail-nav h3 { margin: 0; font-size: 1rem; color: #2c3e50; flex: 1; }
+  .pp-detail-nav h3 { margin: 0; font-size: 1rem; color: var(--text-primary); flex: 1; }
   .pp-detail-nav-actions { display: flex; gap: 0.286rem; }
 
   .pp-detail-cols {
@@ -628,17 +628,17 @@
   /* LEFT */
   .pp-detail-left { display: flex; flex-direction: column; gap: 0.571rem; }
   .pp-card-section {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     padding: 0.714rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
   }
-  .pp-card-section h4 { margin: 0 0 0.571rem; font-size: 0.78rem; color: #888; font-weight: 600; }
+  .pp-card-section h4 { margin: 0 0 0.571rem; font-size: 0.78rem; color: var(--text-muted); font-weight: 600; }
   .pp-summary-block { display: flex; flex-direction: column; gap: 0.143rem; margin-bottom: 0.571rem; }
-  .pp-summary-label { font-size: 0.65rem; text-transform: uppercase; color: #999; font-weight: 600; }
-  .pp-summary-value { font-size: 1.1rem; font-weight: 700; color: #2c3e50; }
-  .pp-summary-data { font-size: 0.75rem; color: #666; }
-  .pp-divider { border: none; border-top: 1px solid #eee; margin: 0.571rem 0; }
+  .pp-summary-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
+  .pp-summary-value { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
+  .pp-summary-data { font-size: 0.75rem; color: var(--text-secondary); }
+  .pp-divider { border: none; border-top: 1px solid var(--border-light); margin: 0.571rem 0; }
 
   /* CENTER */
   .pp-detail-center {
@@ -652,25 +652,25 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     padding: 0.571rem 0.714rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
   }
-  .pp-timeline-header h4 { margin: 0; font-size: 0.82rem; color: #2c3e50; }
+  .pp-timeline-header h4 { margin: 0; font-size: 0.82rem; color: var(--text-primary); }
   .pp-timeline-filter { display: flex; gap: 0.143rem; }
   .pp-filter-btn {
     padding: 0.214rem 0.571rem;
-    border: 1px solid #ddd;
-    background: white;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
     border-radius: 0.286rem;
     font-size: 0.72rem;
     cursor: pointer;
-    color: #666;
+    color: var(--text-secondary);
     font-family: inherit;
   }
-  .pp-filter-btn:hover { background: #f0f0f0; }
-  .pp-filter-btn.active { background: #3498db; color: white; border-color: #3498db; }
+  .pp-filter-btn:hover { background: var(--bg-hover); }
+  .pp-filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
 
   .pp-timeline-panels {
     display: grid;
@@ -681,7 +681,7 @@
   }
 
   .pp-timeline-panel {
-    background: white;
+    background: var(--bg-card);
     border-radius: 0.571rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
     display: flex;
@@ -693,10 +693,10 @@
     justify-content: space-between;
     align-items: center;
     padding: 0.5rem 0.714rem;
-    border-bottom: 2px solid #eee;
+    border-bottom: 2px solid var(--border-light);
     font-size: 0.78rem;
     font-weight: 600;
-    color: #555;
+    color: var(--text-secondary);
     flex-shrink: 0;
   }
   .pp-panel-total { font-family: monospace; font-size: 0.82rem; }
