@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "Bastidores GAL",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "identifier": "bastidoresgal.app.gestion",
   "build": {
     "frontendDist": "../dist",
@@ -11,8 +11,8 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": 
-      "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJCODQwODM5MjEwM0Q5NDAKUldSQTJRTWhPUWlFSzdoMGQ0SXpJUXV6dDFpcWluMGp1a1JCS29qeGZRMXNmbDc2V2J1ZUxFVGYK",
+      "pubkey":
+      "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDI3NThEMzU1NzgyNzNBRDMKUldUVE9pZDRWZE5ZSjFQSyttMmZ1enIvekhyQ1J3WnpWbE5idk1yU0JtbzZzMjl2TkVDUHpiWUsK",
       "endpoints": [
         "https://api-bastidores.onrender.com/latest.json"
       ],

@@ -554,7 +554,12 @@
 
   onMount(async () => {
     try { config = await invoke('get_config'); } catch {}
-    loadData();
+  });
+
+  $effect(() => {
+    if (appStore.currentTab === 'kanban' && cacheStore.get('facturas:kanban') === null) {
+      loadData();
+    }
   });
 </script>
 
