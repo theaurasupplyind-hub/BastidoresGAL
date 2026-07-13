@@ -56,15 +56,27 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release download ${{ github.ref_name }} --pattern "latest.json" --skip-existing
-          if (-not (Test-Path "latest.json")) { throw "latest.json not found in release assets" }
-          curl -X POST "https://api-bastidores.onrender.com/updater/manifest" `
-            --connect-timeout 10 `
-            --max-time 120 `
-            --retry 3 `
-            --retry-delay 15 `
-            --retry-max-time 300 `
+          Start-Sleep -Seconds 10
+          $version = "${{ github.ref_name }}" -replace "^v", ""
+          gh release download ${{ github.ref_name }} --pattern "*_$($version)_*.sig" --skip-existing
+          $sigFile = Get-ChildItem "*_$($version)_*.sig" | Select-Object -First 1
+          if (-not $sigFile) { throw "No .sig file found in release assets" }
+          $signature = (Get-Content $sigFile.FullName -Raw).Trim()
+          $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Bastidores.GAL_${version}_x64-setup.exe"
+          $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $json = @{
+            version = "v$version"
+            notes = "Actualizaci`u{00f3}n v$version"
+            pub_date = $now
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $signature
+                url = $url
+              }
+            }
+          } | ConvertTo-Json -Compress -Depth 10
+          curl.exe -X POST "https://api-bastidores.onrender.com/updater/manifest" `
+            --connect-timeout 10 --max-time 120 --retry 3 --retry-delay 15 `
             -H "Authorization: Bearer ${{ secrets.UPDATER_TOKEN }}" `
             -H "Content-Type: application/json" `
-            --data-binary "@latest.json" `
-            -f
+            --data-binary "$json" -f
