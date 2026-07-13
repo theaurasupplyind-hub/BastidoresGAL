@@ -59,7 +59,7 @@ export function calcMaterials(w: number, h: number, qty: number): CardMaterial[]
       else if (largueros >= 3) discount = 16.5;
       const travLen = (longer - discount) / (largueros + 1);
       const travQty = filas * (largueros + 1) * qty;
-      result.push({ type: 'T', qty: travQty, cm: Math.round(travLen * 10) / 10 });
+      result.push({ type: 'T', qty: travQty, cm: Math.trunc(travLen * 10) / 10 });
     }
   }
 
@@ -198,6 +198,7 @@ export function parseCard(f: Factura): {
 }
 
 export function calcLargueros(longer: number): number {
+  if (longer < 90) return 0;
   if (longer >= 90 && longer <= 129) return 1;
   if (longer <= 200) return 2;
   return 3;
@@ -299,16 +300,12 @@ export function buildMoldurasHtml(cards: Array<{
   function renderCard(card: typeof cards[0], side: 'left' | 'right'): string {
     const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
     const summaryRows = validItems.map(it => {
-      const lHtml = it.larguero ? `<span class='mat-detail'>${it.larguero}</span>` : `<span class='mat-detail'>—</span>`;
-      const tHtml = it.travesaño ? `<span class='mat-detail'>${it.travesaño}</span>` : `<span class='mat-detail'>—</span>`;
       return `
         <tr>
-          <td width='15%' rowspan='2'><span class='sum-qty'>${it.cantidad}</span></td>
-          <td width='30%' rowspan='2'><span class='sum-dim'>${it.medida}</span></td>
-          <td width='30%' rowspan='2'><span class='sum-type'>${it.tipo}</span></td>
-          <td width='25%' class='mat-cell'>${lHtml}</td>
-        </tr>
-        <tr><td class='mat-cell'>${tHtml}</td></tr>`;
+          <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
+          <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
+          <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
+        </tr>`;
     }).join('');
 
     const matGroups = groupMaterials(card.materials);
@@ -402,8 +399,8 @@ export function buildMoldurasHtmlJuli(cards: Array<{
   function renderCard(card: typeof cards[0], side: 'left' | 'right'): string {
     const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
     const summaryRows = validItems.map(it => {
-      const lHtml = it.larguero ? `<span class='mat-detail'>${it.larguero}</span>` : '<span class="mat-detail">—</span>';
-      const tHtml = it.travesaño ? `<span class='mat-detail'>${it.travesaño}</span>` : '<span class="mat-detail">—</span>';
+      const lHtml = it.larguero ? `<span class='mat-detail lar'>${it.larguero}</span>` : '<span class="mat-detail lar">—</span>';
+      const tHtml = it.travesaño ? `<span class='mat-detail tra'>${it.travesaño}</span>` : '<span class="mat-detail tra">—</span>';
       return `
         <tr>
           <td width='15%' rowspan='2'><span class='sum-qty'>${it.cantidad}</span></td>
@@ -445,12 +442,14 @@ export function buildMoldurasHtmlJuli(cards: Array<{
     .client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
     .order-id { font-size: 14px; color: #ddd; }
     .summary-table { width: 100%; border-collapse: collapse; background: #eee; border-bottom: 3px solid #000; }
-    .summary-table td { padding: 2px; border: 1px solid #444; vertical-align: middle; }
+    .summary-table td { padding: 8px 4px; border: 1px solid #444; vertical-align: middle; }
     .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
     .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
     .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
-    .mat-cell { text-align: center; vertical-align: middle; padding: 1px 4px; }
-    .mat-detail { font-size: 13px; font-weight: 900; color: #000; white-space: nowrap; }
+    .mat-cell { text-align: center; vertical-align: middle; padding: 6px 8px; }
+    .mat-detail { font-size: 14px; font-weight: 700; color: #fff; padding: 3px 10px; border-radius: 4px; display: inline-block; white-space: nowrap; }
+    .mat-detail.lar { background: #27ae60; }
+    .mat-detail.tra { background: #d35400; }
 </style>
 </head>
 <body>

@@ -279,4 +279,12 @@ export const api = {
 
   deleteTask: (id: number) =>
     request<{ status: string }>('DELETE', `/tasks/${id}`),
+
+  // ---- Notes ----
+  getNotes: () =>
+    request<{ content: string; updated_at: string; history: { id: number; preview: string; created_at: string }[] }>('GET', '/notes', undefined, 10),
+  saveNotes: (data: { content: string }) =>
+    request<{ status: string; id: number }>('POST', '/notes', data),
+  deleteNote: (id: number) =>
+    request<{ status: string }>('DELETE', `/notes/${id}`),
 };

@@ -112,14 +112,37 @@
     } catch { activity = []; }
   }
 
-  // ── Notas (localStorage) ──
+  // ── Notas (API global) ──
   let notes = $state('');
+  let noteHistory = $state<Array<{ id: number; preview: string; created_at: string }>>([]);
   let showNotesModal = $state(false);
   let notesTemp = $state('');
-  function loadNotes() { notes = localStorage.getItem('panel_notes') || ''; }
-  function saveNotes() { localStorage.setItem('panel_notes', notes); }
+  let savingNote = $state(false);
+  async function loadNotes() {
+    try {
+      const data = await api.getNotes();
+      notes = data.content || '';
+      noteHistory = data.history || [];
+    } catch { notes = ''; noteHistory = []; }
+  }
+  async function saveNote() {
+    const content = notesTemp;
+    if (!content && !notes) return;
+    savingNote = true;
+    try {
+      await api.saveNotes({ content });
+      notes = content;
+      await loadNotes();
+    } catch { } finally { savingNote = false; }
+  }
+  async function deleteNoteEntry(id: number) {
+    try {
+      await api.deleteNote(id);
+      await loadNotes();
+    } catch {}
+  }
   function openNotes() { notesTemp = notes; showNotesModal = true; }
-  function closeNotes() { notes = notesTemp; saveNotes(); showNotesModal = false; }
+  function closeNotes() { showNotesModal = false; }
 
   // ── Helpers ──
   const taskCount = $derived(tasks.length);
@@ -144,6 +167,13 @@
     const parts = full.split(' ');
     if (parts.length >= 2) return parts[1]?.slice(0, 5) || '';
     return full;
+  }
+
+  function formatShortDate(iso: string): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso.slice(0, 10);
+    return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
   onMount(() => {
@@ -283,8 +313,23 @@
       <h3>Notas</h3>
       <div class="modal-body">
         <textarea class="notes-modal-input" placeholder="Escribí una nota..." bind:value={notesTemp}></textarea>
+        {#if noteHistory.length > 0}
+          <div class="notes-history">
+            <span class="notes-history-title">Historial (7 días)</span>
+            {#each noteHistory as entry (entry.id)}
+              <div class="notes-history-item">
+                <div class="notes-history-head">
+                  <span class="notes-history-date">{formatShortDate(entry.created_at)}</span>
+                  <button class="notes-history-del" onclick={() => deleteNoteEntry(entry.id)} aria-label="Borrar entrada">✕</button>
+                </div>
+                <span class="notes-history-text">{entry.preview}{entry.preview?.length >= 200 ? '...' : ''}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
       </div>
       <div class="modal-footer">
+        <button class="btn btn-primary" onclick={saveNote} disabled={savingNote}>{savingNote ? 'Guardando...' : 'Guardar'}</button>
         <button class="btn btn-secondary" onclick={closeNotes}>Cerrar</button>
       </div>
     </div>
@@ -580,6 +625,55 @@
     outline: none;
   }
   .notes-modal-input:focus { border-color: var(--border-focus, #3b82f6); }
+  .notes-history {
+    display: flex;
+    flex-direction: column;
+    gap: 0.429rem;
+    max-height: 12rem;
+    overflow-y: auto;
+  }
+  .notes-history-title {
+    font-size: 0.714rem;
+    font-weight: 600;
+    color: var(--text-muted, #9ca3af);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .notes-history-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.143rem;
+    padding: 0.357rem 0.5rem;
+    border-left: 2px solid var(--border, #e5e7eb);
+    border-radius: 0 0.286rem 0.286rem 0;
+    font-size: 0.786rem;
+  }
+  .notes-history-date {
+    font-size: 0.643rem;
+    color: var(--text-muted, #9ca3af);
+  }
+  .notes-history-text {
+    color: var(--text-primary, #111827);
+    line-height: 1.35;
+  }
+  .notes-history-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .notes-history-del {
+    background: none;
+    border: none;
+    color: var(--text-muted, #9ca3af);
+    cursor: pointer;
+    font-size: 0.643rem;
+    padding: 0.071rem 0.286rem;
+    border-radius: 0.143rem;
+    opacity: 0;
+    transition: opacity 0.12s;
+  }
+  .notes-history-item:hover .notes-history-del { opacity: 1; }
+  .notes-history-del:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
 
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.4);
@@ -602,5 +696,7 @@
     cursor: pointer; font-size: 0.92rem; font-weight: 500; transition: all 0.15s;
   }
   .btn:hover { filter: brightness(0.95); }
+  .btn-primary { background: #22c55e; color: white; }
   .btn-secondary { background: var(--bg-hover); color: var(--text-secondary); }
+  .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 </style>

@@ -1807,6 +1807,7 @@
   }
   .combobox-item:hover { background: var(--bg-hover); }
   .col-desc { width: auto; min-width: 0; position: relative; }
+  .items-row .col-desc input { text-align: left; font-family: var(--font); }
   .col-price { width: auto; }
   .col-total {
     width: auto;
