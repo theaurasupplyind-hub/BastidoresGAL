@@ -1,3 +1,5 @@
+import type { GrupoCliente, PlanDeViaje } from '$lib/types';
+
 let _fecha = $state(new Date().toISOString().split('T')[0]);
 let _busqueda = $state('');
 let _origenDireccion = $state('Bermudez 331');
@@ -7,6 +9,11 @@ let _geocodificandoOrigen = $state(false);
 let _pendientesCount = $state(0);
 let _filtroPendientes = $state(false);
 let _busquedaCoords = $state<{ lat: number; lng: number } | null>(null);
+
+let _modoProgramar = $state(false);
+let _grupos = $state<Map<string, GrupoCliente>>(new Map());
+let _grupoActivoId = $state<string | null>(null);
+let _planViajeId = $state<string | null>(null);
 
 let _geocodificarFn: (() => Promise<void>) | null = null;
 let _guardarFn: (() => Promise<void>) | null = null;
@@ -38,6 +45,18 @@ export const mapaStore = {
 
 	get filtroPendientes() { return _filtroPendientes; },
 	set filtroPendientes(v: boolean) { _filtroPendientes = v; },
+
+	get modoProgramar() { return _modoProgramar; },
+	set modoProgramar(v: boolean) { _modoProgramar = v; },
+
+	get grupos() { return _grupos; },
+	set grupos(v: Map<string, GrupoCliente>) { _grupos = v; },
+
+	get grupoActivoId() { return _grupoActivoId; },
+	set grupoActivoId(v: string | null) { _grupoActivoId = v; },
+
+	get planViajeId() { return _planViajeId; },
+	set planViajeId(v: string | null) { _planViajeId = v; },
 
 	get geocodificarOrigen() { return _geocodificarFn; },
 	set geocodificarOrigen(fn: (() => Promise<void>) | null) { _geocodificarFn = fn; },

@@ -76,6 +76,24 @@ export const api = {
     }
   },
 
+  // ---- Direcciones ----
+  listAddresses: (clientId: number) =>
+    handleResponse(request<import('$lib/types').ClientAddress[]>('GET', `/clients/${clientId}/addresses`), []),
+
+  addAddress: (clientId: number, data: { address: string; extra?: string; label?: string; is_default?: boolean; lat?: number | null; lng?: number | null }) =>
+    request<import('$lib/types').ClientAddress>('POST', `/clients/${clientId}/addresses`, data),
+
+  updateAddress: (clientId: number, addressId: number, data: any) =>
+    request('PUT', `/clients/${clientId}/addresses/${addressId}`, data),
+
+  deleteAddress: async (clientId: number, addressId: number) => {
+    const res = await tauriFetch(`${API_URL}/clients/${clientId}/addresses/${addressId}`, { method: 'DELETE' });
+    if (![200, 204].includes(res.status)) throw new Error('Error al eliminar dirección');
+  },
+
+  setDefaultAddress: (clientId: number, addressId: number) =>
+    request('PUT', `/clients/${clientId}/addresses/${addressId}/default`),
+
   // ---- Mapa ----
   getMapaClientes: () => handleResponse(request<any[]>('GET', '/mapa/clientes', undefined, 15), []),
 
@@ -85,12 +103,30 @@ export const api = {
   geocodificarCliente: (id: number) =>
     request<{ status: string; lat: number; lng: number }>('POST', `/mapa/geocodificar/${id}`, undefined, 15),
 
+  geocodificarAddress: (clientId: number, addressId: number) =>
+    request<{ status: string; lat: number; lng: number }>('POST', `/clients/${clientId}/addresses/${addressId}/geocode`, undefined, 15),
+
   getMapaOrigen: () =>
     handleResponse(request<{ direccion: string; lat: number | null; lng: number | null }>('GET', '/mapa/origen', undefined, 15),
       { direccion: 'Bermudez 331', lat: null, lng: null }),
 
   updateMapaOrigen: (data: { direccion: string; lat?: number | null; lng?: number | null }) =>
     request<{ status: string; direccion: string; lat: number | null; lng: number | null }>('PUT', '/mapa/origen', data, 15),
+
+  getMapaDashboard: (fecha: string) =>
+    request<{ clientes: any[]; entregas: any[]; plan: import('$lib/types').PlanDeViaje | null }>('GET', `/mapa/dashboard?fecha=${fecha}`, undefined, 20),
+
+  getPlanViaje: (fecha: string) =>
+    request<import('$lib/types').PlanDeViaje | null>('GET', `/mapa/planes?fecha=${fecha}`, undefined, 15),
+
+  savePlanViaje: (data: { fecha: string; grupos: import('$lib/types').GrupoCliente[] }) =>
+    request<{ id: string }>('POST', '/mapa/planes', data, 15),
+
+  updatePlanViaje: (id: string, data: { fecha: string; grupos: import('$lib/types').GrupoCliente[] }) =>
+    request<{ status: string }>('PUT', `/mapa/planes/${id}`, data, 15),
+
+  deletePlanViaje: (id: string) =>
+    request<{ status: string }>('DELETE', `/mapa/planes/${id}`, undefined, 15),
 
   // ---- Productos ----
   listProductos: () => handleResponse(request<import('$lib/types').Producto[]>('GET', '/products', undefined, 10), []),
@@ -282,7 +318,7 @@ export const api = {
 
   // ---- Notes ----
   getNotes: () =>
-    request<{ content: string; updated_at: string; history: { id: number; preview: string; created_at: string }[] }>('GET', '/notes', undefined, 10),
+    request<{ content: string; updated_at: string; history: { id: number; content: string; created_at: string }[] }>('GET', '/notes', undefined, 10),
   saveNotes: (data: { content: string }) =>
     request<{ status: string; id: number }>('POST', '/notes', data),
   deleteNote: (id: number) =>

@@ -979,6 +979,18 @@
     font-size: 0.88rem;
     color: var(--text-secondary);
   }
+  :global(.form-group input) {
+    padding: 0.571rem 0.714rem;
+    border: 1px solid var(--border);
+    border-radius: 0.429rem;
+    font-size: 0.95rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
   :global(.form-group select) {
     padding: 0.571rem 0.714rem;
     border: 1px solid var(--border);

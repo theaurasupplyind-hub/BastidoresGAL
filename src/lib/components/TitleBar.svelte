@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { slide } from 'svelte/transition';
+  import { animate, spring } from 'animejs';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { appStore } from '$lib/stores/appStore.svelte';
   import type { TabId } from '$lib/types';
@@ -8,6 +9,7 @@
   let maximized = $state(false);
   let moreOpen = $state(false);
   let usersOpen = $state(false);
+  let moreCloseTimeout: ReturnType<typeof setTimeout> | null = null;
   const win = getCurrentWindow();
 
   const PRIMARIOS: { id: TabId; label: string }[] = [
@@ -24,8 +26,6 @@
     { id: 'clientes', icon: 'user', label: 'Clientes' },
     { id: 'estadisticas', icon: 'chart', label: 'Estadísticas' },
     { id: 'analisis-usd', icon: 'usd', label: 'USD' },
-    { id: 'papelera', icon: 'trash', label: 'Papelera' },
-    { id: 'print-agent', icon: 'printer', label: 'Impresión' },
   ];
 
   const ICONS: Record<string, string> = {
@@ -67,6 +67,26 @@
     appStore.dirtyTabs = s;
     moreOpen = false;
   }
+
+  function handleTabClick(e: MouseEvent, tab: TabId) {
+    const btn = e.currentTarget as HTMLElement;
+    animate(btn, {
+      scale: [1, 0.92, 1],
+      duration: 600,
+      ease: spring({ stiffness: 300, damping: 15 }),
+    });
+    selectTab(tab);
+  }
+
+  function onMoreEnter() {
+    if (moreCloseTimeout) clearTimeout(moreCloseTimeout);
+    moreOpen = true;
+    usersOpen = false;
+  }
+
+  function onMoreLeave() {
+    moreCloseTimeout = setTimeout(() => { moreOpen = false; }, 200);
+  }
 </script>
 
 <div class="titlebar">
@@ -98,11 +118,16 @@
     <button class="tb-btn-sm" onclick={() => appStore.showSettings = true} title="Configuración">
       {@html '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/></svg>'}
     </button>
-    <div class="more-wrap">
+    <button class="tb-btn-sm" class:active={appStore.currentTab === 'papelera'} onclick={() => selectTab('papelera')} title="Papelera">
+      {@html ICONS.trash}
+    </button>
+    <button class="tb-btn-sm" class:active={appStore.currentTab === 'print-agent'} onclick={() => selectTab('print-agent')} title="Impresión">
+      {@html ICONS.printer}
+    </button>
+    <div class="more-wrap" onmouseenter={onMoreEnter} onmouseleave={onMoreLeave}>
       <button
         class="tb-btn-sm"
         class:active={moreOpen || SECUNDARY_TABS.some(t => appStore.currentTab === t.id)}
-        onclick={() => { moreOpen = !moreOpen; usersOpen = false; }}
         title="Más opciones"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
@@ -113,7 +138,7 @@
             <button
               class="more-item"
               class:active={appStore.currentTab === tab.id}
-              onclick={() => selectTab(tab.id)}
+        onclick={(e) => handleTabClick(e, tab.id)}
             >
               <span class="more-item-icon">{@html ICONS[tab.icon]}</span>
               <span class="more-item-label">{tab.label}</span>
@@ -129,7 +154,7 @@
       <button
         class="tb-tab"
         class:active={appStore.currentTab === tab.id}
-        onclick={() => selectTab(tab.id)}
+        onclick={(e) => handleTabClick(e, tab.id)}
         data-tauri-drag-region="false"
       >
         <span class="tb-tab-text">{tab.label}</span>
@@ -181,15 +206,15 @@
     align-items: center;
     justify-content: center;
     gap: 0.25rem;
-    padding: 0.3rem 0.45rem;
+    padding: 0.35rem 0.55rem;
     border: none;
-    border-radius: 0.35rem;
+    border-radius: 0.4rem;
     background: transparent;
     color: var(--text-muted);
-    font-size: 0.7rem;
+    font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     white-space: nowrap;
   }
   .tb-btn-sm:hover { background: var(--bg-hover); color: var(--text-primary); }
@@ -206,7 +231,7 @@
   .tb-tabs {
     display: flex;
     align-items: center;
-    gap: 0.2rem;
+    gap: 0.25rem;
     flex: 1;
     justify-content: center;
     height: 100%;
@@ -215,30 +240,46 @@
     display: flex;
     align-items: center;
     gap: 0.35rem;
-    padding: 0.4rem 0.7rem;
+    padding: 0.55rem 1rem;
     border: none;
-    border-radius: 0.4rem;
+    border-radius: 0.45rem;
     background: transparent;
     color: var(--text-muted);
-    font-size: 0.95rem;
-    font-weight: 500;
+    font-size: 1rem;
+    font-weight: 600;
     cursor: pointer;
-    transition: all 0.15s;
     white-space: nowrap;
     height: fit-content;
     position: relative;
+    transition:
+      color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+      background 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+      transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
-  .tb-tab:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .tb-tab:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+    transform: scale(1.05);
+  }
   .tb-tab.active { color: var(--text-primary); }
-  .tb-tab.active::before {
+  .tb-tab::before {
     content: '';
     position: absolute;
     top: 0;
     left: 0.5rem;
     right: 0.5rem;
-    height: 2px;
+    height: 3px;
     background: var(--accent);
-    border-radius: 0 0 2px 2px;
+    border-radius: 0 0 3px 3px;
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .tb-tab:hover::before {
+    transform: scaleX(0.4);
+  }
+  .tb-tab.active::before {
+    transform: scaleX(1);
   }
   .tb-tab-text { line-height: 1; }
 

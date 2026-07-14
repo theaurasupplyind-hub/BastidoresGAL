@@ -15,6 +15,8 @@
   import PagoDialog from '$lib/components/PagoDialog.svelte';
   import PriceListModal from '$lib/components/PriceListModal.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, type PriceSuggestion } from '$lib/utils/precios';
+import { nominatimSearchUrl, limpiarDireccion } from '$lib/utils/geocoding';
+import type { ClientAddress } from '$lib/types';
 
   let loading = $state(false);
   let saving = $state(false);
@@ -99,9 +101,21 @@
   let fecha = $state('');
   let cliente_nombre = $state('');
   let cliente_domicilio = $state('');
+  let cliente_piso_depto = $state('');
   let cliente_telefono = $state('');
   let cliente_taller = $state('');
-  let cliente_estudiante = $state('');
+  let clienteAddresses = $state<import('$lib/types').ClientAddress[]>([]);
+  let showNewAddressPrompt = $state(false);
+  let newAddressLabel = $state('');
+  let newAddressDefault = $state(false);
+  let pendingSavePayload = $state<any>(null);
+  let showAddressDropdown = $state(false);
+  let addressSuggestions = $state<Array<{type: 'saved' | 'nominatim', data: any}>>([]);
+  let selectedAddressIdx = $state(-1);
+  let isSearchingAddress = $state(false);
+  let addressDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  let selectedNominatimLat = $state<number | null>(null);
+  let selectedNominatimLng = $state<number | null>(null);
   let envio = $state(0);
   let tipo_entrega = $state('Retira');
   let fecha_entrega = $state('');
@@ -331,12 +345,20 @@
     cliente_id = c.id;
     cliente_nombre = c.nombre;
     cliente_domicilio = c.domicilio;
+    cliente_piso_depto = '';
     cliente_telefono = c.telefono;
     cliente_taller = c.taller || '';
-    cliente_estudiante = c.estudiante || '';
     clienteSearch = c.nombre;
     selectedClienteIndex = -1;
     showClienteResults = false;
+    api.listAddresses(c.id).then(addrs => {
+      clienteAddresses = addrs;
+      const def = addrs.find(a => a.is_default) || addrs[0];
+      if (def) {
+        cliente_domicilio = def.address;
+        cliente_piso_depto = def.extra || '';
+      }
+    });
   }
 
   function selectProducto(index: number, prod: Producto) {
@@ -582,6 +604,9 @@
     pagoRapidoAplicado = false;
     clienteSearch = f.cliente_nombre;
     loadDiscountFromItems();
+    if (f.cliente_id) {
+      api.listAddresses(f.cliente_id).then(addrs => { clienteAddresses = addrs; });
+    }
   }
 
   function resetForm() {
@@ -593,9 +618,10 @@
     fecha = new Date().toLocaleDateString('es-AR');
     cliente_nombre = '';
     cliente_domicilio = '';
+    cliente_piso_depto = '';
     cliente_telefono = '';
     cliente_taller = '';
-    cliente_estudiante = '';
+    clienteAddresses = [];
     envio = 0;
     tipo_entrega = 'Retira';
     fecha_entrega = '';
@@ -609,6 +635,13 @@
     pagoRapidoAplicado = false;
     clienteSearch = '';
     selectedClienteIndex = -1;
+    showAddressDropdown = false;
+    addressSuggestions = [];
+    selectedAddressIdx = -1;
+    isSearchingAddress = false;
+    selectedNominatimLat = null;
+    selectedNominatimLng = null;
+    if (addressDebounceTimer) clearTimeout(addressDebounceTimer);
   }
 
   export function setTipo(v: 'PRESUPUESTO' | 'BORRADOR') {
@@ -674,11 +707,15 @@
             domicilio: cliente_domicilio,
             telefono: cliente_telefono,
             taller: cliente_taller,
-            estudiante: cliente_estudiante,
           });
           cliente_id = result.id;
-          clientes = [...clientes, { id: result.id, nombre: cliente_nombre, domicilio: cliente_domicilio, telefono: cliente_telefono, taller: cliente_taller || '', estudiante: cliente_estudiante || '' }];
+          clientes = [...clientes, { id: result.id, nombre: cliente_nombre, domicilio: cliente_domicilio, telefono: cliente_telefono, taller: cliente_taller || '', estudiante: '' }];
         }
+      }
+
+      // Ensure addresses are loaded for the new-address prompt
+      if (cliente_id && (!clienteAddresses.length || clienteAddresses[0]?.client_id !== cliente_id)) {
+        try { clienteAddresses = await api.listAddresses(cliente_id); } catch { clienteAddresses = []; }
       }
 
       // ── Auto-crear productos nuevos (lógica completa) ──
@@ -750,6 +787,7 @@
         cliente_id,
         cliente_nombre,
         cliente_domicilio,
+        cliente_piso_depto,
         cliente_telefono,
         items: validItems.map(i => ({
           cantidad: i.cantidad,
@@ -775,6 +813,16 @@
       }
       invalidateCache();
       await refreshHistory();
+      // Prompt to save new address if client has addresses and domicilio doesn't match any
+      if (cliente_id && clienteAddresses.length > 0 && cliente_domicilio.trim()) {
+        const match = clienteAddresses.find(a => a.address === cliente_domicilio.trim());
+        if (!match) {
+          pendingSavePayload = null;
+          newAddressLabel = '';
+          newAddressDefault = false;
+          showNewAddressPrompt = true;
+        }
+      }
     } catch (e: any) {
       appStore.showToast('Error al guardar: ' + e.message, 'error');
     } finally {
@@ -785,6 +833,154 @@
   export async function confirmBorrador() {
     tipo = 'PRESUPUESTO';
     await save();
+  }
+
+  async function saveNewAddress() {
+    if (!cliente_id) {
+      appStore.showToast('Guardá la factura primero para asociar la dirección al cliente', 'info');
+      return;
+    }
+    if (!cliente_domicilio.trim()) return;
+    try {
+      const newAddr = await api.addAddress(cliente_id, {
+        address: cliente_domicilio.trim(),
+        extra: cliente_piso_depto,
+        label: newAddressLabel,
+        is_default: newAddressDefault,
+        lat: selectedNominatimLat,
+        lng: selectedNominatimLng,
+      });
+      appStore.showToast('Dirección guardada', 'success');
+      showNewAddressPrompt = false;
+      selectedNominatimLat = null;
+      selectedNominatimLng = null;
+      clienteAddresses = [...clienteAddresses, newAddr];
+    } catch (e: any) {
+      appStore.showToast('Error al guardar dirección: ' + e.message, 'error');
+    }
+  }
+
+  function toggleAddressDropdown() {
+    if (showAddressDropdown) {
+      showAddressDropdown = false;
+      return;
+    }
+    const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
+    for (const a of clienteAddresses) {
+      items.push({ type: 'saved', data: a });
+    }
+    addressSuggestions = items;
+    selectedAddressIdx = -1;
+    showAddressDropdown = true;
+  }
+
+  function handleAddressFocus() {
+    if (clienteAddresses.length > 0 && !cliente_domicilio.trim()) {
+      const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
+      for (const a of clienteAddresses) {
+        items.push({ type: 'saved', data: a });
+      }
+      addressSuggestions = items;
+      selectedAddressIdx = -1;
+      showAddressDropdown = true;
+    }
+  }
+
+  function handleAddressInput() {
+    if (addressDebounceTimer) clearTimeout(addressDebounceTimer);
+    const text = cliente_domicilio.trim();
+    if (text.length >= 4) {
+      isSearchingAddress = true;
+      const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
+      for (const a of clienteAddresses) {
+        items.push({ type: 'saved', data: a });
+      }
+      addressSuggestions = items;
+      showAddressDropdown = items.length > 0;
+      addressDebounceTimer = setTimeout(() => searchNominatim(text), 400);
+    } else if (text.length > 0) {
+      addressSuggestions = [];
+      showAddressDropdown = false;
+      isSearchingAddress = false;
+    }
+  }
+
+  async function searchNominatim(query: string) {
+    try {
+      const url = nominatimSearchUrl(query);
+      const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
+      const data = await res.json();
+      const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
+      for (const a of clienteAddresses) {
+        items.push({ type: 'saved', data: a });
+      }
+      for (const r of data.slice(0, 5)) {
+        items.push({ type: 'nominatim', data: r });
+      }
+      addressSuggestions = items;
+      showAddressDropdown = items.length > 0;
+    } catch {
+      const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
+      for (const a of clienteAddresses) {
+        items.push({ type: 'saved', data: a });
+      }
+      addressSuggestions = items;
+      showAddressDropdown = items.length > 0;
+    } finally {
+      isSearchingAddress = false;
+    }
+  }
+
+  function selectAddress(sug: {type: 'saved' | 'nominatim', data: any}) {
+    if (sug.type === 'saved') {
+      const addr = sug.data as ClientAddress;
+      cliente_domicilio = addr.address;
+      cliente_piso_depto = addr.extra || '';
+      selectedNominatimLat = addr.lat ?? null;
+      selectedNominatimLng = addr.lng ?? null;
+    } else {
+      const r = sug.data;
+      cliente_domicilio = limpiarDireccion(r.display_name);
+      cliente_piso_depto = '';
+      selectedNominatimLat = parseFloat(r.lat);
+      selectedNominatimLng = parseFloat(r.lon);
+    }
+    showAddressDropdown = false;
+    selectedAddressIdx = -1;
+  }
+
+  function openAddAddressModal() {
+    if (!cliente_id) {
+      appStore.showToast('Seleccioná o guardá el cliente primero', 'info');
+      return;
+    }
+    showAddressDropdown = false;
+    newAddressLabel = '';
+    newAddressDefault = false;
+    selectedNominatimLat = null;
+    selectedNominatimLng = null;
+    showNewAddressPrompt = true;
+  }
+
+  function resetAddressLatLng() {
+    selectedNominatimLat = null;
+    selectedNominatimLng = null;
+  }
+
+  function handleAddressKeydown(e: KeyboardEvent) {
+    const items = addressSuggestions;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedAddressIdx = Math.min(selectedAddressIdx + 1, items.length - 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedAddressIdx = Math.max(selectedAddressIdx - 1, -1);
+    } else if (e.key === 'Enter' && selectedAddressIdx >= 0 && items[selectedAddressIdx]) {
+      e.preventDefault();
+      selectAddress(items[selectedAddressIdx]);
+    } else if (e.key === 'Escape') {
+      showAddressDropdown = false;
+    }
   }
 
   export async function deleteInvoice() {
@@ -1101,21 +1297,56 @@
           </div>
           <div class="row">
             <div class="field flex-2">
-              <div class="icon-input-wrap">
-                <input type="text" bind:value={cliente_domicilio} placeholder="Domicilio" class="input-with-icon-left" />
+              <div class="autocomplete-wrap">
+                <input type="text" bind:value={cliente_domicilio} placeholder="Domicilio" class="input-with-icon-left input-with-address-btns"
+                  oninput={handleAddressInput}
+                  onfocus={handleAddressFocus}
+                  onblur={() => setTimeout(() => showAddressDropdown = false, 200)}
+                  onkeydown={handleAddressKeydown}
+                />
                 <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+                {#if clienteAddresses.length > 0}
+                  <button class="address-inner-btn address-btn-saved" onclick={toggleAddressDropdown} tabindex="-1" type="button" title="Direcciones guardadas">
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                {/if}
+                <button class="address-inner-btn address-btn-add" onclick={openAddAddressModal} tabindex="-1" type="button" title="Agregar nueva dirección">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+                {#if showAddressDropdown}
+                  <div class="autocomplete-results">
+                    {#each addressSuggestions as sug, i}
+                      <div class="autocomplete-item" class:selected={i === selectedAddressIdx} onmousedown={(e) => { e.preventDefault(); selectAddress(sug); }}>
+                        {#if sug.type === 'saved'}
+                          <span class="addr-label">{sug.data.label || 'Dirección'}</span>
+                          <span class="addr-text">{sug.data.address}{sug.data.extra ? ` - ${sug.data.extra}` : ''}</span>
+                        {:else}
+                          <span class="addr-nominatim">{limpiarDireccion(sug.data.display_name)}</span>
+                        {/if}
+                      </div>
+                    {/each}
+                    {#if isSearchingAddress && addressSuggestions.length === 0}
+                      <div class="autocomplete-item searching-item">Buscando...</div>
+                    {/if}
+                    <div class="autocomplete-divider"></div>
+                    <div class="autocomplete-item add-address-item" onmousedown={(e) => { e.preventDefault(); openAddAddressModal(); }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      Guardar como nueva dirección
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            </div>
+            <div class="field flex-1">
+              <div class="icon-input-wrap">
+                <input type="text" bind:value={cliente_piso_depto} placeholder="Piso/Depto" class="input-with-icon-left" />
+                <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
               </div>
             </div>
             <div class="field flex-1">
               <div class="icon-input-wrap">
                 <input type="text" bind:value={cliente_taller} placeholder="Taller" class="input-with-icon-left" />
                 <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 00 0 1.4l1.6 1.6a1 1 0 00 1.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
-              </div>
-            </div>
-            <div class="field flex-1">
-              <div class="icon-input-wrap">
-                <input type="text" bind:value={cliente_estudiante} placeholder="Estudiante / Galería" class="input-with-icon-left" />
-                <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
               </div>
             </div>
           </div>
@@ -1457,6 +1688,27 @@
     show={showPriceList}
     onclose={() => { showPriceList = false; }}
   />
+{/if}
+
+{#if showNewAddressPrompt}
+  <div class="modal-overlay" onclick={() => showNewAddressPrompt = false} role="presentation">
+    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
+      <h3>¿Guardar nueva dirección?</h3>
+      <p style="margin:0.5rem 0;color:var(--text-secondary);font-size:0.9rem;">
+        "{cliente_domicilio}{cliente_piso_depto ? ` - ${cliente_piso_depto}` : ''}" no está guardada como dirección de <strong>{cliente_nombre}</strong>.
+      </p>
+      <label style="display:block;margin-bottom:0.3rem;font-size:0.85rem;color:var(--text-secondary);">Etiqueta (opcional)</label>
+      <input type="text" bind:value={newAddressLabel} placeholder="Ej: Casa, Trabajo, Taller..." style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:0.4rem;font-size:0.9rem;box-sizing:border-box;" />
+      <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;font-size:0.85rem;cursor:pointer;">
+        <input type="checkbox" bind:checked={newAddressDefault} />
+        Establecer como dirección predeterminada
+      </label>
+      <div class="modal-actions" style="margin-top:1rem;">
+        <button class="btn btn-sm btn-outline" onclick={() => showNewAddressPrompt = false}>No guardar</button>
+        <button class="btn btn-sm btn-primary" onclick={saveNewAddress}>Guardar dirección</button>
+      </div>
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -2479,6 +2731,72 @@
     color: var(--text-muted);
     font-size: var(--text-lg);
     font-weight: 600;
+  }
+
+  /* ===== ADDRESS INNER BUTTONS (▼ +) ===== */
+  .input-with-address-btns {
+    padding-right: 3.2rem !important;
+  }
+  .address-inner-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.2rem 0.3rem;
+    border-radius: 0.214rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    transition: color 0.12s, background 0.12s;
+    z-index: 1;
+  }
+  .address-inner-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+  .address-btn-saved { right: 1.5rem; }
+  .address-btn-add { right: 0.2rem; }
+  .add-address-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  .add-address-item:hover {
+    background: var(--accent-light);
+  }
+  .addr-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-right: 0.3rem;
+    white-space: nowrap;
+  }
+  .addr-text {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .addr-nominatim {
+    font-size: var(--text-sm);
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .searching-item {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: var(--text-xs);
+    justify-content: center;
   }
 
 </style>

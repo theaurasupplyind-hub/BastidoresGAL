@@ -33,6 +33,7 @@
   let config = $state<any>({});
 
   onMount(async () => {
+    api.wakeServer();
     try { config = await invoke('get_config'); } catch {}
     heartbeatId = setInterval(runHeartbeat, 10000);
     runHeartbeat();
@@ -230,6 +231,12 @@
               <span class="mapa-bar-origen-text">{mapaStore.origenDireccion}</span>
               <button class="mapa-bar-btn-edit" onclick={() => mapaStore.editandoOrigen = true}>✏️</button>
               <button class="mapa-bar-btn-wa" onclick={() => mapaRef?.copiarRutaAlPortapapeles()} title="Copiar link de la ruta">📋</button>
+              <button
+                class="mapa-bar-btn-viajes"
+                class:activo={mapaStore.modoProgramar}
+                onclick={() => mapaStore.modoProgramar = !mapaStore.modoProgramar}
+                title="Programar Viajes"
+              >📦 Viajes</button>
             {/if}
           </div>
         </div>
@@ -459,6 +466,25 @@
     color: #25D366;
   }
   .mapa-bar-btn-wa:hover { color: #1ebe5b; }
+  .mapa-bar-btn-viajes {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    padding: 0.143rem 0.429rem;
+    color: var(--text-secondary);
+    font-family: var(--font);
+    transition: all 0.12s;
+    white-space: nowrap;
+  }
+  .mapa-bar-btn-viajes:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .mapa-bar-btn-viajes.activo {
+    background: #eff6ff;
+    border-color: #2563eb;
+    color: #2563eb;
+    font-weight: 600;
+  }
   .mapa-bar-btn-geo {
     padding: 0.214rem 0.357rem;
     font-size: 0.78rem;

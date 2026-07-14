@@ -18,6 +18,17 @@ export interface AppConfig {
   station_name?: string | null;
 }
 
+export interface ClientAddress {
+  id: number;
+  client_id: number;
+  address: string;
+  extra: string;
+  label: string;
+  lat?: number | null;
+  lng?: number | null;
+  is_default: boolean;
+}
+
 export interface Cliente {
   id: number;
   nombre: string;
@@ -27,6 +38,7 @@ export interface Cliente {
   estudiante: string;
   lat?: number | null;
   lng?: number | null;
+  addresses?: ClientAddress[];
 }
 
 export interface Producto {
@@ -71,6 +83,8 @@ export interface Factura {
   tipo_entrega: string;
   fecha_entrega: string;
   estado_entrega: string;
+  items_done?: string;
+  cliente_piso_depto?: string;
   estado_moldura: string;
   estado_orden_tela: string;
 }
@@ -175,6 +189,22 @@ export interface AnalisisPeriodo {
   variacion_pct_usd: number;
   etiqueta: string;
   mensaje: string;
+}
+
+export interface GrupoCliente {
+  id: string;
+  nombre: string;
+  clienteIds: number[];
+  ordenRuta: number[];
+  color: string;
+}
+
+export interface PlanDeViaje {
+  id: string;
+  fecha: string;
+  grupos: GrupoCliente[];
+  created_at: string;
+  updated_at: string;
 }
 
 export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent' | 'panel-control';

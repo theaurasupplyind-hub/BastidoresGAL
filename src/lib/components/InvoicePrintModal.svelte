@@ -58,7 +58,7 @@
       numFactura: c.numero_factura,
       fecha: c.fecha,
       clienteNombre: c.cliente_nombre,
-      clienteDomicilio: c.cliente_domicilio,
+      clienteDomicilio: c.cliente_domicilio + (c.cliente_piso_depto ? ` - ${c.cliente_piso_depto}` : ''),
       clienteTelefono: c.cliente_telefono,
       items: c.items.map(i => ({
         cantidad: i.cantidad,
@@ -110,7 +110,7 @@
       numFactura: c.numero_factura,
       fecha: c.fecha,
       clienteNombre: c.cliente_nombre,
-      clienteDomicilio: c.cliente_domicilio,
+      clienteDomicilio: c.cliente_domicilio + (c.cliente_piso_depto ? ` - ${c.cliente_piso_depto}` : ''),
       clienteTelefono: c.cliente_telefono,
       items: c.items.map(i => ({
         cantidad: i.cantidad,

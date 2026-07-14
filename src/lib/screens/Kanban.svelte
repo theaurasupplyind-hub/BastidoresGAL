@@ -63,6 +63,16 @@
   let modalTitle = $state('');
   let showInvoicePrintModal = $state(false);
   let invoicePrintColIdx = $state(-1);
+  let modalFacturaId = $state<number | null>(null);
+  let checkedItems = $state<Set<number>>(new Set());
+  let savedItems = $state<Set<number>>(new Set());
+  let savingCheck = $state(false);
+  let hasUnsavedChanges = $derived(
+    modalFacturaId != null && (
+      checkedItems.size !== savedItems.size ||
+      [...checkedItems].some(i => !savedItems.has(i))
+    )
+  );
 
   let columnFilters = $state<Record<ColKey, ColumnFilters>>({
     PEDIDO: defaultFilters(),
@@ -109,6 +119,13 @@
     editingCardId = card.id;
     editTipo = card.tipo_entrega || '';
     editFecha = fechaToInput(card.fecha_entrega || '');
+  }
+
+  function closeItemsModal() {
+    showItemsModal = false;
+    modalFacturaId = null;
+    checkedItems = new Set();
+    savedItems = new Set();
   }
 
   function cancelEdit() {
@@ -549,7 +566,39 @@
   function openItemsModal(f: Factura) {
     modalItems = f.items || [];
     modalTitle = `${f.cliente_nombre || '?'} — ${f.numero_factura || `#${f.id}`}`;
+    modalFacturaId = f.id;
+    let initial: Set<number>;
+    try {
+      initial = new Set<number>(JSON.parse(f.items_done || '[]'));
+    } catch {
+      initial = new Set<number>();
+    }
+    checkedItems = new Set(initial);
+    savedItems = new Set(initial);
     showItemsModal = true;
+  }
+
+  function toggleItemCheck(idx: number) {
+    const next = new Set(checkedItems);
+    if (next.has(idx)) next.delete(idx);
+    else next.add(idx);
+    checkedItems = next;
+  }
+
+  async function saveCheckedItems() {
+    if (modalFacturaId == null) return;
+    savingCheck = true;
+    try {
+      await api.patchInvoiceField(modalFacturaId, 'items_done', JSON.stringify([...checkedItems]));
+      savedItems = new Set(checkedItems);
+      const f = facturas.find(f => f.id === modalFacturaId);
+      if (f) f.items_done = JSON.stringify([...checkedItems]);
+      appStore.showToast('Cambios guardados', 'success');
+    } catch (e: any) {
+      appStore.showToast('Error al guardar: ' + (e?.message || e), 'error');
+    } finally {
+      savingCheck = false;
+    }
   }
 
   onMount(async () => {
@@ -659,7 +708,7 @@
                     <span class="card-fecha">{shortDate(card.fecha)}</span>
                   </div>
                   {#if card.cliente_domicilio}
-                    <div class="card-addr">{card.cliente_domicilio}</div>
+                    <div class="card-addr">{card.cliente_domicilio}{card.cliente_piso_depto ? ` - ${card.cliente_piso_depto}` : ''}</div>
                   {/if}
                   {#if editingCardId === card.id}
                     <div class="card-edit-row">
@@ -797,12 +846,13 @@
 
   <!-- Items Modal -->
   {#if showItemsModal}
-    <div class="legend-overlay" onclick={() => showItemsModal = false} role="presentation">
+    <div class="legend-overlay" onclick={closeItemsModal} role="presentation">
       <div class="legend-popover items-modal" onclick={(e) => e.stopPropagation()} role="dialog">
         <h3>📦 {modalTitle}</h3>
         <div class="items-list">
-          {#each modalItems as item}
-            <div class="items-row">
+          {#each modalItems as item, i}
+            <div class="items-row" class:checked={checkedItems.has(i)}>
+              <input type="checkbox" checked={checkedItems.has(i)} onchange={() => toggleItemCheck(i)} disabled={savingCheck} />
               <span class="item-qty">{item.cantidad}x</span>
               <span class="item-desc">{item.descripcion}</span>
             </div>
@@ -810,7 +860,12 @@
             <div class="items-empty">Sin items</div>
           {/each}
         </div>
-        <button class="btn btn-sm btn-primary" onclick={() => showItemsModal = false}>Cerrar</button>
+        <div class="items-modal-actions">
+          <button class="btn btn-sm btn-primary" onclick={closeItemsModal}>Cerrar</button>
+          <button class="btn btn-sm btn-primary save-checked-btn" onclick={saveCheckedItems} disabled={!hasUnsavedChanges || savingCheck}>
+            {savingCheck ? 'Guardando...' : '💾 Guardar'}
+          </button>
+        </div>
       </div>
     </div>
   {/if}
@@ -1214,10 +1269,15 @@
   .legend-popover h3 { margin: 0; font-size: 1rem; color: var(--text-primary); }
   .items-modal { min-width: 25rem; max-height: 70vh; overflow-y: auto; }
   .items-list { display: flex; flex-direction: column; gap: 0.286rem; max-height: 18rem; overflow-y: auto; }
-  .items-row { display: flex; gap: 0.571rem; padding: 0.286rem 0; border-bottom: 0.071rem solid var(--border-light); font-size: 0.85rem; }
-  .item-qty { font-weight: 700; color: var(--text-muted); min-width: 2.571rem; }
+  .items-row { display: flex; gap: 0.571rem; padding: 0.286rem 0; border-bottom: 0.071rem solid var(--border-light); font-size: 0.85rem; align-items: center; }
+  .items-row.checked { opacity: 0.5; text-decoration: line-through; background: var(--bg-hover); border-radius: 0.286rem; padding-left: 0.286rem; }
+  .items-row input[type="checkbox"] { margin: 0; cursor: pointer; flex-shrink: 0; }
+  .item-qty { font-weight: 700; color: var(--text-muted); min-width: 2.571rem; flex-shrink: 0; }
   .item-desc { flex: 1; }
   .items-empty { text-align: center; color: var(--text-muted); padding: 1rem; }
+  .items-modal-actions { display: flex; gap: 0.5rem; justify-content: flex-end; flex-shrink: 0; }
+  .save-checked-btn { background: var(--accent, #3498db); }
+  .save-checked-btn:disabled { opacity: 0.4; cursor: default; }
 
   /* === Footer === */
   .kanban-footer {

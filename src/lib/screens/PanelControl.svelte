@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
+  import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { animate, spring } from 'animejs';
 
   // ── Task List (API) ──
   let tasks = $state<Array<{ id: number; text: string; done: boolean; position: number }>>([]);
@@ -39,12 +41,144 @@
 
   // ── Entregas de hoy ──
   let entregas = $state<any[]>([]);
-  let loadingEntregas = $state(false);
+  let loadingData = $state(false);
   const today = new Date().toISOString().split('T')[0];
 
-  async function loadEntregas() {
-    loadingEntregas = true;
-    try { entregas = await api.getMapaEntregas(today); } catch { entregas = []; } finally { loadingEntregas = false; }
+  // ── Todos los clientes (para grupos) ──
+  let todosLosClientes = $state<any[]>([]);
+
+  async function loadDashboardPanel() {
+    loadingData = true;
+    try {
+      const data = await api.getMapaDashboard(today);
+      entregas = data.entregas;
+      todosLosClientes = data.clientes;
+      cacheStore.set('mapa-clientes', data.clientes, 120000);
+      if (data.plan && data.plan.grupos && data.plan.grupos.length > 0) {
+        planGrupos = data.plan.grupos;
+        planViajeId = data.plan.id;
+      } else {
+        planGrupos = [];
+        planViajeId = null;
+      }
+    } catch {
+      entregas = []; todosLosClientes = []; planGrupos = []; planViajeId = null;
+    }
+    finally { loadingData = false; }
+  }
+
+  function buscarCliente(id: number): any | null {
+    return todosLosClientes.find(c => c.id === id) ?? entregas.find(e => e.id === id) ?? null;
+  }
+
+  function facturasDelCliente(id: number): any[] {
+    return entregas.find(e => e.id === id)?.facturas ?? [];
+  }
+
+  // ── Plan de viaje ──
+  let planGrupos = $state<any[]>([]);
+  let planViajeId = $state<string | null>(null);
+  let planDirty = $state(false);
+  let dragCliente = $state<{ clienteId: number; grupoOrigen: string | null } | null>(null);
+  let dragEl = $state<HTMLElement | null>(null);
+  let dragOverGrupo = $state<string | null>(null);
+
+  function guardarPlanPanel() {
+    if (planGrupos.length === 0) return;
+    const data = { fecha: today, grupos: planGrupos };
+    if (planViajeId) {
+      api.updatePlanViaje(planViajeId, data).then(() => { planDirty = false; appStore.showToast('Plan actualizado', 'success'); }).catch(() => { appStore.showToast('Error al guardar', 'error'); });
+    } else {
+      api.savePlanViaje(data).then((res) => { planViajeId = res.id; planDirty = false; appStore.showToast('Plan guardado', 'success'); }).catch(() => { appStore.showToast('Error al guardar', 'error'); });
+    }
+  }
+
+  function grupoDelClientePanel(clienteId: number): any | null {
+    for (const g of planGrupos) {
+      if (g.clienteIds.includes(clienteId)) return g;
+    }
+    return null;
+  }
+
+  function clientesSinGrupo() {
+    const agrupados = new Set<number>();
+    for (const g of planGrupos) {
+      for (const id of g.clienteIds) agrupados.add(id);
+    }
+    const idsEntregaHoy = new Set(entregas.map((e: any) => e.id));
+    return (todosLosClientes.length > 0 ? todosLosClientes : entregas).filter((e: any) => {
+      if (agrupados.has(e.id)) return false;
+      const tienePendientes = (e.pedidos_pendientes ?? 0) > 0;
+      const tieneEntregaHoy = idsEntregaHoy.has(e.id);
+      return tienePendientes || tieneEntregaHoy;
+    });
+  }
+
+  function dragStartCliente(clienteId: number, grupoId: string | null, el: HTMLElement) {
+    dragCliente = { clienteId, grupoOrigen: grupoId };
+    dragEl = el;
+    animate(el, {
+      scale: 1.04,
+      opacity: 0.85,
+      boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+      duration: 200,
+      ease: 'outQuad',
+    });
+  }
+
+  function dragOverGrupoFn(grupoId: string) {
+    dragOverGrupo = grupoId;
+  }
+
+  function dragLeaveGrupo() {
+    dragOverGrupo = null;
+  }
+
+  function dropEnGrupo(grupoId: string | null) {
+    if (!dragCliente) return;
+    const { clienteId, grupoOrigen } = dragCliente;
+    if (grupoOrigen === grupoId) { dragCliente = null; dragEl = null; dragOverGrupo = null; return; }
+    const nuevosGrupos = planGrupos.map((g: any) => {
+      let ids = [...g.clienteIds];
+      let orden = [...(g.ordenRuta || [])];
+      if (g.id === grupoOrigen) {
+        ids = ids.filter((id: number) => id !== clienteId);
+        orden = orden.filter((id: number) => id !== clienteId);
+      }
+      if (g.id === grupoId) {
+        if (!ids.includes(clienteId)) {
+          ids = [...ids, clienteId];
+          orden = [...orden, clienteId];
+        }
+      }
+      return { ...g, clienteIds: ids, ordenRuta: orden };
+    });
+    planGrupos = nuevosGrupos;
+    planDirty = true;
+    if (dragEl) {
+      animate(dragEl, {
+        scale: [1.04, 1],
+        boxShadow: ['0 4px 12px rgba(0,0,0,0.2)', 'none'],
+        duration: 300,
+        ease: spring({ stiffness: 180, damping: 14 }),
+      });
+    }
+    dragCliente = null;
+    dragEl = null;
+    dragOverGrupo = null;
+  }
+
+  function quitarDeGrupoPanel(clienteId: number, grupoId: string) {
+    const nuevosGrupos = planGrupos.map((g: any) => {
+      if (g.id !== grupoId) return g;
+      return {
+        ...g,
+        clienteIds: g.clienteIds.filter((id: number) => id !== clienteId),
+        ordenRuta: (g.ordenRuta || []).filter((id: number) => id !== clienteId),
+      };
+    });
+    planGrupos = nuevosGrupos;
+    planDirty = true;
   }
 
   // ── Actividad (facturas + pagos) ──
@@ -114,24 +248,106 @@
 
   // ── Notas (API global) ──
   let notes = $state('');
-  let noteHistory = $state<Array<{ id: number; preview: string; created_at: string }>>([]);
+  let noteHistory = $state<Array<{ id: number; content: string; created_at: string }>>([]);
   let showNotesModal = $state(false);
   let notesTemp = $state('');
   let savingNote = $state(false);
+  let currentPage = $state(0);
+  let historyExpanded = $state(false);
+
+  let pages = $derived(notes ? notes.split('\n---\n') : ['']);
+  let totalPages = $derived(pages.length);
+  let isFirstPage = $derived(currentPage === 0);
+  let isLastPage = $derived(currentPage >= pages.length - 1);
+
+  function mergeCurrentPage() {
+    const all = [...pages];
+    all[currentPage] = notesTemp;
+    notes = all.join('\n---\n');
+  }
+
+  function goToPage(idx: number) {
+    if (idx === currentPage) return;
+    mergeCurrentPage();
+    currentPage = idx;
+    notesTemp = pages[idx] ?? '';
+  }
+
+  function prevSec() { if (currentPage > 0) goToPage(currentPage - 1); }
+  function nextSec() { if (currentPage < pages.length - 1) goToPage(currentPage + 1); }
+
+  function addPage() {
+    mergeCurrentPage();
+    notes = notes + '\n---\n';
+    const newPages = notes.split('\n---\n');
+    currentPage = newPages.length - 1;
+    notesTemp = '';
+  }
+
+  function deleteCurrentPage() {
+    if (pages.length <= 1) return;
+    const all = [...pages];
+    all.splice(currentPage, 1);
+    notes = all.join('\n---\n');
+    if (currentPage >= all.length) currentPage = all.length - 1;
+    notesTemp = all[currentPage] ?? '';
+  }
+
+  let diffs = $derived(
+    noteHistory.map((entry, i) => {
+      const older = i < noteHistory.length - 1 ? noteHistory[i + 1].content : notes;
+      const newer = entry.content;
+      return { id: entry.id, date: entry.created_at, lines: diffLines(older, newer) };
+    })
+  );
+
+  function diffLines(oldText: string, newText: string): Array<{ type: 'add' | 'remove' | 'same'; text: string }> {
+    const oldLines = (oldText || '').split('\n');
+    const newLines = (newText || '').split('\n');
+    const dp: number[][] = Array.from({ length: oldLines.length + 1 }, () =>
+      Array(newLines.length + 1).fill(0)
+    );
+    for (let i = 1; i <= oldLines.length; i++) {
+      for (let j = 1; j <= newLines.length; j++) {
+        dp[i][j] = oldLines[i - 1] === newLines[j - 1]
+          ? dp[i - 1][j - 1] + 1
+          : Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+    let i = oldLines.length, j = newLines.length;
+    const rev: Array<{ type: 'add' | 'remove' | 'same'; text: string }> = [];
+    while (i > 0 || j > 0) {
+      if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+        rev.push({ type: 'same', text: oldLines[i - 1] });
+        i--; j--;
+      } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+        rev.push({ type: 'add', text: newLines[j - 1] });
+        j--;
+      } else {
+        rev.push({ type: 'remove', text: oldLines[i - 1] });
+        i--;
+      }
+    }
+    rev.reverse();
+    return rev;
+  }
+
   async function loadNotes() {
     try {
       const data = await api.getNotes();
       notes = data.content || '';
       noteHistory = data.history || [];
-    } catch { notes = ''; noteHistory = []; }
+      const loadedPages = notes.split('\n---\n');
+      if (currentPage >= loadedPages.length) currentPage = Math.max(0, loadedPages.length - 1);
+      notesTemp = loadedPages[currentPage] ?? '';
+    } catch { notes = ''; noteHistory = []; notesTemp = ''; currentPage = 0; }
   }
   async function saveNote() {
-    const content = notesTemp;
-    if (!content && !notes) return;
+    mergeCurrentPage();
+    if (!notes) return;
     savingNote = true;
     try {
-      await api.saveNotes({ content });
-      notes = content;
+      await api.saveNotes({ content: notes });
       await loadNotes();
     } catch { } finally { savingNote = false; }
   }
@@ -141,7 +357,13 @@
       await loadNotes();
     } catch {}
   }
-  function openNotes() { notesTemp = notes; showNotesModal = true; }
+  function openNotes() {
+    const loadedPages = notes.split('\n---\n');
+    currentPage = 0;
+    notesTemp = loadedPages[0] ?? '';
+    historyExpanded = false;
+    showNotesModal = true;
+  }
   function closeNotes() { showNotesModal = false; }
 
   // ── Helpers ──
@@ -179,7 +401,7 @@
   onMount(() => {
     loadTasks();
     loadNotes();
-    loadEntregas();
+    loadDashboardPanel();
     loadActivity();
     loadDismissed();
   });
@@ -230,35 +452,126 @@
           <svg class="card-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           <span class="card-title">ENTREGAS DE HOY</span>
         </div>
-        <span class="card-badge badge-white">{entregas.length} programadas</span>
+        <span class="card-badge badge-white">{entregas.reduce((s: number, e: any) => s + (e.facturas?.length || 0), 0)} entregas</span>
+        {#if planDirty}
+          <button class="header-save-btn" onclick={guardarPlanPanel}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            Guardar
+          </button>
+        {/if}
       </div>
       <div class="entregas-stats">
         <div class="entregas-stat">
           <span class="stat-big">{entregas.reduce((s: number, e: any) => s + (e.facturas?.length || 0), 0)}</span>
-          <span class="stat-label">entregas totales</span>
+          <span class="stat-label">entregas</span>
         </div>
         <div class="entregas-stat">
-          <span class="stat-big">{entregas.length}</span>
-          <span class="stat-label">clientes</span>
+          <span class="stat-big">{planGrupos.reduce((s: number, g: any) => s + g.clienteIds.length, 0)}</span>
+          <span class="stat-label">en viajes</span>
+        </div>
+        <div class="entregas-stat">
+          <span class="stat-big">{planGrupos.length}</span>
+          <span class="stat-label">viajes</span>
         </div>
       </div>
       <div class="entregas-list">
-        {#each entregas as e (e.id)}
-          <div class="entrega-item">
-            <div class="entrega-cliente">{e.nombre}</div>
-            {#each e.facturas as f}
-              <div class="entrega-factura">
-                <span class="entrega-num">{f.numero_factura || '#' + f.id}</span>
-                <span class="entrega-monto">${(f.total || 0).toLocaleString('es-AR')}</span>
-              </div>
-            {/each}
-            <div class="entrega-dom">{e.domicilio}</div>
-          </div>
-        {/each}
-        {#if loadingEntregas}
+        {#if loadingData}
           <div class="entregas-empty">Cargando...</div>
         {:else if entregas.length === 0}
           <div class="entregas-empty">Sin entregas programadas hoy</div>
+        {:else}
+          {#if planGrupos.length > 0}
+            {#each planGrupos as grupo}
+              <div
+                class="grupo-section"
+                class:drag-over={dragOverGrupo === grupo.id}
+                ondragover={(e) => { e.preventDefault(); dragOverGrupoFn(grupo.id); }}
+                ondragleave={dragLeaveGrupo}
+                ondrop={(e) => { e.preventDefault(); dropEnGrupo(grupo.id); }}
+              >
+                <div class="grupo-header">
+                  <span class="grupo-color" style="background:{grupo.color}"></span>
+                  <span class="grupo-nombre">{grupo.nombre}</span>
+                  <span class="grupo-count">{grupo.clienteIds.length} cliente{grupo.clienteIds.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="grupo-clientes">
+                  {#each grupo.ordenRuta.length > 0 ? grupo.ordenRuta : grupo.clienteIds as clienteId, i}
+                    {@const ec = buscarCliente(clienteId)}
+                    {@const facts = facturasDelCliente(clienteId)}
+                    {#if ec}
+                      <div
+                        class="cliente-card"
+                        draggable="true"
+                        ondragstart={(e) => dragStartCliente(ec.id, grupo.id, e.currentTarget)}
+                      >
+                        <span class="cliente-drag">⠿</span>
+                        <span class="cliente-order">{i + 1}</span>
+                        <div class="cliente-body">
+                          <span class="cliente-nombre">{ec.nombre}</span>
+                          <span class="cliente-dir">{ec.domicilio || ''}</span>
+                          {#if facts.length > 0}
+                            <div class="cliente-facturas">
+                              {#each facts as f}
+                                <span class="factura-chip">
+                                  <span class="factura-num">{f.numero_factura}</span>
+                                  <span class="factura-date">{f.fecha || ''}</span>
+                                </span>
+                              {/each}
+                            </div>
+                          {/if}
+                        </div>
+                        <button class="cliente-remove" onclick={() => quitarDeGrupoPanel(ec.id, grupo.id)} title="Quitar del grupo">✕</button>
+                      </div>
+                    {/if}
+                  {/each}
+                </div>
+              </div>
+            {/each}
+          {/if}
+
+          {@const sinGrupo = clientesSinGrupo()}
+          {#if sinGrupo.length > 0}
+            <div
+              class="grupo-section grupo-sin-asignar"
+              class:drag-over={dragOverGrupo === '__sin_asignar__'}
+              ondragover={(e) => { e.preventDefault(); dragOverGrupoFn('__sin_asignar__'); }}
+              ondragleave={dragLeaveGrupo}
+              ondrop={(e) => { e.preventDefault(); dropEnGrupo(null); }}
+            >
+              <div class="grupo-header">
+                <span class="grupo-color" style="background:#9ca3af"></span>
+                <span class="grupo-nombre">Sin asignar</span>
+                <span class="grupo-count">{sinGrupo.length} cliente{sinGrupo.length !== 1 ? 's' : ''}</span>
+              </div>
+              <div class="grupo-clientes">
+                {#each sinGrupo as ec}
+                  {@const facts = facturasDelCliente(ec.id)}
+                  <div
+                    class="cliente-card"
+                    draggable="true"
+                    ondragstart={(e) => dragStartCliente(ec.id, null, e.currentTarget)}
+                  >
+                    <span class="cliente-drag">⠿</span>
+                    <span class="cliente-order" style="background:#9ca3af">{entregas.findIndex((e: any) => e.id === ec.id) + 1 || ''}</span>
+                    <div class="cliente-body">
+                      <span class="cliente-nombre">{ec.nombre}</span>
+                      <span class="cliente-dir">{ec.domicilio || ''}</span>
+                      {#if facts.length > 0}
+                        <div class="cliente-facturas">
+                          {#each facts as f}
+                            <span class="factura-chip">
+                              <span class="factura-num">{f.numero_factura}</span>
+                              <span class="factura-date">{f.fecha || ''}</span>
+                            </span>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         {/if}
       </div>
       <button class="entregas-link" onclick={() => appStore.currentTab = 'mapa'}>
@@ -310,24 +623,68 @@
 {#if showNotesModal}
   <div class="modal-overlay" onclick={closeNotes} role="presentation">
     <div class="modal modal-notes" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && closeNotes()}>
-      <h3>Notas</h3>
-      <div class="modal-body">
-        <textarea class="notes-modal-input" placeholder="Escribí una nota..." bind:value={notesTemp}></textarea>
-        {#if noteHistory.length > 0}
-          <div class="notes-history">
-            <span class="notes-history-title">Historial (7 días)</span>
-            {#each noteHistory as entry (entry.id)}
-              <div class="notes-history-item">
-                <div class="notes-history-head">
-                  <span class="notes-history-date">{formatShortDate(entry.created_at)}</span>
-                  <button class="notes-history-del" onclick={() => deleteNoteEntry(entry.id)} aria-label="Borrar entrada">✕</button>
-                </div>
-                <span class="notes-history-text">{entry.preview}{entry.preview?.length >= 200 ? '...' : ''}</span>
-              </div>
-            {/each}
-          </div>
-        {/if}
+      <div class="notes-modal-header">
+        <h3>Notas</h3>
+        <button class="notes-modal-close" onclick={closeNotes} aria-label="Cerrar">✕</button>
       </div>
+
+      <div class="book-container">
+        <div class="book-nav">
+          <button class="book-nav-btn" onclick={prevSec} disabled={isFirstPage} aria-label="Sección anterior">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          </button>
+          <span class="book-nav-label">Sección {currentPage + 1}</span>
+          <span class="book-nav-count">{currentPage + 1} / {totalPages}</span>
+          <button class="book-nav-btn" onclick={nextSec} disabled={isLastPage} aria-label="Sección siguiente">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>
+          </button>
+          <div class="book-nav-sep"></div>
+          {#if pages.length > 1}
+            <button class="book-nav-btn book-nav-del" onclick={deleteCurrentPage} disabled={pages.length <= 1} aria-label="Eliminar sección" title="Eliminar sección">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            </button>
+          {/if}
+          <button class="book-nav-btn book-nav-add" onclick={addPage} aria-label="Nueva sección" title="Nueva sección">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          </button>
+        </div>
+
+        <div class="book-page">
+          <textarea class="book-textarea" placeholder="Escribí una nota..." bind:value={notesTemp}></textarea>
+        </div>
+      </div>
+
+      {#if noteHistory.length > 0}
+        <div class="history-section">
+          <button class="history-toggle" onclick={() => historyExpanded = !historyExpanded}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class:rotated={historyExpanded}>
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+            Historial ({noteHistory.length} cambio{noteHistory.length !== 1 ? 's' : ''})
+          </button>
+          {#if historyExpanded}
+            <div class="history-list">
+              {#each diffs as diff}
+                <div class="diff-entry">
+                  <div class="diff-header">
+                    <span class="diff-date">{formatShortDate(diff.date)}</span>
+                    <button class="diff-del" onclick={() => deleteNoteEntry(diff.id)} aria-label="Borrar entrada">✕</button>
+                  </div>
+                  <div class="diff-body">
+                    {#each diff.lines as line}
+                      <div class="diff-line diff-{line.type}">
+                        <span class="diff-prefix">{line.type === 'add' ? '+' : line.type === 'remove' ? '−' : ' '}</span>
+                        <span class="diff-text">{line.text}</span>
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+
       <div class="modal-footer">
         <button class="btn btn-primary" onclick={saveNote} disabled={savingNote}>{savingNote ? 'Guardando...' : 'Guardar'}</button>
         <button class="btn btn-secondary" onclick={closeNotes}>Cerrar</button>
@@ -513,12 +870,176 @@
   }
   .entrega-num { font-family: var(--font-mono, monospace); }
   .entrega-dom { font-size: 0.714rem; opacity: 0.65; margin-top: 0.143rem; }
+
+  .grupo-section {
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: box-shadow 0.15s;
+  }
+  .grupo-section.drag-over {
+    box-shadow: 0 0 0 2px #3b82f6, inset 0 0 0 1px #3b82f6;
+  }
+  .grupo-sin-asignar {
+    opacity: 0.8;
+  }
+
+  .grupo-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 10px;
+    background: rgba(255,255,255,0.04);
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .grupo-color {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  .grupo-nombre {
+    flex: 1;
+    font-size: 13px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.9);
+  }
+  .grupo-count {
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
+    font-weight: 500;
+  }
+
+  .grupo-clientes {
+    padding: 4px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .cliente-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.03);
+    transition: background 0.12s;
+    cursor: default;
+  }
+  .cliente-card:hover { background: rgba(255,255,255,0.07); }
+  .cliente-card:active { opacity: 0.7; }
+
+  .cliente-drag {
+    font-size: 14px;
+    color: rgba(255,255,255,0.3);
+    cursor: grab;
+    flex-shrink: 0;
+    padding: 2px 0;
+    line-height: 1;
+    user-select: none;
+  }
+  .cliente-drag:active { cursor: grabbing; }
+
+  .cliente-order {
+    width: 18px;
+    height: 18px;
+    min-width: 18px;
+    border-radius: 50%;
+    background: #2563eb;
+    color: white;
+    font-size: 10px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+  }
+
+  .cliente-body {
+    flex: 1;
+    min-width: 0;
+  }
+  .cliente-nombre {
+    font-size: 13px;
+    font-weight: 500;
+    color: rgba(255,255,255,0.9);
+  }
+  .cliente-dir {
+    font-size: 11px;
+    color: rgba(255,255,255,0.4);
+  }
+  .cliente-facturas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-top: 4px;
+  }
+  .factura-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 4px;
+    font-size: 10px;
+  }
+  .factura-num {
+    font-weight: 600;
+    color: rgba(255,255,255,0.8);
+  }
+  .factura-date {
+    color: rgba(255,255,255,0.4);
+  }
+
+  .cliente-remove {
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: transparent;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255,255,255,0.3);
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity 0.12s;
+    padding: 0;
+  }
+  .cliente-card:hover .cliente-remove { opacity: 1; }
+  .cliente-remove:hover { background: rgba(239,68,68,0.2); color: #ef4444; }
+
+  .header-save-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: #059669;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: background 0.12s;
+    font-family: var(--font);
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .header-save-btn:hover { background: #047857; }
+
   .entregas-empty {
     text-align: center;
     color: rgba(255,255,255,0.6);
     font-size: 0.857rem;
     padding: 1.5rem 0;
   }
+
   .entregas-link {
     background: none;
     border: none;
@@ -612,56 +1133,175 @@
     text-overflow: ellipsis;
     min-width: 0;
   }
-  .notes-modal-input {
+
+  /* ── Notes Modal Header ── */
+  .notes-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.857rem;
+  }
+  .notes-modal-header h3 { margin: 0; color: var(--text-primary); }
+  .notes-modal-close {
+    width: 1.714rem;
+    height: 1.714rem;
+    border: none;
+    background: none;
+    color: var(--text-muted, #9ca3af);
+    cursor: pointer;
+    border-radius: 0.286rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    transition: all 0.12s;
+  }
+  .notes-modal-close:hover { background: rgba(239,68,68,0.08); color: #ef4444; }
+
+  /* ── Book Container ── */
+  .book-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.571rem;
+  }
+
+  .book-nav {
+    display: flex;
+    align-items: center;
+    gap: 0.571rem;
+    justify-content: center;
+  }
+  .book-nav-btn {
+    width: 1.714rem;
+    height: 1.714rem;
+    border: 1px solid var(--border, #e5e7eb);
+    background: var(--bg-card, #fff);
+    border-radius: 0.286rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary, #6b7280);
+    transition: all 0.12s;
+  }
+  .book-nav-btn:hover:not(:disabled) { background: var(--bg-hover, #f3f4f6); color: var(--text-primary); }
+  .book-nav-btn:disabled { opacity: 0.3; cursor: default; }
+  .book-nav-label {
+    font-size: 0.786rem;
+    color: var(--text-muted, #9ca3af);
+    flex: 1;
+    text-align: right;
+  }
+  .book-nav-count {
+    font-size: 0.786rem;
+    font-weight: 600;
+    color: var(--text-secondary, #6b7280);
+    min-width: 3.5rem;
+    text-align: left;
+  }
+  .book-nav-sep {
+    width: 1px;
+    height: 1.2rem;
+    background: var(--border, #e5e7eb);
+    flex-shrink: 0;
+  }
+  .book-nav-add {
+    color: #22c55e !important;
+    border-color: #22c55e !important;
+  }
+  .book-nav-add:hover:not(:disabled) { background: rgba(34,197,94,0.08) !important; }
+  .book-nav-del:hover:not(:disabled) { background: rgba(239,68,68,0.08) !important; color: #ef4444 !important; }
+
+  .book-page {
+    background: #fff;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 0.429rem;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.08);
+    min-height: 200px;
+    max-height: 320px;
+    overflow: hidden;
+    transition: opacity 0.15s;
+  }
+  .book-textarea {
     width: 100%;
     min-height: 200px;
-    padding: 0.714rem;
-    border: 1px solid var(--border, #d1d5db);
-    border-radius: 0.429rem;
+    max-height: 320px;
+    padding: 0.857rem;
+    border: none;
+    background: transparent;
     font-size: 0.95rem;
-    font-family: var(--font, inherit);
+    font-family: 'Georgia', 'Times New Roman', serif;
+    line-height: 1.6;
+    color: #2c2c2c;
     resize: vertical;
     box-sizing: border-box;
     outline: none;
   }
-  .notes-modal-input:focus { border-color: var(--border-focus, #3b82f6); }
-  .notes-history {
-    display: flex;
-    flex-direction: column;
-    gap: 0.429rem;
-    max-height: 12rem;
+  .book-page-content {
+    padding: 0.857rem;
+    font-size: 0.95rem;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    line-height: 1.6;
+    color: #2c2c2c;
+    max-height: 320px;
     overflow-y: auto;
   }
-  .notes-history-title {
-    font-size: 0.714rem;
-    font-weight: 600;
-    color: var(--text-muted, #9ca3af);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
+  .book-line {
+    display: block;
+    min-height: 1.6em;
   }
-  .notes-history-item {
+  .book-line:empty::before { content: '\00a0'; }
+
+  /* ── History Section ── */
+  .history-section {
+    margin-top: 0.714rem;
+  }
+  .history-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.429rem;
+    background: none;
+    border: none;
+    padding: 0.429rem 0;
+    cursor: pointer;
+    font-size: 0.786rem;
+    font-weight: 600;
+    color: var(--text-secondary, #6b7280);
+    width: 100%;
+    text-align: left;
+    transition: color 0.12s;
+  }
+  .history-toggle:hover { color: var(--text-primary, #111827); }
+  .history-toggle svg { transition: transform 0.15s; }
+  .history-toggle svg.rotated { transform: rotate(90deg); }
+  .history-list {
     display: flex;
     flex-direction: column;
-    gap: 0.143rem;
-    padding: 0.357rem 0.5rem;
-    border-left: 2px solid var(--border, #e5e7eb);
-    border-radius: 0 0.286rem 0.286rem 0;
+    gap: 0.571rem;
+    max-height: 14rem;
+    overflow-y: auto;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 0.429rem;
+    padding: 0.571rem;
+  }
+  .diff-entry {
     font-size: 0.786rem;
+    border-bottom: 1px solid var(--border-light, #f3f4f6);
+    padding-bottom: 0.429rem;
   }
-  .notes-history-date {
-    font-size: 0.643rem;
-    color: var(--text-muted, #9ca3af);
-  }
-  .notes-history-text {
-    color: var(--text-primary, #111827);
-    line-height: 1.35;
-  }
-  .notes-history-head {
+  .diff-entry:last-child { border-bottom: none; padding-bottom: 0; }
+  .diff-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    margin-bottom: 0.286rem;
   }
-  .notes-history-del {
+  .diff-date {
+    font-size: 0.643rem;
+    color: var(--text-muted, #9ca3af);
+    font-weight: 500;
+  }
+  .diff-del {
     background: none;
     border: none;
     color: var(--text-muted, #9ca3af);
@@ -672,8 +1312,43 @@
     opacity: 0;
     transition: opacity 0.12s;
   }
-  .notes-history-item:hover .notes-history-del { opacity: 1; }
-  .notes-history-del:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
+  .diff-entry:hover .diff-del { opacity: 1; }
+  .diff-del:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
+  .diff-body {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.714rem;
+    line-height: 1.45;
+    border-radius: 0.286rem;
+    overflow: hidden;
+  }
+  .diff-line {
+    display: flex;
+    align-items: flex-start;
+    padding: 0.071rem 0.429rem;
+  }
+  .diff-prefix {
+    width: 1rem;
+    flex-shrink: 0;
+    user-select: none;
+    color: inherit;
+  }
+  .diff-text {
+    flex: 1;
+    white-space: pre-wrap;
+    word-break: break-all;
+    min-width: 0;
+  }
+  .diff-same { background: transparent; color: var(--text-muted, #9ca3af); }
+  .diff-add {
+    background: rgba(34,197,94,0.1);
+    border-left: 2px solid #22c55e;
+    color: #166534;
+  }
+  .diff-remove {
+    background: rgba(239,68,68,0.08);
+    border-left: 2px solid #ef4444;
+    color: #991b1b;
+  }
 
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.4);
@@ -684,7 +1359,7 @@
     min-width: 30rem; max-width: 90vw; max-height: 80vh; overflow: auto;
     box-shadow: 0 0.571rem 2.143rem rgba(0,0,0,0.15);
   }
-  .modal-notes { min-width: 35rem; }
+  .modal-notes { min-width: 38rem; }
   .modal h3 { margin: 0 0 1rem; color: var(--text-primary); }
   .modal-body { display: flex; flex-direction: column; gap: 0.714rem; }
   .modal-footer {

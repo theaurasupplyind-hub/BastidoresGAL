@@ -4,7 +4,10 @@
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { mapaStore } from '$lib/stores/mapaStore.svelte';
+  import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import RecomendacionRutasModal from '$lib/components/RecomendacionRutasModal.svelte';
+  import PanelProgramarViajes from '$lib/components/PanelProgramarViajes.svelte';
+  import EditClienteModal from '$lib/components/EditClienteModal.svelte';
   import { nominatimSearchUrl } from '$lib/utils/geocoding';
 
   const KANBAN_COLORS: Record<string, string> = {
@@ -35,6 +38,15 @@
   let editandoOrdenId = $state(null);
   let ordenInputValue = $state('');
 
+  let modoProgramar = $state(mapaStore.modoProgramar);
+  let grupos = $state<Map<string, any>>(mapaStore.grupos);
+  let grupoActivoId = $state<string | null>(mapaStore.grupoActivoId);
+  let planViajeId = $state<string | null>(mapaStore.planViajeId);
+  let guardandoPlan = $state(false);
+
+  const CONSOLA_COLORS = ['#ef4444', '#8b5cf6', '#0ea5e9', '#f59e0b', '#10b981', '#ec4899'];
+  let colorIdx = $state(0);
+
   let fecha = $state(mapaStore.fecha);
   let cargando = $state(false);
   let error = $state('');
@@ -56,9 +68,15 @@
   let showRecomendarModal = $state(false);
   let showEditClienteModal = $state(false);
   let editClienteData = $state(null);
-  let editClienteForm = $state({ nombre: '', domicilio: '', telefono: '', taller: '', estudiante: '' });
   let geocodificandoClienteId = $state(null);
-  let filtroKanban = $state('TODOS');
+  let filtroKanban = $state<string[]>([]);
+  function toggleFiltroKanban(estado: string) {
+    if (filtroKanban.includes(estado)) {
+      filtroKanban = filtroKanban.filter(e => e !== estado);
+    } else if (filtroKanban.length < 2) {
+      filtroKanban = [...filtroKanban, estado];
+    }
+  }
 
   let clientesSeleccionados = $derived.by(() => {
     const seen = new Set();
@@ -75,6 +93,11 @@
     if (mapaStore.filtroPendientes) {
       const idsHoy = new Set(clientesDelDia.map(c => c.id));
       base = base.filter(c => c.pedidos_pendientes > 0 || idsHoy.has(c.id));
+    }
+    if (filtroKanban.length > 0) {
+      base = base.filter(c =>
+        c.facturas_estados && filtroKanban.some(e => (c.facturas_estados[e] ?? 0) > 0)
+      );
     }
     if (!busqueda.trim()) return base;
     const q = busqueda.toLowerCase();
@@ -123,9 +146,9 @@
 
     let resultado = [...hoy, ...pendientes, ...agregadosRuta];
 
-    if (filtroKanban !== 'TODOS') {
+    if (filtroKanban.length > 0) {
       resultado = resultado.filter(c =>
-        c.facturas_estados && (c.facturas_estados[filtroKanban] ?? 0) > 0
+        c.facturas_estados && filtroKanban.some(e => (c.facturas_estados[e] ?? 0) > 0)
       );
     }
 
@@ -137,11 +160,40 @@
       .reduce((s, c) => s + (c.pedidos_pendientes || 0), 0)
   );
 
+  function grupoDelCliente(clienteId: number): any | null {
+    for (const g of grupos.values()) {
+      if (g.clienteIds.includes(clienteId)) return g;
+    }
+    return null;
+  }
+
+  $effect(() => {
+    mapaStore.modoProgramar = modoProgramar;
+  });
+  $effect(() => {
+    const v = mapaStore.modoProgramar;
+    if (v !== modoProgramar) {
+      modoProgramar = v;
+      if (v && grupos.size === 0) crearGrupo();
+      renderizarMarcadores();
+    }
+  });
+  $effect(() => {
+    mapaStore.grupos = grupos;
+  });
+  $effect(() => {
+    mapaStore.grupoActivoId = grupoActivoId;
+  });
+  $effect(() => {
+    mapaStore.planViajeId = planViajeId;
+  });
+
   $effect(() => {
     const f = mapaStore.fecha;
     if (f !== fecha) {
       fecha = f;
       cargarEntregasDelDia();
+      cargarPlan();
     }
   });
 
@@ -269,24 +321,58 @@
     map.on('popupopen', (e) => {
       const popupEl = e.popup.getElement();
       if (!popupEl) return;
-      const btn = popupEl.querySelector('[data-action="geocodificar"]');
-      if (btn) {
+      const btns = popupEl.querySelectorAll('[data-action="geocodificar"]');
+      for (const btn of btns) {
         btn.addEventListener('click', (ev) => {
           ev.stopPropagation();
           const id = parseInt((ev.currentTarget as HTMLElement).dataset.id || '');
           if (id) geocodificarClienteEnMapa(id);
         });
       }
+      const addrBtns = popupEl.querySelectorAll('[data-action="geocodificar-address"]');
+      for (const btn of addrBtns) {
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const el = ev.currentTarget as HTMLElement;
+          const cid = parseInt(el.dataset.clientId || '');
+          const aid = parseInt(el.dataset.addressId || '');
+          if (cid && aid) geocodificarAddressEnMapa(cid, aid);
+        });
+      }
     });
 
-    await cargarTodosLosClientes();
-    await cargarEntregasDelDia();
+    await cargarDashboard();
     await cargarOrigen();
+  }
+
+  async function cargarDashboard() {
+    cargando = true;
+    try {
+      const data = await api.getMapaDashboard(fecha);
+      todosLosClientes = data.clientes;
+      cacheStore.set('mapa-clientes', data.clientes, 120000);
+      clientesDelDia = data.entregas;
+      seleccionados = new Set(clientesDelDia.map(c => c.id));
+      ordenRuta = clientesDelDia.map(c => c.id);
+      if (data.plan && data.plan.grupos && data.plan.grupos.length > 0) {
+        const m = new Map();
+        for (const g of data.plan.grupos) m.set(g.id, g);
+        grupos = m;
+        grupoActivoId = data.plan.grupos[0].id;
+        planViajeId = data.plan.id;
+        modoProgramar = true;
+      }
+      renderizarMarcadores();
+    } catch (e) {
+      error = 'No se pudieron cargar los datos del mapa.';
+    } finally {
+      cargando = false;
+    }
   }
 
   async function cargarTodosLosClientes() {
     try {
-      todosLosClientes = await api.getMapaClientes();
+      todosLosClientes = await cacheStore.fetch('mapa-clientes', () => api.getMapaClientes(), 120000);
       renderizarMarcadores();
     } catch (e) {
       error = 'No se pudieron cargar los clientes.';
@@ -395,6 +481,33 @@
     renderizarMarcadores();
   }
 
+  function crearIconoGrupo(color: string, numero: number, glow = false) {
+    const shadow = glow
+      ? `0 0 8px ${color}88, 0 1px 4px rgba(0,0,0,0.4)`
+      : `0 1px 4px rgba(0,0,0,0.4)`;
+    return L.divIcon({
+      className: '',
+      html: `<div style="width:28px;height:28px;background:${color};border:2.5px solid white;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:white;box-shadow:${shadow}, 0 0 0 3px ${color}44;">${numero}</div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14],
+    });
+  }
+
+  function colectarUbicaciones(cliente) {
+    const ubicaciones: Array<{ lat: number; lng: number; label: string; isDefault: boolean; addrId?: number }> = [];
+    if (cliente.addresses && cliente.addresses.length > 0) {
+      for (const addr of cliente.addresses) {
+        if (addr.lat != null && addr.lng != null) {
+          ubicaciones.push({ lat: addr.lat, lng: addr.lng, label: addr.label || addr.address, isDefault: addr.is_default, addrId: addr.id });
+        }
+      }
+    }
+    if (ubicaciones.length === 0 && cliente.lat && cliente.lng) {
+      ubicaciones.push({ lat: cliente.lat, lng: cliente.lng, label: cliente.domicilio || '', isDefault: true });
+    }
+    return ubicaciones;
+  }
+
   function renderizarMarcadores() {
     if (!map || !L) return;
 
@@ -404,51 +517,66 @@
     const idsEntregaHoy = new Set(clientesDelDia.map(c => c.id));
 
     for (const cliente of clientesFiltrados) {
-      if (!cliente.lat || !cliente.lng) continue;
+      const ubicaciones = colectarUbicaciones(cliente);
+      if (ubicaciones.length === 0) continue;
 
       const esEntregaHoy = idsEntregaHoy.has(cliente.id);
       const estaSeleccionado = seleccionados.has(cliente.id);
       const tienePendientes = cliente.pedidos_pendientes > 0;
+      const grupo = grupoDelCliente(cliente.id);
 
-      let tipo = 'normal';
-      if (esEntregaHoy) {
-        tipo = 'hoy';
-      } else if (tienePendientes) {
-        tipo = 'pendiente';
-      }
-
-      let icono;
-      if (estaSeleccionado) {
+      let primaryIcon;
+      if (modoProgramar && grupo) {
+        const num = (grupo.ordenRuta.indexOf(cliente.id) + 1) || (grupo.clienteIds.indexOf(cliente.id) + 1);
+        primaryIcon = crearIconoGrupo(grupo.color, num);
+      } else if (estaSeleccionado) {
         const num = ordenRuta.indexOf(cliente.id) + 1;
-        icono = crearIconoSeleccionado(num);
+        primaryIcon = crearIconoSeleccionado(num);
       } else if (esEntregaHoy) {
-        icono = crearIconoPendiente(false);
+        primaryIcon = crearIconoPendiente(false);
       } else if (tienePendientes) {
-        icono = crearIcono('#22c55e', true);
+        primaryIcon = crearIcono('#22c55e', true);
       } else {
-        icono = crearIcono('#3b82f6');
+        primaryIcon = crearIcono('#3b82f6');
       }
 
-      const marker = L.marker([cliente.lat, cliente.lng], { icon: icono })
-        .addTo(map)
-        .bindPopup(popupHtml(cliente, tipo));
+      const tipo = tipoForCliente(cliente, esEntregaHoy, tienePendientes);
 
-      marker.on('contextmenu', (e) => {
-        L.DomEvent.preventDefault(e.originalEvent);
-        mostrarMenuContextual(e.originalEvent, cliente.id);
-      });
+      for (const loc of ubicaciones) {
+        const markerKey = loc.addrId ? `${cliente.id}-${loc.addrId}` : `${cliente.id}`;
 
-      if (esEntregaHoy) {
-        marker.on('click', () => toggleSeleccion(cliente.id));
+        const marker = L.marker([loc.lat, loc.lng], { icon: primaryIcon })
+          .addTo(map)
+          .bindPopup(popupHtml(cliente, tipo, loc.label));
+
+        marker.on('contextmenu', (e) => {
+          L.DomEvent.preventDefault(e.originalEvent);
+          mostrarMenuContextual(e.originalEvent, cliente.id);
+        });
+
+        if (modoProgramar) {
+          marker.on('click', () => toggleClienteEnGrupo(cliente.id));
+        } else if (esEntregaHoy) {
+          marker.on('click', () => toggleSeleccion(cliente.id));
+        }
+
+        marcadores[markerKey] = marker;
       }
-
-      marcadores[cliente.id] = marker;
     }
   }
 
-  function popupHtml(cliente, tipo) {
+  function tipoForCliente(cliente, esEntregaHoy, tienePendientes) {
+    if (esEntregaHoy) return 'hoy';
+    if (tienePendientes) return 'pendiente';
+    return 'normal';
+  }
+
+  function popupHtml(cliente, tipo, addrLabel?: string) {
     const items: string[] = [];
     items.push(`<strong>${cliente.nombre}</strong>`);
+    if (addrLabel && addrLabel !== cliente.domicilio) {
+      items.push(`<span style="color:#2563eb;font-weight:600;">📍 ${addrLabel}</span>`);
+    }
     items.push(`<span style="color:var(--text-secondary);">${cliente.domicilio ?? ''}</span>`);
     if (cliente.telefono) items.push(`&#128222; ${cliente.telefono}`);
     items.push(`<hr style="margin:6px 0;border-color:#eee;">`);
@@ -468,8 +596,18 @@
       items.push(`<span style="color:#22c55e;font-weight:600;">&#128230; ${cliente.pedidos_pendientes} pedido${cliente.pedidos_pendientes > 1 ? 's' : ''} pendiente${cliente.pedidos_pendientes > 1 ? 's' : ''}</span>`);
     }
 
+    const sinGeo = (cliente.addresses || []).filter(a => a.lat == null || a.lng == null);
+    if (sinGeo.length > 0) {
+      items.push(`<hr style="margin:6px 0;border-color:#eee;">`);
+      for (const a of sinGeo) {
+        items.push(
+          `<button data-action="geocodificar-address" data-client-id="${cliente.id}" data-address-id="${a.id}" style="background:transparent;border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:var(--font, sans-serif);color:#2563eb;width:100%;margin-top:3px;">📍 Geocodificar "${a.label || a.address}"</button>`
+        );
+      }
+    }
+
     items.push(`<hr style="margin:6px 0;border-color:#eee;">`);
-    items.push(`<button data-action="geocodificar" data-id="${cliente.id}" style="background:transparent;border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:var(--font, sans-serif);color:#374151;width:100%;">📍 Geocodificar</button>`);
+    items.push(`<button data-action="geocodificar" data-id="${cliente.id}" style="background:transparent;border:1px solid #d1d5db;border-radius:6px;padding:4px 8px;font-size:11px;cursor:pointer;font-family:var(--font, sans-serif);color:#374151;width:100%;">📍 Geocodificar cliente</button>`);
 
     return `<div style="font-family:sans-serif;font-size:13px;min-width:180px;display:flex;flex-direction:column;gap:2px;">${items.join('')}</div>`;
   }
@@ -488,6 +626,137 @@
     }
     seleccionados = new Set(seleccionados);
     renderizarMarcadores();
+  }
+
+  function toggleClienteEnGrupo(clienteId: number) {
+    if (!grupoActivoId) return;
+    const g = grupos.get(grupoActivoId);
+    if (!g) return;
+    const updated = new Map(grupos);
+    const idx = g.clienteIds.indexOf(clienteId);
+    if (idx >= 0) {
+      updated.set(grupoActivoId, {
+        ...g,
+        clienteIds: g.clienteIds.filter((id: number) => id !== clienteId),
+        ordenRuta: g.ordenRuta.filter((id: number) => id !== clienteId),
+      });
+    } else {
+      updated.set(grupoActivoId, {
+        ...g,
+        clienteIds: [...g.clienteIds, clienteId],
+        ordenRuta: [...g.ordenRuta, clienteId],
+      });
+    }
+    grupos = updated;
+    renderizarMarcadores();
+  }
+
+  function crearGrupo() {
+    const color = CONSOLA_COLORS[colorIdx % CONSOLA_COLORS.length];
+    colorIdx++;
+    const id = `grupo-${Date.now()}`;
+    const nuevo = { id, nombre: `Viaje ${grupos.size + 1}`, clienteIds: [], ordenRuta: [], color };
+    const updated = new Map(grupos);
+    updated.set(id, nuevo);
+    grupos = updated;
+    grupoActivoId = id;
+    renderizarMarcadores();
+  }
+
+  function eliminarGrupo(id: string) {
+    const updated = new Map(grupos);
+    updated.delete(id);
+    grupos = updated;
+    if (grupoActivoId === id) grupoActivoId = updated.size > 0 ? [...updated.keys()][0] : null;
+    renderizarMarcadores();
+  }
+
+  function quitarClienteDeGrupo(groupId: string, clienteId: number) {
+    const g = grupos.get(groupId);
+    if (!g) return;
+    const updated = new Map(grupos);
+    updated.set(groupId, {
+      ...g,
+      clienteIds: g.clienteIds.filter((id: number) => id !== clienteId),
+      ordenRuta: g.ordenRuta.filter((id: number) => id !== clienteId),
+    });
+    grupos = updated;
+    renderizarMarcadores();
+  }
+
+  function reordenarGrupo(groupId: string, nuevoOrden: number[]) {
+    const g = grupos.get(groupId);
+    if (!g) return;
+    const updated = new Map(grupos);
+    updated.set(groupId, { ...g, ordenRuta: nuevoOrden });
+    grupos = updated;
+    renderizarMarcadores();
+  }
+
+  function moverClienteAGrupo(clienteId: number, targetGroupId: string) {
+    const grupoOrigen = grupoDelCliente(clienteId);
+    const updated = new Map(grupos);
+
+    if (grupoOrigen) {
+      updated.set(grupoOrigen.id, {
+        ...grupoOrigen,
+        clienteIds: grupoOrigen.clienteIds.filter((id: number) => id !== clienteId),
+        ordenRuta: grupoOrigen.ordenRuta.filter((id: number) => id !== clienteId),
+      });
+    }
+
+    const target = updated.get(targetGroupId);
+    if (target) {
+      updated.set(targetGroupId, {
+        ...target,
+        clienteIds: [...target.clienteIds, clienteId],
+        ordenRuta: [...target.ordenRuta, clienteId],
+      });
+    }
+
+    grupos = updated;
+    renderizarMarcadores();
+  }
+
+  async function cargarPlan() {
+    try {
+      const plan = await api.getPlanViaje(fecha);
+      if (plan && plan.grupos && plan.grupos.length > 0) {
+        const m = new Map();
+        for (const g of plan.grupos) {
+          m.set(g.id, g);
+        }
+        grupos = m;
+        grupoActivoId = plan.grupos[0].id;
+        planViajeId = plan.id;
+        modoProgramar = true;
+        renderizarMarcadores();
+      }
+    } catch {}
+  }
+
+  async function guardarPlan() {
+    guardandoPlan = true;
+    try {
+      if (grupos.size === 0) {
+        if (planViajeId) await api.deletePlanViaje(planViajeId);
+        planViajeId = null;
+        appStore.showToast('Plan eliminado', 'success');
+        return;
+      }
+      const data = { fecha, grupos: [...grupos.values()] };
+      if (planViajeId) {
+        await api.updatePlanViaje(planViajeId, data);
+      } else {
+        const res = await api.savePlanViaje(data);
+        planViajeId = res.id;
+      }
+      appStore.showToast('Plan guardado', 'success');
+    } catch {
+      appStore.showToast('Error al guardar el plan', 'error');
+    } finally {
+      guardandoPlan = false;
+    }
   }
 
   async function buscarDireccion(e) {
@@ -825,9 +1094,13 @@
 
   function centrarEnCliente(id) {
     const c = todosLosClientes.find(c => c.id === id) ?? clientesDelDia.find(c => c.id === id);
-    if (c && c.lat && c.lng) {
-      map.setView([c.lat, c.lng], 16);
-      marcadores[id]?.openPopup();
+    if (!c) return;
+    const mk = Object.keys(marcadores).find(k => k === `${id}` || k.startsWith(`${id}-`));
+    if (!mk) return;
+    const m = marcadores[mk];
+    if (m) {
+      map.setView(m.getLatLng(), 16);
+      m.openPopup();
     }
   }
 
@@ -850,34 +1123,28 @@
     finally { geocodificandoClienteId = null; }
   }
 
+  async function geocodificarAddressEnMapa(clienteId: number, addressId: number) {
+    try {
+      const res = await api.geocodificarAddress(clienteId, addressId);
+      if (res?.lat && res?.lng) {
+        const c = todosLosClientes.find(c => c.id === clienteId);
+        if (c && c.addresses) {
+          const addr = c.addresses.find((a: any) => a.id === addressId);
+          if (addr) { addr.lat = res.lat; addr.lng = res.lng; }
+        }
+        renderizarMarcadores();
+      }
+    } catch (e: any) {
+      appStore.showToast('Error al geocodificar dirección: ' + (e.message || e), 'error');
+    }
+  }
+
   function openEditClienteModal(clienteId: number) {
     const c = todosLosClientes.find(cc => cc.id === clienteId) ?? clientesDelDia.find(cc => cc.id === clienteId);
     if (!c) return;
     editClienteData = c;
-    editClienteForm = {
-      nombre: c.nombre || '',
-      domicilio: c.domicilio || '',
-      telefono: c.telefono || '',
-      taller: c.taller || '',
-      estudiante: c.estudiante || '',
-    };
     showEditClienteModal = true;
     menuContextual = null;
-  }
-
-  async function saveEditCliente() {
-    if (!editClienteData) return;
-    if (!editClienteForm.nombre.trim()) return;
-    try {
-      await api.updateCliente(editClienteData.id, editClienteForm);
-      const c = todosLosClientes.find(cc => cc.id === editClienteData.id);
-      if (c) Object.assign(c, editClienteForm);
-      const cd = clientesDelDia.find(cc => cc.id === editClienteData.id);
-      if (cd) Object.assign(cd, editClienteForm);
-      showEditClienteModal = false;
-      editClienteData = null;
-      renderizarMarcadores();
-    } catch {}
   }
 
   function closeEditClienteModal() {
@@ -885,19 +1152,11 @@
     editClienteData = null;
   }
 
-  async function geocodificarClienteModal() {
-    if (!editClienteData || !editClienteForm.domicilio.trim()) return;
-    geocodificandoClienteId = editClienteData.id;
-    try {
-      const res = await api.geocodificarCliente(editClienteData.id);
-      if (res?.lat && res?.lng) {
-        const c = todosLosClientes.find(cc => cc.id === editClienteData.id);
-        if (c) { c.lat = res.lat; c.lng = res.lng; }
-        const cd = clientesDelDia.find(cc => cc.id === editClienteData.id);
-        if (cd) { cd.lat = res.lat; cd.lng = res.lng; }
-      }
-    } catch {}
-    finally { geocodificandoClienteId = null; }
+  function onClienteSaved() {
+    showEditClienteModal = false;
+    editClienteData = null;
+    cacheStore.invalidate('mapa-clientes');
+    renderizarMarcadores();
   }
 
   function onRecomendacionSeleccionar(ids) {
@@ -922,11 +1181,13 @@
 <div class="mapa-wrapper">
     <aside class="panel">
       <div class="kanban-filtro">
-        <button class="kf-btn" class:kf-activo={filtroKanban === 'TODOS'} onclick={() => filtroKanban = 'TODOS'}>Todos</button>
-        <button class="kf-btn" class:kf-activo={filtroKanban === 'PEDIDO'} onclick={() => filtroKanban = 'PEDIDO'}>Pedido</button>
-        <button class="kf-btn" class:kf-activo={filtroKanban === 'EN_PROCESO'} onclick={() => filtroKanban = 'EN_PROCESO'}>En Proceso</button>
-        <button class="kf-btn" class:kf-activo={filtroKanban === 'LISTO'} onclick={() => filtroKanban = 'LISTO'}>Listo</button>
+        <button class="kf-btn" class:kf-activo={filtroKanban.length === 0} onclick={() => filtroKanban = []}>Todos</button>
+        <button class="kf-btn" class:kf-activo={filtroKanban.includes('PEDIDO')} onclick={() => toggleFiltroKanban('PEDIDO')}>Pedido</button>
+        <button class="kf-btn" class:kf-activo={filtroKanban.includes('EN_PROCESO')} onclick={() => toggleFiltroKanban('EN_PROCESO')}>En Proceso</button>
+        <button class="kf-btn" class:kf-activo={filtroKanban.includes('LISTO')} onclick={() => toggleFiltroKanban('LISTO')}>Listo</button>
       </div>
+
+
 
       {#if cargando}
         <p class="info-text">Cargando...</p>
@@ -945,15 +1206,24 @@
             <li
               class="cliente-item"
               class:seleccionado={seleccionados.has(cliente.id)}
-              onclick={cliente.tipo_marcador === 'hoy' ? () => toggleSeleccion(cliente.id) : () => centrarEnCliente(cliente.id)}
+              onclick={modoProgramar ? () => toggleClienteEnGrupo(cliente.id) : (cliente.tipo_marcador === 'hoy' ? () => toggleSeleccion(cliente.id) : () => centrarEnCliente(cliente.id))}
               oncontextmenu={(e) => mostrarMenuContextual(e, cliente.id)}
             >
-              <span
-                class="cliente-geo"
-                class:geo-ok={cliente.lat && cliente.lng}
-                class:geo-bad={!cliente.lat || !cliente.lng}
-                title={!cliente.lat || !cliente.lng ? 'Sin geocodificar' : 'Geocodificado'}
-              >{cliente.lat && cliente.lng ? '✓' : '✗'}</span>
+              {#if modoProgramar}
+                {@const g = grupoDelCliente(cliente.id)}
+                <span
+                  class="cliente-geo"
+                  style={g ? `background:${g.color};color:white;` : ''}
+                  title={g ? `En grupo: ${g.nombre}` : (!cliente.lat || !cliente.lng ? 'Sin geocodificar' : 'Geocodificado')}
+                >{g ? g.nombre[0] : (cliente.lat && cliente.lng ? '✓' : '✗')}</span>
+              {:else}
+                <span
+                  class="cliente-geo"
+                  class:geo-ok={cliente.lat && cliente.lng}
+                  class:geo-bad={!cliente.lat || !cliente.lng}
+                  title={!cliente.lat || !cliente.lng ? 'Sin geocodificar' : 'Geocodificado'}
+                >{cliente.lat && cliente.lng ? '✓' : '✗'}</span>
+              {/if}
               {#if seleccionados.has(cliente.id)}
                 {#if editandoOrdenId === cliente.id}
                   <input
@@ -1029,6 +1299,22 @@
     <div class="mapa-container" bind:this={mapContainer} onclick={() => { cerrarMenuContextual(); cerrarEdicion(); }}></div>
 </div>
 
+<PanelProgramarViajes
+  {grupos}
+  {grupoActivoId}
+  {todosLosClientes}
+  {clientesDelDia}
+  {fecha}
+  {modoProgramar}
+  onclose={() => { modoProgramar = false; renderizarMarcadores(); }}
+  oncreategrupo={crearGrupo}
+  ondeletergrupo={eliminarGrupo}
+  onsetactivo={(id: string | null) => { grupoActivoId = id; renderizarMarcadores(); }}
+  onsave={guardarPlan}
+  onremovecliente={quitarClienteDeGrupo}
+  onreorder={reordenarGrupo}
+/>
+
 {#if menuContextual}
   <div
     class="context-menu"
@@ -1036,19 +1322,46 @@
     onclick={(e) => e.stopPropagation()}
     role="menu"
   >
-    {#if seleccionados.has(menuContextual.id)}
-      <button class="context-item" onclick={() => { quitarDeRuta(menuContextual.id); }}>
-        ❌ Quitar de ruta
-      </button>
-      <button class="context-item" onclick={() => { const id = menuContextual.id; menuContextual = null; empezarEdicionOrden(id); }}>
-        🔢 Asignar orden
-      </button>
+    {#if modoProgramar}
+      {#if grupoActivoId}
+        {@const grupoCliente = menuContextual ? grupoDelCliente(menuContextual.id) : null}
+        {#if grupoCliente}
+          <button class="context-item" onclick={() => { const id = menuContextual.id; menuContextual = null; quitarClienteDeGrupo(grupoCliente.id, id); }}>
+            ❌ Quitar de {grupoCliente.nombre}
+          </button>
+          {#each [...grupos.values()] as g}
+            {#if g.id !== grupoCliente.id}
+              <button class="context-item" onclick={() => { const id = menuContextual.id; menuContextual = null; moverClienteAGrupo(id, g.id); }}>
+                ➡️ Mover a {g.nombre}
+              </button>
+            {/if}
+          {/each}
+        {:else}
+          <button class="context-item" onclick={() => { const id = menuContextual.id; menuContextual = null; toggleClienteEnGrupo(id); }}>
+            ➕ Agregar a {grupos.get(grupoActivoId)?.nombre ?? 'grupo activo'}
+          </button>
+        {/if}
+      {:else}
+        <button class="context-item" disabled style="color:var(--text-muted);cursor:default;">
+          ⚠️ Seleccioná un grupo primero
+        </button>
+      {/if}
+      <hr class="context-menu-sep">
     {:else}
-      <button class="context-item" onclick={() => agregarARuta(menuContextual.id)}>
-        ➕ Agregar a ruta
-      </button>
+      {#if seleccionados.has(menuContextual.id)}
+        <button class="context-item" onclick={() => { quitarDeRuta(menuContextual.id); }}>
+          ❌ Quitar de ruta
+        </button>
+        <button class="context-item" onclick={() => { const id = menuContextual.id; menuContextual = null; empezarEdicionOrden(id); }}>
+          🔢 Asignar orden
+        </button>
+      {:else}
+        <button class="context-item" onclick={() => agregarARuta(menuContextual.id)}>
+          ➕ Agregar a ruta
+        </button>
+      {/if}
+      <hr class="context-menu-sep">
     {/if}
-    <hr class="context-menu-sep">
     <button class="context-item" onclick={() => { const id = menuContextual.id; menuContextual = null; openEditClienteModal(id); }}>
       ✏️ Editar cliente
     </button>
@@ -1066,39 +1379,12 @@
   onseleccionar={onRecomendacionSeleccionar}
 />
 
-{#if showEditClienteModal && editClienteData}
-  <div class="overlay" onclick={closeEditClienteModal}>
-    <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <h3>Editar Cliente</h3>
-      <form onsubmit={(e) => { e.preventDefault(); saveEditCliente(); }}>
-        <label>Nombre *</label>
-        <input type="text" bind:value={editClienteForm.nombre} required />
-        <label>Teléfono</label>
-        <input type="text" bind:value={editClienteForm.telefono} />
-        <label>Domicilio</label>
-        <input type="text" bind:value={editClienteForm.domicilio} />
-        <label>Taller</label>
-        <input type="text" bind:value={editClienteForm.taller} />
-        <label>Estudiante / Galería</label>
-        <input type="text" bind:value={editClienteForm.estudiante} />
-        <div class="modal-actions">
-          {#if editClienteForm.domicilio}
-            <button
-              type="button"
-              class="btn-geo-modal"
-              onclick={geocodificarClienteModal}
-              disabled={geocodificandoClienteId === editClienteData.id}
-            >
-              {geocodificandoClienteId === editClienteData.id ? '⏳ Geocodificando...' : '📍 Geocodificar ubicación'}
-            </button>
-          {/if}
-          <button type="submit" class="btn-primary">Guardar</button>
-          <button type="button" class="btn-secondary" onclick={closeEditClienteModal}>Cancelar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-{/if}
+<EditClienteModal
+  show={showEditClienteModal}
+  cliente={editClienteData}
+  onclose={closeEditClienteModal}
+  onsaved={onClienteSaved}
+/>
 
 <style>
   :global(.pin-pendiente) { background: transparent !important; border: none !important; }
@@ -1442,6 +1728,7 @@
   .mapa-container {
     flex: 1;
     z-index: 1;
+    position: relative;
   }
 
   @media (max-width: 640px) {
