@@ -760,12 +760,12 @@ fn delete_station(
 #[tauri::command]
 fn get_print_job_history(
     state: tauri::State<AppState>,
+    station_key: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
-    let api_key = config
-        .station_api_key
-        .clone()
-        .ok_or("No hay API key configurada")?;
+    let api_key = station_key
+        .or_else(|| config.station_api_key.clone())
+        .ok_or("No hay API key. ¿Registraste la estación o seleccionaste una estación destino?")?;
     drop(config);
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
@@ -773,6 +773,39 @@ fn get_print_job_history(
         let client = reqwest::Client::new();
         let resp = client
             .get("https://api-bastidores.onrender.com/print-jobs/history")
+            .header("X-Api-Key", &api_key)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await
+            .map_err(|e| format!("Error de red: {}", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(format!("HTTP {}: {}", status, text));
+        }
+
+        resp.json().await.map_err(|e| e.to_string())
+    })
+}
+
+#[tauri::command]
+fn cancel_print_job(
+    state: tauri::State<AppState>,
+    job_id: u32,
+    station_key: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let config = state.config.lock().map_err(|e| e.to_string())?;
+    let api_key = station_key
+        .or_else(|| config.station_api_key.clone())
+        .ok_or("No hay API key")?;
+    drop(config);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async {
+        let client = reqwest::Client::new();
+        let resp = client
+            .patch(format!("https://api-bastidores.onrender.com/print-jobs/{}/cancel", job_id))
             .header("X-Api-Key", &api_key)
             .timeout(std::time::Duration::from_secs(10))
             .send()
@@ -840,6 +873,7 @@ pub fn run() {
             check_print_job_status,
             delete_station,
             get_print_job_history,
+            cancel_print_job,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

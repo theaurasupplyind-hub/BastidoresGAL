@@ -9,12 +9,21 @@
   import Toast from '$lib/components/Toast.svelte';
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import PreciosReferenciaModal from '$lib/components/PreciosReferenciaModal.svelte';
+  import PricingRulesModal from '$lib/components/PricingRulesModal.svelte';
 
   let view = $state<'login' | 'splash' | 'dashboard'>('login');
 
   onMount(async () => {
     const saved = localStorage.getItem('theme-dark');
     document.documentElement.setAttribute('data-theme', saved === 'true' ? 'dark' : 'light');
+    const zoom = localStorage.getItem('zoom-level');
+    if (zoom) {
+      const f = parseFloat(zoom);
+      if (f && f !== 1) {
+        document.documentElement.style.setProperty('--zoom', String(f));
+        document.documentElement.setAttribute('data-zoom', 'true');
+      }
+    }
 
     try {
       const user = await invoke<{ user_id: number; user_name: string } | null>('get_user');
@@ -57,6 +66,9 @@
 {/if}
 {#if appStore.showPreciosRef}
   <PreciosReferenciaModal />
+{/if}
+{#if appStore.showPricingRules}
+  <PricingRulesModal />
 {/if}
 
 <style>

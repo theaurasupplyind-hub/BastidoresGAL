@@ -9,6 +9,8 @@ let _onlineCount = $state(0);
 let _onlineUsers = $state<any[]>([]);
 let _showSettings = $state(false);
 let _showPreciosRef = $state(false);
+let _showPricingRules = $state(false);
+let _zoomLevel = $state(1); // factor, 1 = 100%
 
 // Facturacion shared state for top-bar actions
 let _facturacionSaving = $state(false);
@@ -55,6 +57,12 @@ export const appStore = {
 
   get showPreciosRef() { return _showPreciosRef; },
   set showPreciosRef(v: boolean) { _showPreciosRef = v; },
+
+  get showPricingRules() { return _showPricingRules; },
+  set showPricingRules(v: boolean) { _showPricingRules = v; },
+
+  get zoomLevel() { return _zoomLevel; },
+  set zoomLevel(v: number) { _zoomLevel = v; },
 
   get facturacionSaving() { return _facturacionSaving; },
   set facturacionSaving(v: boolean) { _facturacionSaving = v; },

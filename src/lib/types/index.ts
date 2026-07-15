@@ -208,3 +208,33 @@ export interface PlanDeViaje {
 }
 
 export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent' | 'panel-control';
+
+// ── Reglas de precios ──
+
+export interface ParsedQuery {
+  tokens: string[];
+  dims: string[];
+  base: string;
+  grosor: number | null;
+}
+
+export interface RuleCondition {
+  field: 'grosor' | 'lado_mayor' | 'lado_menor';
+  operator: '>' | '<' | '>=' | '<=' | '==';
+  value: number;
+  adjustmentType: 'percentage' | 'fixed';
+  adjustmentValue: number;
+}
+
+export interface PricingRule {
+  id?: number;
+  name: string;
+  matchTokens: string[];
+  baseCategoria: string;
+  baseVariante: string;
+  operation: 'direct' | 'percentage' | 'fixed' | 'override';
+  operationValue: number;
+  conditions: RuleCondition[];
+  enabled: boolean;
+  rounding: number;
+}

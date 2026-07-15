@@ -303,6 +303,19 @@ export const api = {
   importPreciosReferencia: (rows: import('$lib/types').PrecioReferencia[]) =>
     request<{ status: string; imported: number }>('POST', '/precios-referencia/import', { rows }, 15),
 
+  // ---- Pricing Rules ----
+  getPricingRules: () =>
+    handleResponse(request<import('$lib/types').PricingRule[]>('GET', '/pricing-rules', undefined, 10), []),
+
+  savePricingRule: (data: Omit<import('$lib/types').PricingRule, 'id'>) =>
+    request<import('$lib/types').PricingRule>('POST', '/pricing-rules', data, 10),
+
+  updatePricingRule: (id: number, data: Partial<import('$lib/types').PricingRule>) =>
+    request<import('$lib/types').PricingRule>('PUT', `/pricing-rules/${id}`, data, 10),
+
+  deletePricingRule: (id: number) =>
+    request<{ status: string }>('DELETE', `/pricing-rules/${id}`),
+
   // ---- Tasks ----
   listTasks: () =>
     handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null }[]>('GET', '/tasks', undefined, 10), []),

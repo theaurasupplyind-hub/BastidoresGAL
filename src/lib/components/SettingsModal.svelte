@@ -16,6 +16,8 @@
   });
 
   let darkMode = $state(false);
+  let zoomLevel = $state(1);
+  let zoomPercent = $state(100);
   let loading = $state(true);
   let printers = $state<string[]>([]);
   let loadingPrinters = $state(true);
@@ -36,6 +38,14 @@
     const saved = localStorage.getItem('theme-dark');
     darkMode = saved === 'true';
     applyTheme();
+    const savedZoom = localStorage.getItem('zoom-level');
+    if (savedZoom) {
+      const f = parseFloat(savedZoom);
+      if (f) {
+        zoomLevel = f;
+        zoomPercent = Math.round(f * 100);
+      }
+    }
   });
 
   function applyTheme() {
@@ -46,6 +56,23 @@
     darkMode = !darkMode;
     localStorage.setItem('theme-dark', String(darkMode));
     applyTheme();
+  }
+
+  function applyZoom() {
+    const factor = zoomPercent / 100;
+    zoomLevel = factor;
+    document.documentElement.style.setProperty('--zoom', String(factor));
+    if (factor === 1) {
+      document.documentElement.removeAttribute('data-zoom');
+    } else {
+      document.documentElement.setAttribute('data-zoom', 'true');
+    }
+    localStorage.setItem('zoom-level', String(factor));
+  }
+
+  function handleZoom(e: Event) {
+    zoomPercent = parseInt((e.target as HTMLInputElement).value);
+    applyZoom();
   }
 
   async function save() {
@@ -80,6 +107,12 @@
           </span>
           <span class="toggle-label">{darkMode ? 'On' : 'Off'}</span>
         </button>
+
+        <label>Zoom</label>
+        <div class="zoom-row">
+          <input type="range" min="100" max="250" value={zoomPercent} oninput={handleZoom} class="zoom-slider" />
+          <span class="zoom-pct">{zoomPercent}%</span>
+        </div>
 
         <label>Tema Visual</label>
         <select bind:value={config.theme}>
@@ -188,4 +221,22 @@
   }
   .toggle-btn.active .toggle-thumb { transform: translateX(1.1rem); }
   .toggle-label { font-weight: 500; }
+  .zoom-row {
+    display: flex;
+    align-items: center;
+    gap: 0.714rem;
+  }
+  .zoom-slider {
+    flex: 1;
+    accent-color: var(--accent);
+    height: 1.5rem;
+    cursor: pointer;
+  }
+  .zoom-pct {
+    font-size: 0.929rem;
+    font-weight: 600;
+    color: var(--accent);
+    min-width: 3rem;
+    text-align: right;
+  }
 </style>

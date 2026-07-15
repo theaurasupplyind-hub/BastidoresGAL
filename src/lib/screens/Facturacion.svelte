@@ -4,7 +4,7 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import type { Factura, InvoiceItem, Cliente, Producto } from '$lib/types';
+  import type { Factura, InvoiceItem, Cliente, Producto, PrecioReferencia, PricingRule } from '$lib/types';
   import { invoke } from '@tauri-apps/api/core';
   import { Image } from '@tauri-apps/api/image';
   import { writeImage } from '@tauri-apps/plugin-clipboard-manager';
@@ -14,7 +14,7 @@
   import MoldurasModal from '$lib/components/MoldurasModal.svelte';
   import PagoDialog from '$lib/components/PagoDialog.svelte';
   import PriceListModal from '$lib/components/PriceListModal.svelte';
-  import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, type PriceSuggestion } from '$lib/utils/precios';
+  import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, type PriceSuggestion } from '$lib/utils/precios';
 import { nominatimSearchUrl, limpiarDireccion } from '$lib/utils/geocoding';
 import type { ClientAddress } from '$lib/types';
 
@@ -24,6 +24,8 @@ import type { ClientAddress } from '$lib/types';
   let currentIndex = $state(-1);
   let clientes = $state<Cliente[]>([]);
   let productos = $state<Producto[]>([]);
+  let preciosReferencia = $state<PrecioReferencia[]>([]);
+  let pricingRules = $state<PricingRule[]>([]);
   let formAreaRef = $state<HTMLElement>();
 
   function getFocusable(): HTMLElement[] {
@@ -200,6 +202,7 @@ import type { ClientAddress } from '$lib/types';
   let priceAdjustIndex = $state(-1);
   let priceAdjustSuggestion = $state<PriceSuggestion | null>(null);
   let priceAdjustValue = $state(0);
+  let priceInputEl = $state<HTMLInputElement | null>(null);
   let clienteSearch = $state('');
   let showClienteResults = $state(false);
   let selectedClienteIndex = $state(-1);
@@ -292,7 +295,7 @@ import type { ClientAddress } from '$lib/types';
   let _initialized = $state(false);
 
   onMount(async () => {
-    await Promise.all([loadClientes(), loadProductos(), refreshHistory()]);
+    await Promise.all([loadClientes(), loadProductos(), loadPreciosReferencia(), loadPricingRules(), refreshHistory()]);
     if (appStore.pendingInvoiceId != null) {
       await loadInvoice(appStore.pendingInvoiceId);
       appStore.pendingInvoiceId = null;
@@ -302,11 +305,13 @@ import type { ClientAddress } from '$lib/types';
     _initialized = true;
     document.addEventListener('mousemove', dragMove);
     document.addEventListener('mouseup', dragEnd);
+    document.addEventListener('visibilitychange', onVisibilityChange);
   });
 
   onDestroy(() => {
     document.removeEventListener('mousemove', dragMove);
     document.removeEventListener('mouseup', dragEnd);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
   });
 
   $effect(() => {
@@ -335,10 +340,47 @@ import type { ClientAddress } from '$lib/types';
     }
   }
 
+  async function loadPreciosReferencia() {
+    try {
+      preciosReferencia = await cacheStore.fetch('preciosReferencia', () => api.getPreciosReferencia(), 1800000);
+    } catch {
+      preciosReferencia = [];
+    }
+  }
+
+  async function loadPricingRules() {
+    try {
+      const raw = await api.getPricingRules();
+      if (raw && raw.length > 0) {
+        pricingRules = raw.map((r: any) => ({
+          id: r.id,
+          name: r.name || '',
+          matchTokens: typeof (r.matchTokens ?? r.match_tokens) === 'string'
+            ? JSON.parse((r.matchTokens ?? r.match_tokens) || '[]')
+            : (Array.isArray(r.matchTokens ?? r.match_tokens) ? (r.matchTokens ?? r.match_tokens) : []),
+          baseCategoria: r.baseCategoria ?? r.base_categoria ?? '',
+          baseVariante: r.baseVariante ?? r.base_variante ?? '',
+          operation: r.operation ?? 'direct',
+          operationValue: r.operationValue ?? r.operation_value ?? 0,
+          conditions: typeof (r.conditions) === 'string'
+            ? JSON.parse(r.conditions || '[]')
+            : (Array.isArray(r.conditions) ? r.conditions : []),
+          enabled: r.enabled ?? true,
+          rounding: r.rounding ?? 1000,
+        }));
+      } else {
+        pricingRules = [];
+      }
+    } catch {
+      pricingRules = [];
+    }
+  }
+
   function invalidateCache() {
     cacheStore.invalidate('facturas');
     cacheStore.invalidate('clientes');
     cacheStore.invalidate('productos');
+    cacheStore.invalidate('preciosReferencia');
   }
 
   function selectCliente(c: Cliente) {
@@ -374,11 +416,19 @@ import type { ClientAddress } from '$lib/types';
 
   function selectSuggestion(index: number, sug: PriceSuggestion) {
     (document.activeElement as HTMLElement)?.blur();
-    items[index].descripcion = sug.description;
+    const userQuery = productSearch[index];
+    let newDesc = sug.description;
+    const sugBase = sug.basedOn;
+    if (sugBase) {
+      const cleanBase = sugBase.includes(' → ') ? sugBase.split(' → ').pop()!.trim() : sugBase;
+      const userDims = userQuery.match(/\d+\s*[xX×]\s*\d+/);
+      newDesc = userDims ? cleanBase.replace(/\d+\s*[xX×]\s*\d+/i, userDims[0]) : cleanBase;
+    }
+    items[index].descripcion = newDesc;
     items[index].precio_unitario = sug.price;
     items[index].total = items[index].cantidad * sug.price;
     items = items;
-    productSearch[index] = sug.description;
+    productSearch[index] = newDesc;
     productSearch = productSearch;
     showProdResults[index] = false;
     selectedProdIndex[index] = -1;
@@ -389,14 +439,16 @@ import type { ClientAddress } from '$lib/types';
   }
 
   function applyPriceAdjust() {
-    if (priceAdjustIndex >= 0 && priceAdjustValue > 0) {
-      items[priceAdjustIndex].precio_unitario = priceAdjustValue;
-      items[priceAdjustIndex].total = items[priceAdjustIndex].cantidad * priceAdjustValue;
+    const idx = priceAdjustIndex;
+    if (idx >= 0 && priceAdjustValue > 0) {
+      items[idx].precio_unitario = priceAdjustValue;
+      items[idx].total = items[idx].cantidad * priceAdjustValue;
       items = items;
     }
     showPriceModal = false;
     priceAdjustIndex = -1;
     priceAdjustSuggestion = null;
+    setTimeout(() => focusRowInput(idx), 50);
   }
 
   function adjustByPercent(pct: number) {
@@ -405,18 +457,41 @@ import type { ClientAddress } from '$lib/types';
   }
 
   function cancelPriceAdjust() {
-    if (priceAdjustIndex >= 0 && priceAdjustSuggestion) {
-      items[priceAdjustIndex].precio_unitario = priceAdjustSuggestion.price;
-      items[priceAdjustIndex].total = items[priceAdjustIndex].cantidad * priceAdjustSuggestion.price;
+    const idx = priceAdjustIndex;
+    if (idx >= 0 && priceAdjustSuggestion) {
+      items[idx].precio_unitario = priceAdjustSuggestion.price;
+      items[idx].total = items[idx].cantidad * priceAdjustSuggestion.price;
       items = items;
     }
     showPriceModal = false;
     priceAdjustIndex = -1;
     priceAdjustSuggestion = null;
+    setTimeout(() => focusRowInput(idx), 50);
   }
 
+  function focusRowInput(idx: number) {
+    const row = document.querySelector(`.items-row[data-index="${idx}"]`);
+    if (row) {
+      const input = row.querySelector('.autocomplete-wrap.col-desc input');
+      if (input) (input as HTMLInputElement).focus();
+    }
+  }
+
+  function onVisibilityChange() {
+    if (document.visibilityState === 'visible') refreshHistory();
+  }
+
+  $effect(() => {
+    if (showPriceModal && priceInputEl) {
+      priceInputEl.focus();
+      priceInputEl.select();
+    }
+  });
+
   function getAllResults(index: number): Array<{ type: 'suggestion' | 'product'; data: any }> {
-    const suggs = (productSuggestions[index] || []).map((s: PriceSuggestion) => ({ type: 'suggestion' as const, data: s }));
+    const suggs = (productSuggestions[index] || [])
+      .filter((s: PriceSuggestion) => !s.hint)
+      .map((s: PriceSuggestion) => ({ type: 'suggestion' as const, data: s }));
     const prods = smartProductSearch(productSearch[index], productos).map((p: Producto) => ({ type: 'product' as const, data: p }));
     return [...suggs, ...prods];
   }
@@ -1013,7 +1088,7 @@ import type { ClientAddress } from '$lib/types';
 
   async function refreshHistory() {
     try {
-      facturas = await cacheStore.fetch('facturas:historico', () => api.listFacturas({ limit: 2000 }), 60000);
+      facturas = await api.listFacturas({ limit: 2000 });
     } catch {
       facturas = [];
     }
@@ -1401,13 +1476,7 @@ import type { ClientAddress } from '$lib/types';
                     oninput={() => {
                       items[i].descripcion = productSearch[i];
                       items = items;
-                      const filtered = smartProductSearch(productSearch[i], productos);
-                      const { dims: qDims } = getBaseAndDims(productSearch[i]);
-                      const hasExact = qDims.size > 0 && filtered.some(p => {
-                        const { dims: pDims } = getBaseAndDims(p.descripcion);
-                        return [...qDims].every(d => pDims.has(d));
-                      });
-                      productSuggestions[i] = hasExact ? [] : suggestPrice(productSearch[i], productos);
+                      productSuggestions[i] = suggestPrice(productSearch[i], refsToProductos(preciosReferencia), pricingRules);
                       productSuggestions = productSuggestions;
                       selectedProdIndex[i] = -1;
                       selectedProdIndex = selectedProdIndex;
@@ -1424,18 +1493,24 @@ import type { ClientAddress } from '$lib/types';
                       {#if (productSuggestions[i] || []).length > 0}
                         <div class="autocomplete-label">Precios sugeridos</div>
                         {#each (productSuggestions[i] || []) as sug, si}
-                          <div
-                            class="autocomplete-item suggested"
-                            class:selected={si === selectedProdIndex[i]}
-                            onmousedown={(e) => { e.preventDefault(); selectSuggestion(i, sug); }}
-                            role="button"
-                            tabindex="0"
-                            data-prod-row={i}
-                          >
-                            <span class="prod-desc">{sug.basedOn || sug.description}</span>
-                            <span class="prod-price">${sug.price.toFixed(0)}</span>
-                            <span class="prod-tag" class:estimated={sug.estimated}>{sug.estimated ? 'Estimado' : 'Sugerido'}</span>
-                          </div>
+                          {#if sug.hint}
+                            <div class="autocomplete-item autocomplete-hint" data-prod-row={i}>
+                              <span class="prod-desc-hint">{sug.hint}</span>
+                            </div>
+                          {:else}
+                            <div
+                              class="autocomplete-item suggested"
+                              class:selected={si === selectedProdIndex[i]}
+                              onmousedown={(e) => { e.preventDefault(); selectSuggestion(i, sug); }}
+                              role="button"
+                              tabindex="0"
+                              data-prod-row={i}
+                            >
+                              <span class="prod-desc">{sug.basedOn || sug.description}</span>
+                              <span class="prod-price">${sug.price.toFixed(0)}</span>
+                              <span class="prod-tag" class:estimated={sug.estimated}>{sug.estimated ? 'Estimado' : 'Sugerido'}</span>
+                            </div>
+                          {/if}
                         {/each}
                         <div class="autocomplete-divider"></div>
                       {/if}
@@ -1572,7 +1647,7 @@ import type { ClientAddress } from '$lib/types';
 
     {#if showPriceModal && priceAdjustSuggestion}
       <div class="modal-overlay" onclick={cancelPriceAdjust} role="presentation">
-        <div class="modal modal-price" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && cancelPriceAdjust()}>
+        <div class="modal modal-price" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => { if (e.key === 'Escape') cancelPriceAdjust(); if (e.key === 'Enter') applyPriceAdjust(); }}>
           <h3>Ajustar Precio</h3>
           <div class="modal-body">
             <p class="price-suggestion-label">Precio sugerido</p>
@@ -1589,7 +1664,7 @@ import type { ClientAddress } from '$lib/types';
             </div>
             <div class="form-group">
               <label>Precio final:</label>
-              <input type="number" bind:value={priceAdjustValue} min="0" step="1" class="price-final-input" />
+              <input type="number" bind:value={priceAdjustValue} bind:this={priceInputEl} autofocus min="0" step="1" class="price-final-input" />
             </div>
           </div>
           <div class="modal-footer">
@@ -1608,6 +1683,9 @@ import type { ClientAddress } from '$lib/types';
       <div class="history-header">
         <h3>Historial</h3>
         <div class="history-header-actions">
+          <button class="refresh-btn" onclick={refreshHistory} title="Actualizar historial">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+          </button>
           <button class="duplicate-btn" onclick={duplicateInvoice} title="Duplicar factura actual">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
           </button>
@@ -1949,6 +2027,18 @@ import type { ClientAddress } from '$lib/types';
 
   .autocomplete-item .prod-tag.estimated {
     color: var(--accent);
+  }
+  .autocomplete-hint {
+    padding: 0.571rem 0.857rem;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+    font-style: italic;
+    cursor: default;
+    pointer-events: none;
+  }
+  .prod-desc-hint {
+    font-size: var(--text-xs);
+    color: var(--text-muted);
   }
   .autocomplete-label {
     font-size: 0.68rem;
@@ -2596,6 +2686,20 @@ import type { ClientAddress } from '$lib/types';
     align-items: center;
   }
   .duplicate-btn:hover { color: var(--accent); }
+  .refresh-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.143rem 0.286rem;
+    border-radius: 0.286rem;
+    transition: color 0.12s;
+    display: flex;
+    align-items: center;
+  }
+  .refresh-btn:hover { color: var(--accent); transform: rotate(90deg); }
+  .refresh-btn svg { transition: transform 0.3s; }
+  .refresh-btn:hover svg { transform: rotate(90deg); }
 
   .search-wrap {
     position: relative;

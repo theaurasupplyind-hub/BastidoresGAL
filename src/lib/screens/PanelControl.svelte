@@ -82,6 +82,7 @@
   let dragCliente = $state<{ clienteId: number; grupoOrigen: string | null } | null>(null);
   let dragEl = $state<HTMLElement | null>(null);
   let dragOverGrupo = $state<string | null>(null);
+  let showKanbanViajes = $state(false);
 
   function guardarPlanPanel() {
     if (planGrupos.length === 0) return;
@@ -447,18 +448,12 @@
 
     <!-- ENTREGAS DE HOY -->
     <div class="card card-entregas">
-      <div class="card-header entregas-header">
+      <div class="card-header entregas-header" onclick={() => showKanbanViajes = true}>
         <div class="card-title-row">
           <svg class="card-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           <span class="card-title">ENTREGAS DE HOY</span>
         </div>
         <span class="card-badge badge-white">{entregas.reduce((s: number, e: any) => s + (e.facturas?.length || 0), 0)} entregas</span>
-        {#if planDirty}
-          <button class="header-save-btn" onclick={guardarPlanPanel}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            Guardar
-          </button>
-        {/if}
       </div>
       <div class="entregas-stats">
         <div class="entregas-stat">
@@ -514,6 +509,7 @@
                               {#each facts as f}
                                 <span class="factura-chip">
                                   <span class="factura-num">{f.numero_factura}</span>
+                                  <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
                                   <span class="factura-date">{f.fecha || ''}</span>
                                 </span>
                               {/each}
@@ -529,8 +525,8 @@
             {/each}
           {/if}
 
-          {@const sinGrupo = clientesSinGrupo()}
-          {#if sinGrupo.length > 0}
+          {#each [clientesSinGrupo()] as sinGrupo}
+            {#if sinGrupo.length > 0}
             <div
               class="grupo-section grupo-sin-asignar"
               class:drag-over={dragOverGrupo === '__sin_asignar__'}
@@ -561,6 +557,7 @@
                           {#each facts as f}
                             <span class="factura-chip">
                               <span class="factura-num">{f.numero_factura}</span>
+                              <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
                               <span class="factura-date">{f.fecha || ''}</span>
                             </span>
                           {/each}
@@ -572,10 +569,13 @@
               </div>
             </div>
           {/if}
-        {/if}
+        {/each}
+      {/if}
       </div>
       <button class="entregas-link" onclick={() => appStore.currentTab = 'mapa'}>
-        Ver mapa de entregas →
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/></svg>
+        Ver mapa de entregas
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
       </button>
     </div>
 
@@ -689,6 +689,125 @@
         <button class="btn btn-primary" onclick={saveNote} disabled={savingNote}>{savingNote ? 'Guardando...' : 'Guardar'}</button>
         <button class="btn btn-secondary" onclick={closeNotes}>Cerrar</button>
       </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Kanban Viajes -->
+{#if showKanbanViajes}
+  <div class="kanban-overlay" onclick={() => showKanbanViajes = false} role="presentation">
+    <div class="kanban-modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showKanbanViajes = false)}>
+      <div class="kanban-modal-header">
+        <div class="kanban-modal-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          <h2>Viajes del día</h2>
+        </div>
+        <div class="kanban-modal-actions">
+          {#if planDirty}
+            <button class="kanban-btn-save" onclick={guardarPlanPanel}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              Guardar
+            </button>
+          {/if}
+          <button class="kanban-btn-close" onclick={() => showKanbanViajes = false}>✕</button>
+        </div>
+      </div>
+
+      <div class="kanban-board">
+        {#each planGrupos as grupo}
+          <div
+            class="kanban-column"
+            class:drag-over={dragOverGrupo === grupo.id}
+            ondragover={(e) => { e.preventDefault(); dragOverGrupoFn(grupo.id); }}
+            ondragleave={dragLeaveGrupo}
+            ondrop={(e) => { e.preventDefault(); dropEnGrupo(grupo.id); }}
+          >
+            <div class="kanban-column-header">
+              <span class="grupo-color" style="background:{grupo.color}"></span>
+              <span class="kanban-col-title">{grupo.nombre}</span>
+              <span class="kanban-col-count">{grupo.clienteIds.length}</span>
+            </div>
+            <div class="kanban-column-body">
+              {#each grupo.ordenRuta.length > 0 ? grupo.ordenRuta : grupo.clienteIds as clienteId, i}
+                {@const ec = buscarCliente(clienteId)}
+                {@const facts = facturasDelCliente(clienteId)}
+                {#if ec}
+                  <div
+                    class="cliente-card"
+                    draggable="true"
+                    ondragstart={(e) => dragStartCliente(ec.id, grupo.id, e.currentTarget)}
+                  >
+                    <span class="cliente-drag">⠿</span>
+                    <span class="cliente-order">{i + 1}</span>
+                    <div class="cliente-body">
+                      <span class="cliente-nombre">{ec.nombre}</span>
+                      <span class="cliente-dir">{ec.domicilio || ''}</span>
+                      {#if facts.length > 0}
+                        <div class="cliente-facturas">
+                          {#each facts as f}
+                            <span class="factura-chip">
+                              <span class="factura-num">{f.numero_factura}</span>
+                              <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
+                              <span class="factura-date">{f.fecha || ''}</span>
+                            </span>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                    <button class="cliente-remove" onclick={() => quitarDeGrupoPanel(ec.id, grupo.id)} title="Quitar del grupo">✕</button>
+                  </div>
+                {/if}
+              {/each}
+            </div>
+          </div>
+        {/each}
+
+        {#each [clientesSinGrupo()] as sinGrupo}
+          {#if sinGrupo.length > 0}
+          <div
+            class="kanban-column"
+            class:drag-over={dragOverGrupo === '__sin_asignar__'}
+            ondragover={(e) => { e.preventDefault(); dragOverGrupoFn('__sin_asignar__'); }}
+            ondragleave={dragLeaveGrupo}
+            ondrop={(e) => { e.preventDefault(); dropEnGrupo(null); }}
+          >
+            <div class="kanban-column-header kanban-col-sin">
+              <span class="grupo-color" style="background:#9ca3af"></span>
+              <span class="kanban-col-title">Sin asignar</span>
+              <span class="kanban-col-count">{sinGrupo.length}</span>
+            </div>
+            <div class="kanban-column-body">
+              {#each sinGrupo as ec}
+                {@const facts = facturasDelCliente(ec.id)}
+                <div
+                  class="cliente-card"
+                  draggable="true"
+                  ondragstart={(e) => dragStartCliente(ec.id, null, e.currentTarget)}
+                >
+                  <span class="cliente-drag">⠿</span>
+                  <span class="cliente-order" style="background:#9ca3af">{entregas.findIndex((e: any) => e.id === ec.id) + 1 || ''}</span>
+                  <div class="cliente-body">
+                    <span class="cliente-nombre">{ec.nombre}</span>
+                    <span class="cliente-dir">{ec.domicilio || ''}</span>
+                    {#if facts.length > 0}
+                      <div class="cliente-facturas">
+                        {#each facts as f}
+                          <span class="factura-chip">
+                            <span class="factura-num">{f.numero_factura}</span>
+                            <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
+                            <span class="factura-date">{f.fecha || ''}</span>
+                          </span>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
+      {/each}
+    </div>
     </div>
   </div>
 {/if}
@@ -834,7 +953,12 @@
   .task-add-btn:hover { background: #16a34a; }
 
   /* ── ENTREGAS ── */
-  .entregas-header { background: linear-gradient(135deg, #16a34a, #15803d); }
+  .entregas-header {
+    background: linear-gradient(135deg, #16a34a, #15803d);
+    cursor: pointer;
+    transition: filter 0.12s;
+  }
+  .entregas-header:hover { filter: brightness(1.08); }
   .entregas-header .card-title { color: rgba(255,255,255,0.85); }
   .badge-white { background: rgba(255,255,255,0.2) !important; color: white !important; }
   .entregas-stats {
@@ -888,42 +1012,42 @@
   .grupo-header {
     display: flex;
     align-items: center;
-    gap: 6px;
-    padding: 8px 10px;
+    gap: 8px;
+    padding: 10px 12px;
     background: rgba(255,255,255,0.04);
     border-bottom: 1px solid rgba(255,255,255,0.06);
   }
   .grupo-color {
-    width: 10px;
-    height: 10px;
+    width: 12px;
+    height: 12px;
     border-radius: 50%;
     flex-shrink: 0;
   }
   .grupo-nombre {
     flex: 1;
-    font-size: 13px;
+    font-size: 15px;
     font-weight: 600;
     color: rgba(255,255,255,0.9);
   }
   .grupo-count {
-    font-size: 11px;
+    font-size: 12px;
     color: rgba(255,255,255,0.5);
     font-weight: 500;
   }
 
   .grupo-clientes {
-    padding: 4px 6px;
+    padding: 6px 8px;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 6px;
   }
 
   .cliente-card {
     display: flex;
     align-items: flex-start;
-    gap: 6px;
-    padding: 6px 8px;
-    border-radius: 6px;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
     background: rgba(255,255,255,0.03);
     transition: background 0.12s;
     cursor: default;
@@ -932,7 +1056,7 @@
   .cliente-card:active { opacity: 0.7; }
 
   .cliente-drag {
-    font-size: 14px;
+    font-size: 18px;
     color: rgba(255,255,255,0.3);
     cursor: grab;
     flex-shrink: 0;
@@ -943,13 +1067,13 @@
   .cliente-drag:active { cursor: grabbing; }
 
   .cliente-order {
-    width: 18px;
-    height: 18px;
-    min-width: 18px;
+    width: 24px;
+    height: 24px;
+    min-width: 24px;
     border-radius: 50%;
     background: #2563eb;
     color: white;
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 700;
     display: flex;
     align-items: center;
@@ -963,35 +1087,42 @@
     min-width: 0;
   }
   .cliente-nombre {
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 16px;
+    font-weight: 600;
     color: rgba(255,255,255,0.9);
   }
   .cliente-dir {
-    font-size: 11px;
-    color: rgba(255,255,255,0.4);
+    font-size: 13px;
+    color: rgba(255,255,255,0.75);
+    display: block;
+    margin-top: 2px;
   }
   .cliente-facturas {
     display: flex;
     flex-wrap: wrap;
-    gap: 3px;
-    margin-top: 4px;
+    gap: 6px;
+    margin-top: 6px;
   }
   .factura-chip {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    padding: 1px 6px;
+    gap: 6px;
+    padding: 5px 10px;
     background: rgba(255,255,255,0.08);
-    border-radius: 4px;
-    font-size: 10px;
+    border-radius: 6px;
+    font-size: 12px;
   }
   .factura-num {
-    font-weight: 600;
-    color: rgba(255,255,255,0.8);
+    font-weight: 700;
+    color: rgba(255,255,255,0.9);
+  }
+  .factura-total {
+    font-weight: 800;
+    color: #ffffff;
   }
   .factura-date {
-    color: rgba(255,255,255,0.4);
+    font-size: 11px;
+    color: rgba(255,255,255,0.5);
   }
 
   .cliente-remove {
@@ -1041,17 +1172,23 @@
   }
 
   .entregas-link {
-    background: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: linear-gradient(135deg, #16a34a, #15803d);
     border: none;
-    color: rgba(255,255,255,0.7);
-    font-size: 0.786rem;
-    padding: 0.571rem 0.857rem;
-    text-align: left;
+    color: white;
+    font-size: 0.9rem;
+    font-weight: 700;
+    padding: 12px 16px;
+    text-align: center;
     cursor: pointer;
     flex-shrink: 0;
-    transition: color 0.12s;
+    transition: filter 0.12s;
+    font-family: var(--font);
   }
-  .entregas-link:hover { color: white; }
+  .entregas-link:hover { filter: brightness(1.1); }
 
   /* ── ACTIVIDAD ── */
   .activity-list {
@@ -1374,4 +1511,150 @@
   .btn-primary { background: #22c55e; color: white; }
   .btn-secondary { background: var(--bg-hover); color: var(--text-secondary); }
   .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  /* ── Kanban Viajes ── */
+  .kanban-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 1000; padding: 1.5rem;
+  }
+  .kanban-modal {
+    background: var(--bg-card, #fff);
+    border-radius: 12px;
+    width: 95vw;
+    max-width: 1400px;
+    height: 88vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    overflow: hidden;
+  }
+  .kanban-modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    border-bottom: 1px solid var(--border, #e5e7eb);
+    flex-shrink: 0;
+  }
+  .kanban-modal-title {
+    display: flex;
+    align-items: center;
+    gap: 0.571rem;
+    color: var(--text-primary, #111827);
+  }
+  .kanban-modal-title h2 { margin: 0; font-size: 1.2rem; font-weight: 700; }
+  .kanban-modal-title svg { color: #16a34a; }
+  .kanban-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.571rem;
+  }
+  .kanban-btn-save {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.429rem;
+    background: #16a34a;
+    border: none;
+    border-radius: 6px;
+    color: white;
+    font-size: 0.857rem;
+    font-weight: 600;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-family: var(--font);
+    transition: background 0.12s;
+  }
+  .kanban-btn-save:hover { background: #15803d; }
+  .kanban-btn-close {
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    background: var(--bg-hover, #f3f4f6);
+    border-radius: 6px;
+    color: var(--text-muted, #9ca3af);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    transition: all 0.12s;
+  }
+  .kanban-btn-close:hover { background: rgba(239,68,68,0.08); color: #ef4444; }
+
+  .kanban-board {
+    display: flex;
+    gap: 1rem;
+    padding: 1rem 1.25rem;
+    flex: 1;
+    min-height: 0;
+    overflow-x: auto;
+    background: var(--bg-page, #f3f4f6);
+  }
+  .kanban-column {
+    min-width: 300px;
+    max-width: 380px;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: linear-gradient(180deg, #16a34a 0%, #14532d 100%);
+    border-radius: 10px;
+    overflow: hidden;
+    transition: box-shadow 0.15s;
+  }
+  .kanban-column.drag-over {
+    box-shadow: 0 0 0 3px #3b82f6;
+  }
+  .kanban-column-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 14px;
+    background: rgba(255,255,255,0.06);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0;
+  }
+  .kanban-col-sin {
+    opacity: 0.7;
+  }
+  .kanban-col-title {
+    flex: 1;
+    font-size: 15px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .kanban-col-count {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.5);
+    background: rgba(255,255,255,0.08);
+    padding: 2px 8px;
+    border-radius: 10px;
+  }
+  .kanban-column-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .kanban-column-body .cliente-card {
+    padding: 10px 12px;
+    gap: 8px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.04);
+  }
+  .kanban-column-body .cliente-card:hover { background: rgba(255,255,255,0.08); }
+  .kanban-column-body .cliente-nombre { font-size: 15px; }
+  .kanban-column-body .cliente-dir { font-size: 12px; }
+  .kanban-column-body .cliente-order { width: 22px; height: 22px; min-width: 22px; font-size: 11px; }
+  .kanban-column-body .cliente-drag { font-size: 16px; }
+  .kanban-column-body .factura-chip { font-size: 11px; padding: 4px 8px; }
+  .kanban-column-body .factura-num { font-size: 11px; }
+  .kanban-column-body .cliente-remove { opacity: 0; }
+  .kanban-column-body .cliente-card:hover .cliente-remove { opacity: 1; }
 </style>

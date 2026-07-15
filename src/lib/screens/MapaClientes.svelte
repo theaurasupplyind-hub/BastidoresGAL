@@ -547,7 +547,11 @@
 
         const marker = L.marker([loc.lat, loc.lng], { icon: primaryIcon })
           .addTo(map)
-          .bindPopup(popupHtml(cliente, tipo, loc.label));
+          .bindPopup(popupHtml(cliente, tipo, loc.label))
+          .bindTooltip(
+            `<strong>${cliente.nombre}</strong>${loc.label ? '<br>' + loc.label : cliente.domicilio ? '<br>' + cliente.domicilio : ''}`,
+            { direction: 'top', offset: [0, -10], className: 'cliente-tooltip' }
+          );
 
         marker.on('contextmenu', (e) => {
           L.DomEvent.preventDefault(e.originalEvent);
@@ -1180,15 +1184,40 @@
 
 <div class="mapa-wrapper">
     <aside class="panel">
+      <div class="panel-header">
       <div class="kanban-filtro">
         <button class="kf-btn" class:kf-activo={filtroKanban.length === 0} onclick={() => filtroKanban = []}>Todos</button>
         <button class="kf-btn" class:kf-activo={filtroKanban.includes('PEDIDO')} onclick={() => toggleFiltroKanban('PEDIDO')}>Pedido</button>
         <button class="kf-btn" class:kf-activo={filtroKanban.includes('EN_PROCESO')} onclick={() => toggleFiltroKanban('EN_PROCESO')}>En Proceso</button>
         <button class="kf-btn" class:kf-activo={filtroKanban.includes('LISTO')} onclick={() => toggleFiltroKanban('LISTO')}>Listo</button>
       </div>
+        <div class="btn-group">
+          <button
+            class="btn-ruta flex-1"
+            disabled={clientesSeleccionados.length === 0 || calculandoRuta}
+            onclick={trazarRuta}
+          >
+            {calculandoRuta ? '⏳ Calculando...' : `🗺️ Ruta (${clientesSeleccionados.length})`}
+          </button>
+          <button
+            class="btn-optimizar"
+            disabled={clientesSeleccionados.length < 2 || calculandoRuta}
+            onclick={optimizarRuta}
+          >
+            ✨ Optimizar
+          </button>
+          {#if routingControl || rutaLinea}
+            <button class="btn-google" onclick={abrirEnGoogleMaps} title="Abrir en Google Maps">🗺️</button>
+            <button class="btn-copy-link" onclick={copiarRutaAlPortapapeles} title="Copiar link de la ruta">📋</button>
+            <button class="btn-clear-ruta" onclick={limpiarRuta} title="Limpiar ruta">✕</button>
+          {/if}
+        </div>
+        {#if infoRuta}
+          <div class="ruta-info">{infoRuta}</div>
+        {/if}
+      </div>
 
-
-
+      <div class="panel-scroll">
       {#if cargando}
         <p class="info-text">Cargando...</p>
       {:else if clientesPanel.length === 0}
@@ -1262,31 +1291,6 @@
             </li>
           {/each}
         </ul>
-
-        <div class="btn-group">
-          <button
-            class="btn-ruta flex-1"
-            disabled={clientesSeleccionados.length === 0 || calculandoRuta}
-            onclick={trazarRuta}
-          >
-            {calculandoRuta ? '⏳ Calculando...' : `🗺️ Ruta (${clientesSeleccionados.length})`}
-          </button>
-          <button
-            class="btn-optimizar"
-            disabled={clientesSeleccionados.length < 2 || calculandoRuta}
-            onclick={optimizarRuta}
-          >
-            ✨ Optimizar
-          </button>
-          {#if routingControl || rutaLinea}
-            <button class="btn-google" onclick={abrirEnGoogleMaps} title="Abrir en Google Maps">🗺️</button>
-            <button class="btn-copy-link" onclick={copiarRutaAlPortapapeles} title="Copiar link de la ruta">📋</button>
-            <button class="btn-clear-ruta" onclick={limpiarRuta} title="Limpiar ruta">✕</button>
-          {/if}
-        </div>
-        {#if infoRuta}
-          <div class="ruta-info">{infoRuta}</div>
-        {/if}
       {/if}
 
       {#if error}
@@ -1294,6 +1298,7 @@
       {/if}
 
       <button class="btn-centrar" onclick={centrarMapa}>Centrar en CABA</button>
+      </div>
     </aside>
 
     <div class="mapa-container" bind:this={mapContainer} onclick={() => { cerrarMenuContextual(); cerrarEdicion(); }}></div>
@@ -1387,6 +1392,10 @@
 />
 
 <style>
+  :global(.cliente-tooltip) {
+    font-size: 12px;
+    line-height: 1.4;
+  }
   :global(.pin-pendiente) { background: transparent !important; border: none !important; }
   :global(.pin-dot) {
     border: 2.5px solid white;
@@ -1411,11 +1420,28 @@
     background: var(--bg-card);
     border-right: 1px solid var(--border);
     padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+    overflow: hidden;
+  }
+
+  .panel-header {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-scroll {
+    flex: 1;
     overflow-y: auto;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    z-index: 10;
+    padding-top: 0.75rem;
   }
 
   .panel-titulo {

@@ -42,9 +42,9 @@
     if (config.station_api_key) {
       refreshStatus();
       pollId = setInterval(refreshStatus, 3000);
-      pollJobHistory();
-      jobHistoryPollId = setInterval(pollJobHistory, 10000);
     }
+    pollJobHistory();
+    jobHistoryPollId = setInterval(pollJobHistory, 10000);
   });
 
   onDestroy(() => {
@@ -61,6 +61,7 @@
       appStore.activeStations = stations || [];
       if (!appStore.selectedStation && stations.length > 0) {
         appStore.selectedStation = stations[0];
+        pollJobHistory();
       }
     } catch {
       appStore.activeStations = [];
@@ -74,10 +75,29 @@
   }
 
   async function pollJobHistory() {
+    const key = getApiKey();
+    if (!key) { jobHistory = []; return; }
     try {
-      jobHistory = await invoke<any[]>('get_print_job_history');
+      jobHistory = await invoke<any[]>('get_print_job_history', { stationKey: key });
     } catch {
       jobHistory = [];
+    }
+  }
+
+  function getApiKey(): string | null {
+    return config.station_api_key || (appStore.selectedStation?.api_key ?? null);
+  }
+
+  async function cancelJob(jobId: number) {
+    if (!confirm('¿Cancelar este trabajo de impresión?')) return;
+    const key = getApiKey();
+    if (!key) { appStore.showToast('No hay API key', 'error'); return; }
+    try {
+      await invoke('cancel_print_job', { jobId, stationKey: key });
+      appStore.showToast('Trabajo cancelado');
+      pollJobHistory();
+    } catch (e: any) {
+      appStore.showToast('Error: ' + (e?.message || e), 'error');
     }
   }
 
@@ -211,7 +231,7 @@
 <div class="print-agent">
   <h2>Impresión Remota</h2>
 
-  <div class="card">
+  <div class="update-card">
     <div class="update-row">
       <div>
         <span style="font-weight:600;">v2.1.0</span>
@@ -236,173 +256,201 @@
     {/if}
   </div>
 
-  {#if !isRegistered}
-    <div class="card">
-      <h3>Registrar esta estación</h3>
-      <p class="hint">Registrá esta PC como estación de impresión para poder recibir trabajos.</p>
-      <div class="form-row">
-        <label>Nombre de la estación</label>
-        <input type="text" bind:value={stationName} placeholder="Ej: Sucursal Centro" />
-      </div>
-      <div class="form-row">
-        <label>Impresora por defecto</label>
-        {#if printers.length > 0}
-          <select bind:value={registeringPrinter}>
-            <option value="">Usar default del sistema</option>
-            {#each printers as p}
-              <option value={p}>{p}</option>
-            {/each}
-          </select>
-        {:else}
-          <select disabled><option>No se detectaron impresoras</option></select>
-        {/if}
-      </div>
-      <button class="btn-primary" onclick={registerStation} disabled={registering || !stationName.trim()}>
-        {registering ? 'Registrando...' : 'Registrar estación'}
-      </button>
-    </div>
-  {:else}
-    <div class="card">
-      <div class="status-header">
-        <div>
-          <h3>{stationDisplay}</h3>
-          <span class="station-id">ID: {config.station_id}</span>
+  <div class="print-agent-grid">
+    <div class="print-agent-left">
+      {#if !isRegistered}
+        <div class="card">
+          <h3>Registrar esta estación</h3>
+          <p class="hint">Registrá esta PC como estación de impresión para poder recibir trabajos.</p>
+          <div class="form-row">
+            <label>Nombre de la estación</label>
+            <input type="text" bind:value={stationName} placeholder="Ej: Sucursal Centro" />
+          </div>
+          <div class="form-row">
+            <label>Impresora por defecto</label>
+            {#if printers.length > 0}
+              <select bind:value={registeringPrinter}>
+                <option value="">Usar default del sistema</option>
+                {#each printers as p}
+                  <option value={p}>{p}</option>
+                {/each}
+              </select>
+            {:else}
+              <select disabled><option>No se detectaron impresoras</option></select>
+            {/if}
+          </div>
+          <button class="btn-primary" onclick={registerStation} disabled={registering || !stationName.trim()}>
+            {registering ? 'Registrando...' : 'Registrar estación'}
+          </button>
         </div>
-        <div class="status-badge" class:running={agentStatus?.running} class:stopped={!agentStatus?.running}>
-          {agentStatus?.running ? 'Activo' : 'Inactivo'}
-        </div>
-      </div>
-
-      <div class="status-grid">
-        <div class="stat">
-          <span class="stat-label">Último check</span>
-          <span class="stat-value">
-            {agentStatus?.last_poll ? new Date(agentStatus.last_poll).toLocaleTimeString() : 'Nunca'}
-          </span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Jobs procesados</span>
-          <span class="stat-value">{agentStatus?.jobs_processed || 0}</span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Impresora</span>
-          <span class="stat-value">{config.selected_printer || 'Default del sistema'}</span>
-        </div>
-      </div>
-
-      {#if agentStatus?.last_error}
-        <div class="error-box">
-          Último error: {agentStatus.last_error}
-        </div>
-      {/if}
-
-      <div class="actions">
-        <button class="btn-primary" onclick={toggleAgent}>
-          {agentStatus?.running ? 'Detener agent' : 'Iniciar agent'}
-        </button>
-        <button class="btn-danger" onclick={unregisterStation} disabled={unregistering}>
-          {unregistering ? 'Desvinculando...' : 'Desvincular estación'}
-        </button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h3>Configuración</h3>
-      <div class="form-row">
-        <label>Impresora destino</label>
-        {#if printers.length > 0}
-          <select bind:value={config.selected_printer}>
-            <option value={null}>Usar default del sistema</option>
-            {#each printers as p}
-              <option value={p}>{p}</option>
-            {/each}
-          </select>
-        {:else}
-          <select disabled><option>No se detectaron impresoras</option></select>
-        {/if}
-      </div>
-      <button class="btn-secondary" onclick={savePrinter}>Guardar impresora</button>
-    </div>
-  {/if}
-
-  <div class="card">
-    <h3>Estaciones activas en la red</h3>
-    {#if appStore.activeStations.length === 0}
-      <p class="hint">No hay estaciones de impresión activas.</p>
-    {:else}
-      <div class="stations-list">
-        {#each appStore.activeStations as s}
-          <div class="station-row">
-            <div class="station-info">
-              <span class="station-name">{s.name}</span>
-              <span class="station-meta">ID: {s.id}{#if s.user_name} — {s.user_name}{/if}</span>
+      {:else}
+        <div class="card">
+          <div class="status-header">
+            <div>
+              <h3>{stationDisplay}</h3>
+              <span class="station-id">ID: {config.station_id}</span>
             </div>
-            <div class="station-actions">
-              <div class="station-status-badge" class:station-online={isOnline(s.last_seen)}>
-                {isOnline(s.last_seen) ? 'Activa' : 'Inactiva'}
-              </div>
-              <button class="btn-delete-station" onclick={() => deleteStation(s.id)} disabled={deletingStation} title="Eliminar estación">🗑</button>
+            <div class="status-badge" class:running={agentStatus?.running} class:stopped={!agentStatus?.running}>
+              {agentStatus?.running ? 'Activo' : 'Inactivo'}
             </div>
           </div>
-        {/each}
-      </div>
-    {/if}
-    {#if appStore.activeStations.length > 1}
-      <div class="form-row" style="margin-top:0.714rem;">
-        <label>Estación destino para envíos</label>
-        <select
-          value={appStore.selectedStation?.id}
-          onchange={(e) => {
-            const sel = appStore.activeStations.find(s => s.id == (e.target as HTMLSelectElement).value);
-            if (sel) appStore.selectedStation = sel;
-          }}
-        >
-          {#each appStore.activeStations as s}
-            <option value={s.id}>{s.name} (ID: {s.id})</option>
-          {/each}
-        </select>
-      </div>
-    {/if}
-  </div>
 
-  {#if isRegistered}
-    <div class="card">
-      <h3>Trabajos de impresión recientes</h3>
-      {#if jobHistory.length === 0}
-        <p class="hint">No hay trabajos pendientes ni completados.</p>
-      {:else}
-        <div class="jobs-list">
-          {#each jobHistory as j}
-            <div class="job-row">
-              <div class="job-info">
-                <span class="job-name">{j.file_name || `Job #${j.id}`}</span>
-                <span class="job-meta">
-                  {#if j.created_by}Por: {j.created_by} · {/if}
-                  {j.created_at ? new Date(j.created_at).toLocaleString() : ''}
-                </span>
-              </div>
-              <div class="job-status" class:job-ok={j.status === 'completed'} class:job-err={j.status === 'failed'} class:job-pen={j.status === 'pending' || j.status === 'claimed'}>
-                {j.status === 'completed' ? '✅ OK' : j.status === 'failed' ? '❌ Falló' : j.status === 'claimed' ? '⏳ Imprimiendo' : '⏳ Pendiente'}
-              </div>
+          <div class="status-grid">
+            <div class="stat">
+              <span class="stat-label">Último check</span>
+              <span class="stat-value">
+                {agentStatus?.last_poll ? new Date(agentStatus.last_poll).toLocaleTimeString() : 'Nunca'}
+              </span>
             </div>
-            {#if j.error_message}
-              <div class="job-error">{j.error_message}</div>
+            <div class="stat">
+              <span class="stat-label">Jobs procesados</span>
+              <span class="stat-value">{agentStatus?.jobs_processed || 0}</span>
+            </div>
+            <div class="stat">
+              <span class="stat-label">Impresora</span>
+              <span class="stat-value">{config.selected_printer || 'Default del sistema'}</span>
+            </div>
+          </div>
+
+          {#if agentStatus?.last_error}
+            <div class="error-box">
+              Último error: {agentStatus.last_error}
+            </div>
+          {/if}
+
+          <div class="actions">
+            <button class="btn-primary" onclick={toggleAgent}>
+              {agentStatus?.running ? 'Detener agent' : 'Iniciar agent'}
+            </button>
+            <button class="btn-danger" onclick={unregisterStation} disabled={unregistering}>
+              {unregistering ? 'Desvinculando...' : 'Desvincular estación'}
+            </button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>Configuración</h3>
+          <div class="form-row">
+            <label>Impresora destino</label>
+            {#if printers.length > 0}
+              <select bind:value={config.selected_printer}>
+                <option value={null}>Usar default del sistema</option>
+                {#each printers as p}
+                  <option value={p}>{p}</option>
+                {/each}
+              </select>
+            {:else}
+              <select disabled><option>No se detectaron impresoras</option></select>
             {/if}
-          {/each}
+          </div>
+          <button class="btn-secondary" onclick={savePrinter}>Guardar impresora</button>
         </div>
       {/if}
+
+      <div class="card">
+        <h3>Estaciones activas</h3>
+        {#if appStore.activeStations.length === 0}
+          <p class="hint">No hay estaciones de impresión activas.</p>
+        {:else}
+          <div class="stations-list">
+            {#each appStore.activeStations as s}
+              <div class="station-row">
+                <div class="station-info">
+                  <span class="station-name">{s.name}</span>
+                  <span class="station-meta">ID: {s.id}{#if s.user_name} — {s.user_name}{/if}</span>
+                </div>
+                <div class="station-actions">
+                  <div class="station-status-badge" class:station-online={isOnline(s.last_seen)}>
+                    {isOnline(s.last_seen) ? 'Activa' : 'Inactiva'}
+                  </div>
+                  <button class="btn-delete-station" onclick={() => deleteStation(s.id)} disabled={deletingStation} title="Eliminar estación">🗑</button>
+                </div>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        {#if appStore.activeStations.length > 1}
+          <div class="form-row" style="margin-top:0.714rem;">
+            <label>Estación destino</label>
+            <select
+              value={appStore.selectedStation?.id}
+              onchange={(e) => {
+                const sel = appStore.activeStations.find(s => s.id == (e.target as HTMLSelectElement).value);
+                if (sel) { appStore.selectedStation = sel; pollJobHistory(); }
+              }}
+            >
+              {#each appStore.activeStations as s}
+                <option value={s.id}>{s.name} (ID: {s.id})</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
+      </div>
     </div>
-  {/if}
+
+    <div class="print-agent-right">
+      <div class="card card-jobs">
+        <div class="jobs-header">
+          <h3>Trabajos de impresión</h3>
+          {#if appStore.selectedStation}
+            <span class="jobs-station-name">{appStore.selectedStation.name}</span>
+          {/if}
+        </div>
+        {#if !appStore.selectedStation && !getApiKey()}
+          <p class="hint">Seleccioná una estación destino para ver sus trabajos.</p>
+        {:else if jobHistory.length === 0}
+          <p class="hint">No hay trabajos en esta estación.</p>
+        {:else}
+          <div class="jobs-list">
+            {#each jobHistory as j}
+              <div class="job-row">
+                <div class="job-info">
+                  <span class="job-name">{j.file_name || `Job #${j.id}`}</span>
+                  <span class="job-meta">
+                    {#if j.created_by}Por: {j.created_by} · {/if}
+                    {j.created_at ? new Date(j.created_at).toLocaleString() : ''}
+                  </span>
+                </div>
+                <div class="job-actions">
+                  <div class="job-status" class:job-ok={j.status === 'completed'} class:job-err={j.status === 'failed'} class:job-pen={j.status === 'pending' || j.status === 'claimed'} class:job-canc={j.status === 'cancelled'}>
+                    {j.status === 'completed' ? '✅ OK' : j.status === 'failed' ? '❌ Falló' : j.status === 'claimed' ? '⏳ Imprimiendo' : j.status === 'cancelled' ? '✖ Cancelado' : '⏳ Pendiente'}
+                  </div>
+                  {#if j.status === 'pending' || j.status === 'claimed'}
+                    <button class="btn-cancel-job" onclick={() => cancelJob(j.id)} title="Cancelar trabajo">✕</button>
+                  {/if}
+                </div>
+              </div>
+              {#if j.error_message}
+                <div class="job-error">{j.error_message}</div>
+              {/if}
+            {/each}
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
 </div>
 
 <style>
   .print-agent {
     padding: 1.429rem;
-    max-width: 40rem;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
   }
   .print-agent h2 {
-    margin: 0 0 1.429rem 0;
+    margin: 0 0 1.143rem 0;
     font-size: 1.429rem;
+    flex-shrink: 0;
+  }
+  .update-card {
+    background: var(--bg-card);
+    border-radius: 0.714rem;
+    padding: 1.143rem 1.429rem;
+    margin-bottom: 1.143rem;
+    box-shadow: 0 0.143rem 0.429rem rgba(0,0,0,0.06);
+    flex-shrink: 0;
   }
   .update-row {
     display: flex;
@@ -652,10 +700,79 @@
     background: #f8d7da;
     color: #721c24;
   }
+  .job-canc {
+    background: #e5e7eb;
+    color: #6b7280;
+  }
   .job-error {
     font-size: 0.714rem;
     color: #dc3545;
     margin-top: -0.357rem;
     margin-bottom: 0.357rem;
+  }
+  .job-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .btn-cancel-job {
+    background: none;
+    border: 1px solid #fca5a5;
+    border-radius: 0.357rem;
+    color: #dc2626;
+    cursor: pointer;
+    padding: 0.143rem 0.429rem;
+    font-size: 0.857rem;
+    opacity: 0.6;
+    transition: opacity 0.12s, background 0.12s;
+  }
+  .btn-cancel-job:hover {
+    opacity: 1;
+    background: #fef2f2;
+  }
+  .print-agent-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.143rem;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+  .print-agent-left {
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .print-agent-right {
+    overflow-y: auto;
+    min-height: 0;
+  }
+  .card-jobs {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  .card-jobs .hint {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0;
+  }
+  .jobs-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.714rem;
+  }
+  .jobs-header h3 {
+    margin: 0;
+  }
+  .jobs-station-name {
+    font-size: 0.786rem;
+    color: var(--accent);
+    font-weight: 600;
+    background: var(--accent-light, rgba(37,99,235,0.08));
+    padding: 0.214rem 0.571rem;
+    border-radius: 1rem;
   }
 </style>
