@@ -72,7 +72,7 @@
   }
 
   function facturasDelCliente(id: number): any[] {
-    return entregas.find(e => e.id === id)?.facturas ?? [];
+    return entregas.find(e => e.id === id)?.facturas?.filter((f: any) => f.estado_kanban !== 'NO_CONFIRMADO') ?? [];
   }
 
   // ── Plan de viaje ──
@@ -215,7 +215,7 @@
       const now = new Date();
       const todayStr = now.toISOString().split('T')[0];
 
-      for (const f of (facturas || [])) {
+      for (const f of (facturas || []).filter((x: any) => x.estado_kanban !== 'NO_CONFIRMADO')) {
         if ((f.created_at || '').startsWith(todayStr)) {
           const userName = usersMap.get(f.created_by) || '';
           items.push({

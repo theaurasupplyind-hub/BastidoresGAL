@@ -362,10 +362,14 @@
             }
           }
         }
-        if (!['PEDIDO', 'EN_PROCESO', 'LISTO', 'ENTREGADO'].includes(kanban)) {
+        if (!['PEDIDO', 'NO_CONFIRMADO', 'EN_PROCESO', 'LISTO', 'ENTREGADO'].includes(kanban)) {
           kanban = 'PEDIDO';
         }
-        filtered.push({ ...f, estado_kanban: kanban });
+        if (kanban === 'NO_CONFIRMADO') {
+          filtered.push({ ...f, estado_kanban: 'PEDIDO', _no_confirmado: true });
+        } else {
+          filtered.push({ ...f, estado_kanban: kanban });
+        }
       }
 
       filtered.sort((a, b) => parseFecha(a.fecha).getTime() - parseFecha(b.fecha).getTime());
@@ -693,6 +697,7 @@
                 class="kanban-card"
                 class:selected={selectedIds.has(card.id)}
                 class:editing={editingCardId === card.id}
+                class:no-confirmado={card._no_confirmado}
                 draggable="true"
                 ondragstart={(e) => handleDragStart(e, card.id, i)}
                 ondragend={handleDragEnd}
@@ -707,6 +712,9 @@
                     <span class="card-cliente">{card.cliente_nombre || 'Sin nombre'}</span>
                     <span class="card-fecha">{shortDate(card.fecha)}</span>
                   </div>
+                  {#if card._no_confirmado}
+                    <div class="card-no-confirmado-badge">⏳ No Confirmado</div>
+                  {/if}
                   {#if card.cliente_domicilio}
                     <div class="card-addr">{card.cliente_domicilio}{card.cliente_piso_depto ? ` - ${card.cliente_piso_depto}` : ''}</div>
                   {/if}
@@ -1205,6 +1213,17 @@
   .kanban-card:hover { border-color: var(--text-muted); box-shadow: 0 0.143rem 0.429rem rgba(0,0,0,0.08); }
   .kanban-card.selected { border-color: var(--col-color, #dc3545); box-shadow: 0 0 0 0.143rem rgba(var(--col-color), 0.15); }
   .kanban-card.dragging { opacity: 0.4; }
+  .kanban-card.no-confirmado { opacity: 0.55; }
+  .card-no-confirmado-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    background: #fef3c7;
+    color: #92400e;
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.25rem;
+    display: inline-block;
+    width: fit-content;
+  }
 
 
   .card-body { padding: 0.429rem 0.571rem; display: flex; flex-direction: column; gap: 0.286rem; }

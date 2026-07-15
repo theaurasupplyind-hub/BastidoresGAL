@@ -3,12 +3,13 @@ export function renderReceiptHtml(params: {
   fecha: string;
   cliente: string;
   contacto: string;
-  items: { cantidad: number; descripcion: string; total: number }[];
+  items: { cantidad: number; descripcion: string; precio_unitario: number; total: number }[];
   total: number;
   envio: number;
   mode?: 'PRESUPUESTO' | 'BORRADOR';
+  saldo?: number;
 }): string {
-  const { num, fecha, cliente, contacto, items, total, envio, mode = 'PRESUPUESTO' } = params;
+  const { num, fecha, cliente, contacto, items, total, envio, mode = 'PRESUPUESTO', saldo } = params;
   const accent = mode === 'BORRADOR' ? '#0d6efd' : '#00C853';
   const envVal = envio || 0;
   const subtotal = total - envVal;
@@ -19,7 +20,15 @@ export function renderReceiptHtml(params: {
     if (!item.descripcion.trim()) continue;
     const q = item.cantidad === 0 ? "" : (Number.isInteger(item.cantidad) ? item.cantidad.toString() : item.cantidad.toString());
     const totDisplay = item.cantidad === 0 ? "" : `$${item.total.toFixed(0)}`;
-    rows += `<tr><td>${q}</td><td>${escHtml(item.descripcion)}</td><td style="text-align:right">${totDisplay}</td></tr>`;
+    const puDisplay = item.cantidad === 0 ? "" : `$${item.precio_unitario.toFixed(0)} c/u`;
+    rows += `<tr>
+      <td>${q}</td>
+      <td>
+        <div>${escHtml(item.descripcion)}</div>
+        <div style="font-size:11px;color:#999">${puDisplay}</div>
+      </td>
+      <td style="text-align:right">${totDisplay}</td>
+    </tr>`;
   }
 
   return `<!DOCTYPE html>
@@ -46,6 +55,8 @@ td{font-size:13px;padding:6px 0;border-bottom:1px solid #f5f5f5;vertical-align:t
 .total-box{display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:12px;border-top:2px solid ${accent}}
 .total-lbl{font-size:14px;font-weight:600;color:#333}
 .total-val{font-size:28px;font-weight:800;color:${accent}}
+.total-val.pagado{color:#16a34a;font-size:20px}
+.total-val.debe{color:#00C853}
 .footer{text-align:center;margin-top:16px;padding-top:12px;border-top:1px solid #f0f0f0;font-size:11px;color:#bbb}
 </style></head>
 <body>
@@ -64,9 +75,17 @@ td{font-size:13px;padding:6px 0;border-bottom:1px solid #f5f5f5;vertical-align:t
 <tbody>${rows}</tbody>
 </table>
 <hr class="divider">
-<div class="subtotal-line"><span>Subtotal</span><span>$${subtotal.toLocaleString('es-AR')}</span></div>
+<div class="subtotal-line" style="font-weight:700;color:#1a1a1a"><span>Subtotal</span><span>$${subtotal.toLocaleString('es-AR')}</span></div>
 <div class="shipping-line"><span class="shipping-label">Envio</span><span>${envDisplay}</span></div>
-<div class="total-box"><span class="total-lbl">TOTAL A PAGAR</span><span class="total-val">$${total.toLocaleString('es-AR')}</span></div>
+<div class="total-box">
+  <span class="total-lbl">TOTAL A PAGAR</span>
+  ${mode === 'PRESUPUESTO' && saldo !== undefined
+    ? saldo <= 0.01
+      ? '<span class="total-val pagado">✓ Pagado</span>'
+      : `<span class="total-val debe">$${saldo.toLocaleString('es-AR')}</span>`
+    : `<span class="total-val">$${total.toLocaleString('es-AR')}</span>`
+  }
+</div>
 <div class="footer">${mode === 'BORRADOR' ? 'Borrador' : 'Presupuesto'}</div>
 </div>
 </body>

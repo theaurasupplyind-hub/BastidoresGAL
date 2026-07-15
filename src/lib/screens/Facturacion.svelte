@@ -26,6 +26,7 @@ import type { ClientAddress } from '$lib/types';
   let productos = $state<Producto[]>([]);
   let preciosReferencia = $state<PrecioReferencia[]>([]);
   let pricingRules = $state<PricingRule[]>([]);
+  let pagoMap = $state<Record<number, number>>({});
   let formAreaRef = $state<HTMLElement>();
 
   function getFocusable(): HTMLElement[] {
@@ -124,10 +125,25 @@ import type { ClientAddress } from '$lib/types';
   let pagoRapidoMonto = $state(0);
   let pagoRapidoAplicado = $state(false);
   let showPagoDialog = $state(false);
+  let estado_kanban = $state('');
 
   function handlePagoSaved() {
     if (pagoRapidoMonto > 0) {
       pagoRapidoAplicado = true;
+    }
+    refreshHistory();
+  }
+
+  async function toggleConfirmar() {
+    if (!id) return;
+    const nuevoEstado = estado_kanban === 'NO_CONFIRMADO' ? 'PEDIDO' : 'NO_CONFIRMADO';
+    try {
+      await api.patchInvoiceField(id, 'estado_kanban', nuevoEstado);
+      estado_kanban = nuevoEstado;
+      await refreshHistory();
+      appStore.showToast(nuevoEstado === 'PEDIDO' ? 'Presupuesto confirmado' : 'Presupuesto desconfirmado', 'success');
+    } catch (e: any) {
+      appStore.showToast('Error: ' + (e.message || e), 'error');
     }
   }
 
@@ -253,6 +269,7 @@ import type { ClientAddress } from '$lib/types';
   });
 
   let totalConEnvio = $derived(totalCalculado + envio);
+  let currentSaldo = $derived(id !== null ? totalConEnvio - (pagoMap[id] || 0) : totalConEnvio);
 
   function loadDiscountFromItems() {
     const d = items.find(i => i.descripcion === 'DESCUENTO');
@@ -677,6 +694,7 @@ import type { ClientAddress } from '$lib/types';
     showQtyDropdown = items.map(() => false);
     pagoRapidoMonto = 0;
     pagoRapidoAplicado = false;
+    estado_kanban = f.estado_kanban || '';
     clienteSearch = f.cliente_nombre;
     loadDiscountFromItems();
     if (f.cliente_id) {
@@ -708,6 +726,7 @@ import type { ClientAddress } from '$lib/types';
     showQtyDropdown = Array.from({ length: 7 }, () => false);
     pagoRapidoMonto = 0;
     pagoRapidoAplicado = false;
+    estado_kanban = '';
     clienteSearch = '';
     selectedClienteIndex = -1;
     showAddressDropdown = false;
@@ -876,6 +895,7 @@ import type { ClientAddress } from '$lib/types';
         user_id: appStore.user?.user_id || 0,
         tipo_entrega,
         fecha_entrega,
+        ...(!id ? { estado_kanban: 'NO_CONFIRMADO' } : {}),
       };
 
       if (id) {
@@ -1092,6 +1112,16 @@ import type { ClientAddress } from '$lib/types';
     } catch {
       facturas = [];
     }
+    try {
+      const pagos = await api.listPagos();
+      const map: Record<number, number> = {};
+      for (const p of pagos) {
+        map[p.invoice_id] = (map[p.invoice_id] || 0) + p.amount;
+      }
+      pagoMap = map;
+    } catch {
+      pagoMap = {};
+    }
   }
 
   function prevInvoice() {
@@ -1131,6 +1161,7 @@ import type { ClientAddress } from '$lib/types';
         })),
         total: totalConEnvio,
         envio,
+        saldo: currentSaldo,
         isPresupuesto: true,
         styleName: appStore.pdfStyle,
       });
@@ -1187,6 +1218,7 @@ import type { ClientAddress } from '$lib/types';
         })),
         total: totalConEnvio,
         envio,
+        saldo: currentSaldo,
         isPresupuesto: true,
         styleName: appStore.pdfStyle,
       });
@@ -1226,11 +1258,13 @@ import type { ClientAddress } from '$lib/types';
         items: validItems.map(i => ({
           cantidad: i.cantidad,
           descripcion: i.descripcion,
+          precio_unitario: i.precio_unitario ?? 0,
           total: i.total || i.cantidad * (i.precio_unitario ?? 0),
         })),
         total: totalConEnvio,
         envio,
         mode: tipo,
+        ...(tipo === 'PRESUPUESTO' ? { saldo: currentSaldo } : {}),
       });
 
       const iframe = document.getElementById('receipt-iframe') as HTMLIFrameElement;
@@ -1313,6 +1347,14 @@ import type { ClientAddress } from '$lib/types';
         <div class="paper-section">
           <div class="header-row">
             <span class="brand-text">BASTIDORES GAL</span>
+            {#if id !== null && estado_kanban}
+              <span class="confirm-badge" class:no-confirmado={estado_kanban === 'NO_CONFIRMADO'} class:confirmado={estado_kanban !== 'NO_CONFIRMADO'}>
+                {estado_kanban === 'NO_CONFIRMADO' ? '⏳ No Confirmado' : '✓ Confirmado'}
+              </span>
+              <button class="top-btn top-btn-confirm" onclick={toggleConfirmar} type="button">
+                {estado_kanban === 'NO_CONFIRMADO' ? '✓ Confirmar' : '⏳ Desconfirmar'}
+              </button>
+            {/if}
             <span class="shortcuts-hint">F1 Guardar · F2 Nueva</span>
             <div class="header-fields">
               <div class="field field-num">
@@ -1567,6 +1609,15 @@ import type { ClientAddress } from '$lib/types';
             <div class="summary-total">
               <span class="summary-total-label">Total</span>
               <span class="summary-total-value">${(totalConEnvio - (pagoRapidoAplicado ? pagoRapidoMonto : 0)).toFixed(0)}</span>
+              {#if id !== null}
+                <div class="summary-status">
+                  {#if currentSaldo <= 0.01}
+                    <span class="status-paid">✓ Pagado</span>
+                  {:else}
+                    <span class="status-debt">Debe ${currentSaldo.toFixed(0)}</span>
+                  {/if}
+                </div>
+              {/if}
             </div>
         </div>
         </div>
@@ -1726,10 +1777,20 @@ import type { ClientAddress } from '$lib/types';
           >
             <div class="history-item-header">
               <span class="history-num">{f.numero_factura || f.numero_presupuesto || `#${f.id}`}</span>
+              {#if f.estado_kanban === 'NO_CONFIRMADO'}
+                <span class="history-nc-badge">⏳ No Confirmado</span>
+              {/if}
               <span class="history-date">{f.fecha || ''}</span>
             </div>
             <div class="history-client">{f.cliente_nombre || 'Sin cliente'}</div>
             <div class="history-total">${(f.total || 0).toFixed(0)}</div>
+            <div class="history-status">
+              {#if (f.total || 0) - (pagoMap[f.id] || 0) <= 0.01}
+                <span class="status-paid">✓ Pagado</span>
+              {:else}
+                <span class="status-debt">Debe ${((f.total || 0) - (pagoMap[f.id] || 0)).toFixed(0)}</span>
+              {/if}
+            </div>
           </div>
         {:else}
           <div class="history-empty">Sin facturas</div>
@@ -1935,6 +1996,34 @@ import type { ClientAddress } from '$lib/types';
     color: var(--text-muted);
     white-space: nowrap;
   }
+  .confirm-badge {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.3rem;
+    white-space: nowrap;
+  }
+  .confirm-badge.no-confirmado {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .confirm-badge.confirmado {
+    background: #d1fae5;
+    color: #065f46;
+  }
+  .top-btn-confirm {
+    font-size: 0.78rem;
+    padding: 0.25rem 0.6rem;
+    border: 0.071rem solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-primary);
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+    transition: all 0.12s;
+    font-weight: 600;
+  }
+  .top-btn-confirm:hover { background: var(--bg-hover); border-color: var(--accent); }
   .header-fields {
     display: flex;
     gap: 0.857rem;
@@ -2797,6 +2886,15 @@ import type { ClientAddress } from '$lib/types';
     font-size: var(--text-sm);
     color: var(--text-primary);
   }
+  .history-nc-badge {
+    font-size: 0.6rem;
+    font-weight: 700;
+    background: #fef3c7;
+    color: #92400e;
+    padding: 0.08rem 0.3rem;
+    border-radius: 0.2rem;
+    white-space: nowrap;
+  }
   .history-date {
     font-size: var(--text-xs);
     color: var(--text-muted);
@@ -2812,6 +2910,27 @@ import type { ClientAddress } from '$lib/types';
     margin-top: 0.214rem;
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+  .history-status {
+    margin-top: 0.143rem;
+  }
+  .status-paid {
+    color: var(--success, #16a34a);
+    font-weight: 700;
+    font-size: var(--text-xs);
+  }
+  .status-debt {
+    color: var(--danger, #dc2626);
+    font-weight: 700;
+    font-size: var(--text-xs);
+  }
+  .summary-status {
+    text-align: right;
+    margin-top: 0.286rem;
+  }
+  .summary-status .status-paid,
+  .summary-status .status-debt {
+    font-size: var(--text-sm);
   }
   .history-empty {
     padding: 1.714rem 1.143rem;

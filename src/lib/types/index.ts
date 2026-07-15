@@ -87,6 +87,7 @@ export interface Factura {
   cliente_piso_depto?: string;
   estado_moldura: string;
   estado_orden_tela: string;
+  estado_kanban: string;
 }
 
 export interface OnlineUser {

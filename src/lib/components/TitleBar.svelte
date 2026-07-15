@@ -14,7 +14,7 @@
 
   const PRIMARIOS: { id: TabId; label: string }[] = [
     { id: 'panel-control', label: 'Panel' },
-    { id: 'kanban', label: 'Kanban' },
+    { id: 'kanban', label: 'Proceso' },
     { id: 'facturacion', label: 'Facturación' },
     { id: 'ficha-semanal', label: 'Ficha Sem.' },
     { id: 'mapa', label: 'Mapa' },

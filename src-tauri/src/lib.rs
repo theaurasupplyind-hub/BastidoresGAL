@@ -85,6 +85,7 @@ fn generate_pdf(
     items: Vec<InvoiceItemParam>,
     total: f64,
     envio: f64,
+    saldo: f64,
     is_presupuesto: bool,
     style_name: String,
 ) -> Result<String, String> {
@@ -109,6 +110,7 @@ fn generate_pdf(
         items: pdf_items,
         total,
         envio,
+        saldo,
         is_presupuesto,
         style,
     };
@@ -184,6 +186,7 @@ fn generate_invoices_pdf(
                 items: pdf_items,
                 total: inv.total,
                 envio: inv.envio,
+                saldo: inv.saldo,
                 is_presupuesto: inv.is_presupuesto,
                 style,
             }
@@ -525,6 +528,7 @@ struct BatchInvoiceParam {
     items: Vec<InvoiceItemParam>,
     total: f64,
     envio: f64,
+    saldo: f64,
     is_presupuesto: bool,
     style_name: String,
 }

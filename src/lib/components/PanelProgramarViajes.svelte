@@ -58,7 +58,7 @@
       .map(id => {
         const c = todosLosClientes.find((cc: any) => cc.id === id) ?? clientesDelDia.find((cc: any) => cc.id === id);
         if (!c) return null;
-        const facturas = clientesDelDia.find((cc: any) => cc.id === id)?.facturas ?? [];
+        const facturas = clientesDelDia.find((cc: any) => cc.id === id)?.facturas?.filter((f: any) => f.estado_kanban !== 'NO_CONFIRMADO') ?? [];
         return { ...c, facturas };
       })
       .filter(Boolean);

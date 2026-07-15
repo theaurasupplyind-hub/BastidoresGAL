@@ -16,6 +16,7 @@
     LISTO: '#22c55e',
     ENTREGADO: '#6b7280',
     ARCHIVADO: '#6b7280',
+    NO_CONFIRMADO: '#f59e0b',
   };
   const KANBAN_LABELS: Record<string, string> = {
     PEDIDO: 'Pedido',
@@ -23,6 +24,7 @@
     LISTO: 'Listo',
     ENTREGADO: 'Entregado',
     ARCHIVADO: 'Archivado',
+    NO_CONFIRMADO: 'No Confirmado',
   };
   function kanbanColor(estado: string) { return KANBAN_COLORS[estado] || '#6b7280'; }
   function kanbanText(estado: string) { return KANBAN_LABELS[estado] || estado; }
@@ -586,7 +588,7 @@
     items.push(`<hr style="margin:6px 0;border-color:#eee;">`);
 
     if (tipo === 'hoy') {
-      const facturasDelDia = clientesDelDia.find(c => c.id === cliente.id)?.facturas ?? [];
+      const facturasDelDia = clientesDelDia.find(c => c.id === cliente.id)?.facturas?.filter((f: any) => f.estado_kanban !== 'NO_CONFIRMADO') ?? [];
       items.push(`<span style="color:#f59e0b;font-weight:600;">&#128230; Entrega hoy</span>`);
       for (const f of facturasDelDia) {
         items.push(
