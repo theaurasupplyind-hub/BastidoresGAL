@@ -2,17 +2,40 @@
 
 ## Historial de problemas resueltos
 
+### 5. (CAUSA RAÍZ) Espacio en `productName`
+
+**Síntoma**: `signature verification failed` persistente a pesar de aplicar los parches #1-#4.
+
+**Causa raíz**: El `productName` en `tauri.conf.json` era `"Bastidores GAL"` (con espacio). Esto provocaba que:
+  - El build generara `Bastidores GAL_2.2.x_x64-setup.exe` (con espacio)
+  - La firma (`.sig`) incluyera `file:Bastidores GAL_2.2.x_x64-setup.exe` en su `trusted comment`
+  - GitHub almacenara el archivo como `Bastidores.GAL_2.2.x_x64-setup.exe` (espacio → punto)
+  - La URL se parcheaba para usar puntos, pero la firma internamente seguía teniendo espacios
+  - Al descargar, el filename real (con puntos) no coincidía con el filename firmado (con espacios), causando el error de verificación
+
+**Fix definitivo** (v2.2.10+): Cambiar `productName` de `"Bastidores GAL"` a `"BastidoresGAL"` en `tauri.conf.json`. Al no haber espacios:
+  - El build produce `BastidoresGAL_2.2.x_x64-setup.exe`
+  - La firma contiene `file:BastidoresGAL_2.2.x_x64-setup.exe`
+  - GitHub almacena exactamente el mismo nombre (no hay espacios que convertir)
+  - El release script ya no necesita el `-replace ' ','.'`
+
+**Nota**: Los parches #1, #3 y #4 ya no son necesarios tras este cambio. Se mantienen documentados por referencia histórica.
+
+---
+
 ### 1. URL del instalador incorrecta (`latest.json`)
 
 **Síntoma**: `signature verification failed` al buscar actualización.
 
 **Causa**: El `release.ps1` original generaba la URL del instalador con el nombre extraído del disco (`Bastidores GAL_2.2.x_x64-setup.exe` con espacio), pero `gh release upload` guarda los archivos en GitHub reemplazando espacios por puntos (`Bastidores.GAL_2.2.x_x64-setup.exe`). La URL apuntaba a un nombre que no existía en GitHub, descargando un HTML 404, y la firma no coincidía.
 
-**Fix** (`release.ps1` línea 67):
+**Fix anterior** (`release.ps1` línea 67):
 ```powershell
 $exeName = $exeFile.Name -replace ' ','.'
 ```
-Reemplaza espacios por puntos en el nombre del archivo para que coincida con lo que GitHub almacena.
+Reemplazaba espacios por puntos en el nombre del archivo para que coincida con lo que GitHub almacena.
+
+**⚠️ Ya no es necesario desde v2.2.10**: el `productName` ahora es `BastidoresGAL` (sin espacios), por lo que el filename no necesita transformación.
 
 ---
 

@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "Bastidores GAL",
-  "version": "2.2.9",
+  "productName": "BastidoresGAL",
+  "version": "2.2.10",
   "identifier": "bastidoresgal.app.gestion",
   "build": {
     "frontendDist": "../dist",
