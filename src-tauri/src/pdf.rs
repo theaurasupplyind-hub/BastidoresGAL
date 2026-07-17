@@ -117,15 +117,22 @@ fn build_one_half(data: &InvoiceData, style: InvoiceStyle) -> String {
     let envio_text = if data.envio <= 0.0 {
         "Sin cargo".to_string()
     } else {
-        format!("${:.0}", data.envio)
+        format!("{:.0}", data.envio)
     };
 
     let total_text = format!("{:.0}", data.total);
     let is_pagado = data.saldo <= 0.01;
-    let saldo_html = if is_pagado {
+    let sin_pago = !is_pagado && data.saldo >= data.total - 0.01;
+
+    let saldo_display = if is_pagado {
         r#"<span class="saldo-value pagado">✓ Pagado</span>"#.to_string()
+    } else if sin_pago {
+        format!(r#"<span class="total-large">Total: {}</span>"#, total_text)
     } else {
-        format!(r#"<span class="saldo-value debe">${:.0}</span>"#, data.saldo)
+        format!(
+            r#"<span class="total-small">Total: {}</span>        <span class="saldo-value debe">{:.0}</span>"#,
+            total_text, data.saldo
+        )
     };
 
     let items_rows = build_items_rows(&data.items);
@@ -134,19 +141,19 @@ fn build_one_half(data: &InvoiceData, style: InvoiceStyle) -> String {
         InvoiceStyle::Original => build_original_half(
             title, &data.num_factura, day, month, year,
             &data.cliente_nombre, &data.cliente_telefono, &data.cliente_domicilio,
-            &items_rows, &envio_text, &total_text, &saldo_html,
+            &items_rows, &envio_text, &saldo_display,
             &b64_brand, &b64_ign,
         ),
         InvoiceStyle::Moderno => build_moderno_half(
             title, &data.num_factura, day, month, year,
             &data.cliente_nombre, &data.cliente_telefono, &data.cliente_domicilio,
-            &items_rows, &envio_text, &total_text, &saldo_html,
+            &items_rows, &envio_text, &saldo_display,
             &b64_ign, &b64_header,
         ),
         InvoiceStyle::Clasico => build_clasico_half(
             title, &data.num_factura, day, month, year,
             &data.cliente_nombre, &data.cliente_telefono, &data.cliente_domicilio,
-            &items_rows, &envio_text, &total_text, &saldo_html,
+            &items_rows, &envio_text, &saldo_display,
         ),
     }
 }
@@ -158,8 +165,8 @@ fn build_items_rows(items: &[InvoiceItem]) -> String {
         let (qty, desc, price, total) = if i < items.len() {
             let it = &items[i];
             let q = if it.cantidad == 0.0 { String::new() } else { format!("{}", it.cantidad as i64) };
-            let p = if it.cantidad == 0.0 { String::new() } else { format!("${:.0}", it.precio_unitario) };
-            let t = if it.cantidad == 0.0 { String::new() } else { format!("${:.0}", it.total) };
+            let p = if it.cantidad == 0.0 { String::new() } else { format!("{:.0}", it.precio_unitario) };
+            let t = if it.cantidad == 0.0 { String::new() } else { format!("{:.0}", it.total) };
             (q, it.descripcion.clone(), p, t)
         } else {
             (String::new(), String::new(), String::new(), String::new())
@@ -175,7 +182,7 @@ fn build_items_rows(items: &[InvoiceItem]) -> String {
 fn build_original_half(
     title: &str, num: &str, day: &str, month: &str, year: &str,
     cliente: &str, tel: &str, domicilio: &str,
-    items_rows: &str, envio: &str, total: &str, saldo_html: &str,
+    items_rows: &str, envio: &str, saldo_display: &str,
     brand_b64: &str, ign_b64: &str,
 ) -> String {
     let ig_html = if ign_b64.is_empty() {
@@ -228,8 +235,7 @@ fn build_original_half(
     <div class="shipping-badge">ENVIO: <span>{envio}</span></div>
     <div class="total-block">
       <div class="saldo-row">
-        <span class="total-small">Total: ${total}</span>
-        {saldo}
+        {saldo_display}
       </div>
     </div>
   </div>
@@ -247,15 +253,14 @@ fn build_original_half(
         domicilio = domicilio,
         items = items_rows,
         envio = envio,
-        saldo = saldo_html,
-        total = total,
+        saldo_display = saldo_display,
     )
 }
 
 fn build_moderno_half(
     title: &str, num: &str, day: &str, month: &str, year: &str,
     cliente: &str, tel: &str, domicilio: &str,
-    items_rows: &str, envio: &str, total: &str, saldo_html: &str,
+    items_rows: &str, envio: &str, saldo_display: &str,
     ign_b64: &str, header_b64: &str,
 ) -> String {
     let bg_img = if header_b64.is_empty() {
@@ -310,8 +315,7 @@ fn build_moderno_half(
     <div class="shipping-info">ENVIO: <span>{envio}</span></div>
     <div class="total-amount">
       <div class="saldo-row">
-        <span class="total-small">Total: ${total}</span>
-        {saldo}
+        {saldo_display}
       </div>
     </div>
   </div>
@@ -329,15 +333,14 @@ fn build_moderno_half(
         domicilio = domicilio,
         items = items_rows,
         envio = envio,
-        saldo = saldo_html,
-        total = total,
+        saldo_display = saldo_display,
     )
 }
 
 fn build_clasico_half(
     title: &str, num: &str, day: &str, month: &str, year: &str,
     cliente: &str, tel: &str, domicilio: &str,
-    items_rows: &str, envio: &str, total: &str, saldo_html: &str,
+    items_rows: &str, envio: &str, saldo_display: &str,
 ) -> String {
     format!(r#"
 <div class="invoice-container-mini">
@@ -377,8 +380,7 @@ fn build_clasico_half(
     <div class="shipping-box">ENVIO: <span>{envio}</span></div>
     <div class="total-box">
       <div class="saldo-row">
-        <span class="total-small">Total: ${total}</span>
-        {saldo}
+        {saldo_display}
       </div>
     </div>
   </div>
@@ -394,8 +396,7 @@ fn build_clasico_half(
         domicilio = domicilio,
         items = items_rows,
         envio = envio,
-        saldo = saldo_html,
-        total = total,
+        saldo_display = saldo_display,
     )
 }
 

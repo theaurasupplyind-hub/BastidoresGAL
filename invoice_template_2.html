@@ -181,7 +181,7 @@
     .total-amount .saldo-value.debe {
         font-size: 26px !important;
         font-weight: 900 !important;
-        color: #dc2626 !important;
+        color: #000 !important;
         line-height: 1;
         white-space: nowrap;
     }
@@ -189,6 +189,13 @@
         font-size: 15px;
         color: #555;
         font-weight: 600;
+        white-space: nowrap;
+    }
+
+    .total-large {
+        font-size: 26px;
+        font-weight: 900;
+        color: #222;
         white-space: nowrap;
     }
 
@@ -252,6 +259,6 @@
 
     <div class="footer-section">
         <div class="shipping-info">ENVIO: <span id="deliveryValue"></span></div>
-        <div class="total-amount">TOTAL $<span id="invoiceTotal">0.00</span></div>
+        <div class="total-amount">TOTAL <span id="invoiceTotal">0.00</span></div>
     </div>
 </div>

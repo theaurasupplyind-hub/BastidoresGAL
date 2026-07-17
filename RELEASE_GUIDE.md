@@ -86,15 +86,67 @@ $signature = (Get-Content $sigFile.FullName -Raw).Trim()
 gh release upload $Tag $exeFile.FullName $sigFile.FullName --clobber
 ```
 
+### 7. URL con punto + firma desincronizada (v2.2.11)
+
+**Síntomas**: Primero `Download request failed with status: 404 Not Found`, luego de corregir la URL aparece `signature verification failed`.
+
+**Causa**:
+- **URL**: El `latest.json` se generó con `Bastidores.**GAL**` (con punto) cuando el archivo real en GitHub es `BastidoresGAL` (sin punto). A pesar de que el `release.ps1` ya no tiene el `-replace`, la URL se generó incorrectamente por una versión anterior del script o edición manual.
+- **Firma**: El `.exe` subido a GitHub tiene un hash diferente al que se firmó localmente. Ocurre cuando el build se ejecuta dos veces: el `.sig` corresponde al primer build y el `.exe` al segundo.
+
+**Fix completo** (refirmar el `.exe` desde GitHub):
+```powershell
+$Tag     = "v2.2.11"
+$Version = "2.2.11"
+$Repo    = "theaurasupplyind-hub/BastidoresGAL"
+$Token   = "de0cc63994894c43a3f21a96281ccfc5"
+
+# 1. Descargar el .exe de GitHub
+$tmpDir = "$env:TEMP\sigfix"
+Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+$exePath = "$tmpDir\BastidoresGAL_$($Version)_x64-setup.exe"
+$exeUrl = "https://github.com/$Repo/releases/download/$Tag/BastidoresGAL_$($Version)_x64-setup.exe"
+Invoke-WebRequest -Uri $exeUrl -OutFile $exePath -TimeoutSec 120
+
+# 2. Firmar con la clave privada
+$key = (Get-Content "$env:USERPROFILE\.tauri\galv2.key" -Raw).Trim()
+$env:TAURI_SIGNING_PRIVATE_KEY          = $key
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "jesus90"
+Push-Location "D:\jesus\Documents\Desarrollo\galv2-tauri"
+npx tauri signer sign "$exePath"
+Pop-Location
+
+# 3. Subir el nuevo .sig a GitHub
+$sigPath = "$exePath.sig"
+gh release upload $Tag "$sigPath" --repo $Repo --clobber
+
+# 4. Actualizar backend con nueva firma y URL correcta
+$newSig = (Get-Content $sigPath -Raw).Trim()
+$correctUrl = "https://github.com/$Repo/releases/download/$Tag/BastidoresGAL_$($Version)_x64-setup.exe"
+$now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+$latestJson = '{"version":"v' + $Version + '","notes":"Actualizacion v' + $Version + '","pub_date":"' + $now + '","platforms":{"windows-x86_64":{"signature":"' + $newSig + '","url":"' + $correctUrl + '"}}}'
+Invoke-RestMethod -Uri "https://api-bastidores.onrender.com/updater/manifest" -Method Post -Headers @{ Authorization = "Bearer $Token"; "Content-Type" = "application/json" } -Body $latestJson -TimeoutSec 120
+
+# 5. Verificar sincronización
+$backendSig = (Invoke-RestMethod "https://api-bastidores.onrender.com/latest.json").platforms.'windows-x86_64'.signature
+$ghSig = (Invoke-RestMethod -Uri "https://github.com/$Repo/releases/download/$Tag/BastidoresGAL_$($Version)_x64-setup.exe.sig" -Headers @{"Accept"="application/octet-stream"})
+"Backend == GitHub: " + ($backendSig -eq $ghSig.Trim())
+```
+
+**Prevención**: Al ejecutar `release.ps1`, el script sube `.exe` y `.sig` **juntos** con `--clobber` en el mismo comando (linea 112). Si el build se corre dos veces, asegurarse de que ambos archivos se sobrescriban juntos.
+
 ---
 
 ## Proceso de release (pasos)
 
 1. Editar `src-tauri/tauri.conf.json` → incrementar `version`
-2. Commitear los cambios
-3. Cerrar PowerShell y abrir uno nuevo
-4. Ejecutar: `. C:\Users\jesus\.tauri\release.ps1`
-5. El script:
+2. Agregar entrada en `src/lib/data/changelog.ts` con las notas de la nueva versión
+3. Commitear los cambios
+4. Cerrar PowerShell y abrir uno nuevo
+5. **Verificar** que `C:\Users\jesus\.tauri\release.ps1` NO tenga ningún `-replace` en la línea de la URL (debe usar `$exeFile.Name` directamente)
+6. Ejecutar: `. C:\Users\jesus\.tauri\release.ps1`
+7. El script:
    - Lee la versión de `tauri.conf.json`
    - Configura la clave de firma
    - Compila la app (`npm run tauri build`)
@@ -142,8 +194,8 @@ Cuando el release ya se subió a GitHub pero la firma no coincide (`signature ve
 ### Variables (cambiá SOLO estos valores según tu versión)
 
 ```powershell
-$Tag     = "v2.2.10"
-$Version = "2.2.10"
+$Tag     = "v2.2.11"
+$Version = "2.2.11"
 $Repo    = "theaurasupplyind-hub/BastidoresGAL"
 $Token   = "de0cc63994894c43a3f21a96281ccfc5"
 ```
@@ -162,6 +214,10 @@ $url
 
 # 3. Probar que la URL responde (debe dar 200 OK y mostrar size)
 curl.exe -sI $url | Select-String "Content-Length"
+
+# 4. Si el backend y GitHub no coinciden, puede ser caché de GitHub CDN.
+#    Reintentar con Header Accept para evitar caché:
+$ghSigFresh = (Invoke-RestMethod -Uri "https://github.com/$Repo/releases/download/$Tag/BastidoresGAL_$($Version)_x64-setup.exe.sig" -Headers @{"Accept"="application/octet-stream"})
 ```
 
 ### Fix completo — refirmar el `.exe` desde GitHub
@@ -199,9 +255,10 @@ $latestJson = '{"version":"v' + $Version + '","notes":"Actualizacion v' + $Versi
 Invoke-RestMethod -Uri "https://api-bastidores.onrender.com/updater/manifest" -Method Post -Headers @{ Authorization = "Bearer $Token"; "Content-Type" = "application/json" } -Body $latestJson -TimeoutSec 120
 "Backend actualizado"
 
-# 6. Verificar sincronización
+# 6. Verificar sincronización (usar Header para evitar caché de GitHub)
 $backendSig = (Invoke-RestMethod "https://api-bastidores.onrender.com/latest.json").platforms.'windows-x86_64'.signature
-$ghSig = (Invoke-RestMethod "https://github.com/$Repo/releases/download/$Tag/BastidoresGAL_$($Version)_x64-setup.exe.sig")
+$ghSig = (Invoke-RestMethod -Uri "https://github.com/$Repo/releases/download/$Tag/BastidoresGAL_$($Version)_x64-setup.exe.sig" -Headers @{"Accept"="application/octet-stream"})
+$ghSig = $ghSig.Trim()
 "Sincronizado: " + ($backendSig -eq $ghSig)
 
 # 7. Limpiar
@@ -211,10 +268,10 @@ Remove-Item -Recurse -Force $tmpDir -ErrorAction SilentlyContinue
 ### Fix solo URL (si el filename y la firma están bien pero la URL apunta mal)
 
 ```powershell
-$correctUrl = "https://github.com/theaurasupplyind-hub/BastidoresGAL/releases/download/v2.2.10/BastidoresGAL_2.2.10_x64-setup.exe"
+$correctUrl = "https://github.com/theaurasupplyind-hub/BastidoresGAL/releases/download/v2.2.11/BastidoresGAL_2.2.11_x64-setup.exe"
 $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 $sig = (Invoke-RestMethod "https://api-bastidores.onrender.com/latest.json").platforms.'windows-x86_64'.signature
-$latestJson = '{"version":"v2.2.10","notes":"Actualizacion v2.2.10","pub_date":"' + $now + '","platforms":{"windows-x86_64":{"signature":"' + $sig + '","url":"' + $correctUrl + '"}}}'
+$latestJson = '{"version":"v2.2.11","notes":"Actualizacion v2.2.11","pub_date":"' + $now + '","platforms":{"windows-x86_64":{"signature":"' + $sig + '","url":"' + $correctUrl + '"}}}'
 Invoke-RestMethod -Uri "https://api-bastidores.onrender.com/updater/manifest" -Method Post -Headers @{ Authorization = "Bearer de0cc63994894c43a3f21a96281ccfc5"; "Content-Type" = "application/json" } -Body $latestJson -TimeoutSec 120
 "URL corregida"
 ```

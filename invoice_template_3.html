@@ -129,7 +129,7 @@
         .saldo-value.debe {
             font-size: 26px !important;
             font-weight: 900 !important;
-            color: #dc2626 !important;
+            color: #000 !important;
             line-height: 1;
             white-space: nowrap;
         }
@@ -137,6 +137,13 @@
             font-size: 15px;
             color: #555;
             font-weight: 600;
+            white-space: nowrap;
+        }
+
+        .total-large {
+            font-size: 26px;
+            font-weight: 900;
+            color: #222;
             white-space: nowrap;
         }
     </style>
@@ -200,7 +207,7 @@
 
         <!-- Cuadro de Total Independiente -->
         <div class="total-box">
-            <span class="total-line">TOTAL: $<span id="invoiceTotal"></span></span>
+            <span class="total-line">TOTAL: <span id="invoiceTotal"></span></span>
         </div>
     </div>
 </div>
