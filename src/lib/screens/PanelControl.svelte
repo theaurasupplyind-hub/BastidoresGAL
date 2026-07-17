@@ -39,10 +39,10 @@
     } catch {}
   }
 
-  // ── Entregas de hoy ──
+  // ── Entregas pendientes ──
   let entregas = $state<any[]>([]);
   let loadingData = $state(false);
-  const today = new Date().toISOString().split('T')[0];
+  const PLAN_FECHA = 'plan_permanente';
 
   // ── Todos los clientes (para grupos) ──
   let todosLosClientes = $state<any[]>([]);
@@ -50,12 +50,26 @@
   async function loadDashboardPanel() {
     loadingData = true;
     try {
-      const data = await api.getMapaDashboard(today);
+      const data = await api.getMapaDashboard(PLAN_FECHA, true);
       entregas = data.entregas;
       todosLosClientes = data.clientes;
       cacheStore.set('mapa-clientes', data.clientes, 120000);
+      const clientesConPendientes = new Set(entregas.map((e: any) => e.id));
       if (data.plan && data.plan.grupos && data.plan.grupos.length > 0) {
-        planGrupos = data.plan.grupos;
+        let grupos = data.plan.grupos;
+        let dirty = false;
+        grupos = grupos
+          .map((g: any) => {
+            const ids = g.clienteIds.filter((id: number) => clientesConPendientes.has(id));
+            const orden = (g.ordenRuta || []).filter((id: number) => clientesConPendientes.has(id));
+            if (ids.length !== g.clienteIds.length) dirty = true;
+            return { ...g, clienteIds: ids, ordenRuta: orden };
+          })
+          .filter((g: any) => g.clienteIds.length > 0);
+        if (dirty) {
+          api.savePlanViaje({ fecha: PLAN_FECHA, grupos }).catch(() => {});
+        }
+        planGrupos = grupos;
         planViajeId = data.plan.id;
       } else {
         planGrupos = [];
@@ -83,10 +97,14 @@
   let dragEl = $state<HTMLElement | null>(null);
   let dragOverGrupo = $state<string | null>(null);
   let showKanbanViajes = $state(false);
+  let editandoNombreGrupo = $state<string | null>(null);
+  let editandoNombreValue = $state('');
+  let dragColIdx = $state<number | null>(null);
+  let dragOverColIdx = $state<number | null>(null);
 
   function guardarPlanPanel() {
     if (planGrupos.length === 0) return;
-    const data = { fecha: today, grupos: planGrupos };
+    const data = { fecha: PLAN_FECHA, grupos: planGrupos };
     if (planViajeId) {
       api.updatePlanViaje(planViajeId, data).then(() => { planDirty = false; appStore.showToast('Plan actualizado', 'success'); }).catch(() => { appStore.showToast('Error al guardar', 'error'); });
     } else {
@@ -180,6 +198,67 @@
     });
     planGrupos = nuevosGrupos;
     planDirty = true;
+  }
+
+  function iniciarRenombrarGrupo(grupoId: string, nombre: string) {
+    editandoNombreGrupo = grupoId;
+    editandoNombreValue = nombre;
+  }
+
+  function confirmarRenombrarGrupo() {
+    if (!editandoNombreGrupo) return;
+    if (editandoNombreValue.trim()) {
+      planGrupos = planGrupos.map(g =>
+        g.id === editandoNombreGrupo ? { ...g, nombre: editandoNombreValue.trim() } : g
+      );
+      planDirty = true;
+    }
+    editandoNombreGrupo = null;
+  }
+
+  function cancelarRenombrarGrupo() {
+    editandoNombreGrupo = null;
+  }
+
+  function moverGrupoIzquierda(idx: number) {
+    if (idx <= 0) return;
+    const nuevos = [...planGrupos];
+    [nuevos[idx - 1], nuevos[idx]] = [nuevos[idx], nuevos[idx - 1]];
+    planGrupos = nuevos;
+    planDirty = true;
+  }
+
+  function moverGrupoDerecha(idx: number) {
+    if (idx >= planGrupos.length - 1) return;
+    const nuevos = [...planGrupos];
+    [nuevos[idx], nuevos[idx + 1]] = [nuevos[idx + 1], nuevos[idx]];
+    planGrupos = nuevos;
+    planDirty = true;
+  }
+
+  function handleColDragStart(idx: number, e: DragEvent) {
+    dragColIdx = idx;
+    e.dataTransfer!.effectAllowed = 'move';
+  }
+
+  function handleColDragOver(idx: number) {
+    dragOverColIdx = idx;
+  }
+
+  function handleColDragLeave() {
+    dragOverColIdx = null;
+  }
+
+  function handleColDrop(idx: number) {
+    if (dragColIdx === null) { dragOverColIdx = null; return; }
+    if (dragColIdx === idx) { dragColIdx = null; dragOverColIdx = null; return; }
+    const nuevos = [...planGrupos];
+    const [moved] = nuevos.splice(dragColIdx, 1);
+    nuevos.splice(idx, 0, moved);
+    planGrupos = nuevos;
+    planDirty = true;
+    dragColIdx = null;
+    dragOverColIdx = null;
   }
 
   // ── Actividad (facturas + pagos) ──
@@ -446,12 +525,12 @@
       </div>
     </div>
 
-    <!-- ENTREGAS DE HOY -->
+    <!-- ENTREGAS PENDIENTES -->
     <div class="card card-entregas">
       <div class="card-header entregas-header" onclick={() => showKanbanViajes = true}>
         <div class="card-title-row">
           <svg class="card-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-          <span class="card-title">ENTREGAS DE HOY</span>
+          <span class="card-title">ENTREGAS PENDIENTES</span>
         </div>
         <span class="card-badge badge-white">{entregas.reduce((s: number, e: any) => s + (e.facturas?.length || 0), 0)} entregas</span>
       </div>
@@ -472,9 +551,7 @@
       <div class="entregas-list">
         {#if loadingData}
           <div class="entregas-empty">Cargando...</div>
-        {:else if entregas.length === 0}
-          <div class="entregas-empty">Sin entregas programadas hoy</div>
-        {:else}
+        {:else if planGrupos.length > 0 || clientesSinGrupo().length > 0}
           {#if planGrupos.length > 0}
             {#each planGrupos as grupo}
               <div
@@ -486,8 +563,20 @@
               >
                 <div class="grupo-header">
                   <span class="grupo-color" style="background:{grupo.color}"></span>
-                  <span class="grupo-nombre">{grupo.nombre}</span>
+                  {#if editandoNombreGrupo === grupo.id}
+                    <input
+                      class="grupo-nombre-input"
+                      bind:value={editandoNombreValue}
+                      onkeydown={(e) => { if (e.key === 'Enter') confirmarRenombrarGrupo(); if (e.key === 'Escape') cancelarRenombrarGrupo(); }}
+                      onblur={confirmarRenombrarGrupo}
+                      autofocus
+                      onclick={(e) => e.stopPropagation()}
+                    />
+                  {:else}
+                    <span class="grupo-nombre" ondblclick={() => iniciarRenombrarGrupo(grupo.id, grupo.nombre)}>{grupo.nombre}</span>
+                  {/if}
                   <span class="grupo-count">{grupo.clienteIds.length} cliente{grupo.clienteIds.length !== 1 ? 's' : ''}</span>
+                  <button class="grupo-rename-btn" onclick={(e) => { e.stopPropagation(); iniciarRenombrarGrupo(grupo.id, grupo.nombre); }} title="Renombrar">✏️</button>
                 </div>
                 <div class="grupo-clientes">
                   {#each grupo.ordenRuta.length > 0 ? grupo.ordenRuta : grupo.clienteIds as clienteId, i}
@@ -570,6 +659,8 @@
             </div>
           {/if}
         {/each}
+      {:else}
+        <div class="entregas-empty">Sin entregas pendientes</div>
       {/if}
       </div>
       <button class="entregas-link" onclick={() => appStore.currentTab = 'mapa'}>
@@ -700,7 +791,7 @@
       <div class="kanban-modal-header">
         <div class="kanban-modal-title">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-          <h2>Viajes del día</h2>
+          <h2>Viajes programados</h2>
         </div>
         <div class="kanban-modal-actions">
           {#if planDirty}
@@ -714,18 +805,34 @@
       </div>
 
       <div class="kanban-board">
-        {#each planGrupos as grupo}
+        {#each planGrupos as grupo, idx}
           <div
             class="kanban-column"
-            class:drag-over={dragOverGrupo === grupo.id}
-            ondragover={(e) => { e.preventDefault(); dragOverGrupoFn(grupo.id); }}
-            ondragleave={dragLeaveGrupo}
-            ondrop={(e) => { e.preventDefault(); dropEnGrupo(grupo.id); }}
+            class:drag-over={dragCliente ? dragOverGrupo === grupo.id : dragOverColIdx === idx}
+            ondragover={(e) => { e.preventDefault(); dragCliente ? dragOverGrupoFn(grupo.id) : handleColDragOver(idx); }}
+            ondragleave={() => { dragCliente ? dragLeaveGrupo() : handleColDragLeave(); }}
+            ondrop={(e) => { e.preventDefault(); dragCliente ? dropEnGrupo(grupo.id) : handleColDrop(idx); }}
           >
-            <div class="kanban-column-header">
+            <div class="kanban-column-header" draggable="true" ondragstart={(e) => handleColDragStart(idx, e)}>
               <span class="grupo-color" style="background:{grupo.color}"></span>
-              <span class="kanban-col-title">{grupo.nombre}</span>
+              {#if editandoNombreGrupo === grupo.id}
+                <input
+                  class="kanban-col-title-input"
+                  bind:value={editandoNombreValue}
+                  onkeydown={(e) => { if (e.key === 'Enter') confirmarRenombrarGrupo(); if (e.key === 'Escape') cancelarRenombrarGrupo(); }}
+                  onblur={confirmarRenombrarGrupo}
+                  autofocus
+                  onclick={(e) => e.stopPropagation()}
+                />
+              {:else}
+                <span class="kanban-col-title" ondblclick={() => iniciarRenombrarGrupo(grupo.id, grupo.nombre)}>{grupo.nombre}</span>
+              {/if}
               <span class="kanban-col-count">{grupo.clienteIds.length}</span>
+              <div class="kanban-col-actions">
+                <button class="kanban-col-btn" onclick={() => moverGrupoIzquierda(idx)} disabled={idx === 0} title="Mover izquierda">◀</button>
+                <button class="kanban-col-btn" onclick={() => moverGrupoDerecha(idx)} disabled={idx === planGrupos.length - 1} title="Mover derecha">▶</button>
+                <button class="kanban-col-btn kanban-col-rename" onclick={(e) => { e.stopPropagation(); iniciarRenombrarGrupo(grupo.id, grupo.nombre); }} title="Renombrar">✏️</button>
+              </div>
             </div>
             <div class="kanban-column-body">
               {#each grupo.ordenRuta.length > 0 ? grupo.ordenRuta : grupo.clienteIds as clienteId, i}
@@ -1634,6 +1741,64 @@
     padding: 2px 8px;
     border-radius: 10px;
   }
+  .kanban-col-actions {
+    display: flex;
+    gap: 2px;
+    margin-left: auto;
+  }
+  .kanban-col-btn {
+    width: 20px;
+    height: 20px;
+    border: none;
+    border-radius: 3px;
+    background: rgba(255,255,255,0.15);
+    color: rgba(255,255,255,0.7);
+    cursor: pointer;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+  }
+  .kanban-col-btn:hover:not(:disabled) { background: rgba(255,255,255,0.3); color: white; }
+  .kanban-col-btn:disabled { opacity: 0.3; cursor: default; }
+  .grupo-rename-btn {
+    width: 18px;
+    height: 18px;
+    border: none;
+    border-radius: 3px;
+    background: transparent;
+    color: rgba(255,255,255,0.3);
+    cursor: pointer;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    line-height: 1;
+    opacity: 0;
+    transition: opacity 0.12s;
+    flex-shrink: 0;
+  }
+  .grupo-header:hover .grupo-rename-btn { opacity: 1; }
+  .grupo-rename-btn:hover { background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.7); }
+  .grupo-nombre-input, .kanban-col-title-input {
+    flex: 1;
+    min-width: 0;
+    padding: 2px 6px;
+    border: 1px solid rgba(255,255,255,0.3);
+    border-radius: 4px;
+    background: rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.9);
+    font-size: 15px;
+    font-weight: 600;
+    outline: none;
+    font-family: inherit;
+  }
+  .grupo-nombre-input:focus, .kanban-col-title-input:focus { border-color: rgba(255,255,255,0.6); background: rgba(255,255,255,0.15); }
+  .kanban-col-title-input { font-size: 14px; }
+
   .kanban-column-body {
     flex: 1;
     overflow-y: auto;

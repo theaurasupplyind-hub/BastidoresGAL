@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { getVersion } from '@tauri-apps/api/app';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { mapaStore } from '$lib/stores/mapaStore.svelte';
@@ -23,6 +24,8 @@
   import Caja from './Caja.svelte';
   import PrintAgent from './PrintAgent.svelte';
   import PanelControl from './PanelControl.svelte';
+  import UpdateAnnouncement from '$lib/components/UpdateAnnouncement.svelte';
+  import { CHANGELOG } from '$lib/data/changelog';
 
   let { onLogout }: { onLogout: () => void } = $props();
 
@@ -31,10 +34,23 @@
   let heartbeatId: ReturnType<typeof setInterval> | undefined;
   let stationsPollId: ReturnType<typeof setInterval> | undefined;
   let config = $state<any>({});
+  let showUpdate = $state(false);
+  let updateVersion = $state('');
+  let updateNotes = $state('');
 
   onMount(async () => {
     api.wakeServer();
     try { config = await invoke('get_config'); } catch {}
+    try {
+      const currentVersion = await getVersion();
+      const lastSeen = localStorage.getItem('app_last_version');
+      if (lastSeen !== currentVersion) {
+        updateVersion = `v${currentVersion}`;
+        updateNotes = CHANGELOG[currentVersion] || 'Nueva versión disponible';
+        showUpdate = true;
+        localStorage.setItem('app_last_version', currentVersion);
+      }
+    } catch {}
     heartbeatId = setInterval(runHeartbeat, 10000);
     runHeartbeat();
     pollStations();
@@ -283,6 +299,8 @@
 
   </div>
 </div>
+
+<UpdateAnnouncement version={updateVersion} notes={updateNotes} show={showUpdate} onclose={() => showUpdate = false} />
 
 <style>
   .app-layout {

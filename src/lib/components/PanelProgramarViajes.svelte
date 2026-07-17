@@ -17,6 +17,7 @@
     onsave,
     onremovecliente,
     onreorder,
+    onrename,
   }: {
     grupos: Map<string, { id: string; nombre: string; clienteIds: number[]; ordenRuta: number[]; color: string }>;
     grupoActivoId: string | null;
@@ -31,6 +32,7 @@
     onsave: () => void;
     onremovecliente: (groupId: string, clienteId: number) => void;
     onreorder: (groupId: string, nuevoOrden: number[]) => void;
+    onrename?: (groupId: string, newName: string) => void;
   } = $props();
 
   let dragIndex = $state<number | null>(null);
@@ -124,9 +126,7 @@
     if (!grupoNombreEditando) return;
     const g = grupos.get(grupoNombreEditando);
     if (g && grupoNombreValue.trim()) {
-      const updated = new Map(grupos);
-      updated.set(grupoNombreEditando, { ...g, nombre: grupoNombreValue.trim() });
-      onreorder(grupoNombreEditando, g.ordenRuta);
+      onrename?.(grupoNombreEditando, grupoNombreValue.trim());
     }
     grupoNombreEditando = null;
   }

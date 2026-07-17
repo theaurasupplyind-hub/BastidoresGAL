@@ -113,8 +113,8 @@ export const api = {
   updateMapaOrigen: (data: { direccion: string; lat?: number | null; lng?: number | null }) =>
     request<{ status: string; direccion: string; lat: number | null; lng: number | null }>('PUT', '/mapa/origen', data, 15),
 
-  getMapaDashboard: (fecha: string) =>
-    request<{ clientes: any[]; entregas: any[]; plan: import('$lib/types').PlanDeViaje | null }>('GET', `/mapa/dashboard?fecha=${fecha}`, undefined, 20),
+  getMapaDashboard: (fecha: string, todas = false) =>
+    request<{ clientes: any[]; entregas: any[]; plan: import('$lib/types').PlanDeViaje | null }>('GET', `/mapa/dashboard?fecha=${fecha}&todas=${todas}`, undefined, 20),
 
   getPlanViaje: (fecha: string) =>
     request<import('$lib/types').PlanDeViaje | null>('GET', `/mapa/planes?fecha=${fecha}`, undefined, 15),
@@ -336,4 +336,7 @@ export const api = {
     request<{ status: string; id: number }>('POST', '/notes', data),
   deleteNote: (id: number) =>
     request<{ status: string }>('DELETE', `/notes/${id}`),
+
+  getLatestManifest: () =>
+    request<{ version: string; notes: string; pub_date: string; platforms: any }>('GET', '/latest.json', undefined, 10),
 };

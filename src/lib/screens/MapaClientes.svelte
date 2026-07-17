@@ -14,6 +14,7 @@
     PEDIDO: '#ef4444',
     EN_PROCESO: '#3b82f6',
     LISTO: '#22c55e',
+    EN_ESPERA: '#22c55e',
     ENTREGADO: '#6b7280',
     ARCHIVADO: '#6b7280',
     NO_CONFIRMADO: '#f59e0b',
@@ -22,6 +23,7 @@
     PEDIDO: 'Pedido',
     EN_PROCESO: 'En Proceso',
     LISTO: 'Listo',
+    EN_ESPERA: 'Listo',
     ENTREGADO: 'Entregado',
     ARCHIVADO: 'Archivado',
     NO_CONFIRMADO: 'No Confirmado',
@@ -98,7 +100,12 @@
     }
     if (filtroKanban.length > 0) {
       base = base.filter(c =>
-        c.facturas_estados && filtroKanban.some(e => (c.facturas_estados[e] ?? 0) > 0)
+        c.facturas_estados && filtroKanban.some(e => {
+          const count = c.facturas_estados[e] ?? 0;
+          if (count > 0) return true;
+          if (e === 'LISTO') return (c.facturas_estados['EN_ESPERA'] ?? 0) > 0;
+          return false;
+        })
       );
     }
     if (!busqueda.trim()) return base;
@@ -150,7 +157,12 @@
 
     if (filtroKanban.length > 0) {
       resultado = resultado.filter(c =>
-        c.facturas_estados && filtroKanban.some(e => (c.facturas_estados[e] ?? 0) > 0)
+        c.facturas_estados && filtroKanban.some(e => {
+          const count = c.facturas_estados[e] ?? 0;
+          if (count > 0) return true;
+          if (e === 'LISTO') return (c.facturas_estados['EN_ESPERA'] ?? 0) > 0;
+          return false;
+        })
       );
     }
 
@@ -344,6 +356,7 @@
     });
 
     await cargarDashboard();
+    await cargarPlan();
     await cargarOrigen();
   }
 
@@ -356,14 +369,7 @@
       clientesDelDia = data.entregas;
       seleccionados = new Set(clientesDelDia.map(c => c.id));
       ordenRuta = clientesDelDia.map(c => c.id);
-      if (data.plan && data.plan.grupos && data.plan.grupos.length > 0) {
-        const m = new Map();
-        for (const g of data.plan.grupos) m.set(g.id, g);
-        grupos = m;
-        grupoActivoId = data.plan.grupos[0].id;
-        planViajeId = data.plan.id;
-        modoProgramar = true;
-      }
+      // Plan se carga aparte con 'plan_permanente' en cargarPlan()
       renderizarMarcadores();
     } catch (e) {
       error = 'No se pudieron cargar los datos del mapa.';
@@ -699,6 +705,15 @@
     renderizarMarcadores();
   }
 
+  function renombrarGrupo(groupId: string, newName: string) {
+    const g = grupos.get(groupId);
+    if (!g) return;
+    const updated = new Map(grupos);
+    updated.set(groupId, { ...g, nombre: newName });
+    grupos = updated;
+    renderizarMarcadores();
+  }
+
   function moverClienteAGrupo(clienteId: number, targetGroupId: string) {
     const grupoOrigen = grupoDelCliente(clienteId);
     const updated = new Map(grupos);
@@ -726,7 +741,7 @@
 
   async function cargarPlan() {
     try {
-      const plan = await api.getPlanViaje(fecha);
+      const plan = await api.getPlanViaje('plan_permanente');
       if (plan && plan.grupos && plan.grupos.length > 0) {
         const m = new Map();
         for (const g of plan.grupos) {
@@ -750,7 +765,7 @@
         appStore.showToast('Plan eliminado', 'success');
         return;
       }
-      const data = { fecha, grupos: [...grupos.values()] };
+      const data = { fecha: 'plan_permanente', grupos: [...grupos.values()] };
       if (planViajeId) {
         await api.updatePlanViaje(planViajeId, data);
       } else {
@@ -1283,8 +1298,8 @@
                 {#if cliente.facturas_estados}
                   <div class="factura-badges">
                     {#each Object.entries(cliente.facturas_estados) as [estado, count]}
-                      {#if (estado === 'PEDIDO' || estado === 'EN_PROCESO' || estado === 'LISTO') && count > 0}
-                        <span class="kanban-badge" style="background:{kanbanColor(estado)}">{kanbanText(estado)}{count > 1 ? ` ${count}` : ''}</span>
+                      {#if (estado === 'PEDIDO' || estado === 'EN_PROCESO' || estado === 'LISTO' || estado === 'EN_ESPERA') && count > 0}
+                        <span class="kanban-badge" style="background:{kanbanColor(estado)}">{kanbanText(estado === 'EN_ESPERA' ? 'LISTO' : estado)}{count > 1 ? ` ${count}` : ''}</span>
                       {/if}
                     {/each}
                   </div>
@@ -1320,6 +1335,7 @@
   onsave={guardarPlan}
   onremovecliente={quitarClienteDeGrupo}
   onreorder={reordenarGrupo}
+  onrename={renombrarGrupo}
 />
 
 {#if menuContextual}

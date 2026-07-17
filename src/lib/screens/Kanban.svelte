@@ -56,6 +56,10 @@
   let columns = $state<{ key: string; cards: Factura[]; highlight: boolean }[]>(
     COLUMNS.map(c => ({ key: c.key, cards: [], highlight: false }))
   );
+  const EN_ESPERA_COL_IDX = 4;
+  let enEsperaCards = $state<Factura[]>([]);
+  let enEsperaHighlight = $state(false);
+  let enEsperaOpen = $state(true);
   let selectedIds = $state<Set<number>>(new Set());
   let draggedCard = $state<{ id: number; colIdx: number } | null>(null);
   let showItemsModal = $state(false);
@@ -362,7 +366,7 @@
             }
           }
         }
-        if (!['PEDIDO', 'NO_CONFIRMADO', 'EN_PROCESO', 'LISTO', 'ENTREGADO'].includes(kanban)) {
+        if (!['PEDIDO', 'NO_CONFIRMADO', 'EN_PROCESO', 'LISTO', 'ENTREGADO', 'EN_ESPERA'].includes(kanban)) {
           kanban = 'PEDIDO';
         }
         if (kanban === 'NO_CONFIRMADO') {
@@ -380,6 +384,17 @@
         col.cards = applyFilters(filtered.filter(f => f.estado_kanban === col.key), col.key as ColKey);
       }
       columns = columns;
+
+      // Sort ENTREGADO cards by fecha_entrega descending (newest first)
+      const colEnt = columns.find(c => c.key === 'ENTREGADO');
+      if (colEnt) {
+        colEnt.cards.sort((a, b) => {
+          const da = a.fecha_entrega ? parseFecha(a.fecha_entrega).getTime() : 0;
+          const db = b.fecha_entrega ? parseFecha(b.fecha_entrega).getTime() : 0;
+          return db - da;
+        });
+      }
+      enEsperaCards = applyFilters(filtered.filter(f => f.estado_kanban === 'EN_ESPERA'), 'ENTREGADO' as ColKey);
     } catch (e: any) {
       appStore.alert('Error al cargar kanban: ' + (e?.message || e));
     } finally {
@@ -407,7 +422,59 @@
   });
 
   async function moveCards(fromIdx: number, toIdx: number) {
-    if (fromIdx < 0 || fromIdx > 3 || toIdx < 0 || toIdx > 3) return;
+    if (fromIdx < 0 || fromIdx > 4 || toIdx < 0 || toIdx > 4) return;
+    const todayStr = new Date().toLocaleDateString('es-AR');
+
+    if (fromIdx === EN_ESPERA_COL_IDX || toIdx === EN_ESPERA_COL_IDX) {
+      // Handle EN_ESPERA column transitions
+      let cards: Factura[];
+      if (fromIdx === EN_ESPERA_COL_IDX) {
+        cards = enEsperaCards.filter(c => selectedIds.has(c.id));
+      } else {
+        cards = columns[fromIdx].cards.filter(c => selectedIds.has(c.id));
+      }
+      if (cards.length === 0) {
+        appStore.showToast('Seleccioná cards primero', 'info');
+        return;
+      }
+      try {
+        await Promise.all(cards.map(c => {
+          if (fromIdx === EN_ESPERA_COL_IDX && toIdx === 3) {
+            return Promise.all([
+              api.patchInvoiceField(c.id, 'estado_kanban', 'ENTREGADO'),
+              api.patchInvoiceField(c.id, 'estado_entrega', 'ENTREGADO'),
+              api.patchInvoiceField(c.id, 'estado_moldura', 'DELETED'),
+              api.patchInvoiceField(c.id, 'estado_orden_tela', 'DELETED'),
+              api.patchInvoiceField(c.id, 'fecha_entrega', todayStr),
+            ]);
+          }
+          if (fromIdx === EN_ESPERA_COL_IDX && toIdx === 2) {
+            return api.patchInvoiceField(c.id, 'estado_kanban', 'LISTO');
+          }
+          if (fromIdx === 3 && toIdx === EN_ESPERA_COL_IDX) {
+            return Promise.all([
+              api.patchInvoiceField(c.id, 'estado_kanban', 'EN_ESPERA'),
+              api.patchInvoiceField(c.id, 'estado_entrega', 'PENDIENTE'),
+              api.patchInvoiceField(c.id, 'estado_moldura', 'PENDING'),
+              api.patchInvoiceField(c.id, 'estado_orden_tela', 'PENDING'),
+            ]);
+          }
+          if (fromIdx === 2 && toIdx === EN_ESPERA_COL_IDX) {
+            return api.patchInvoiceField(c.id, 'estado_kanban', 'EN_ESPERA');
+          }
+          return Promise.resolve();
+        }));
+        appStore.showToast(`${cards.length} factura(s) movidas`, 'success');
+      } catch (e: any) {
+        appStore.alert('Error al mover: ' + (e?.message || e));
+        return;
+      }
+      cacheStore.invalidate('facturas');
+      deselectAll();
+      await loadData();
+      return;
+    }
+
     const fromKey = COLUMNS[fromIdx].key;
     const toKey = COLUMNS[toIdx].key;
     const cards = columns[fromIdx].cards.filter(c => selectedIds.has(c.id));
@@ -416,7 +483,6 @@
       return;
     }
 
-    const todayStr = new Date().toLocaleDateString('es-AR');
     try {
       await Promise.all(cards.map(c => {
         const patches = [api.patchInvoiceField(c.id, 'estado_kanban', toKey)];
@@ -543,20 +609,29 @@
     e.preventDefault();
     e.dataTransfer!.dropEffect = 'move';
     if (draggedCard && draggedCard.colIdx !== colIdx) {
-      columns[colIdx].highlight = true;
-      columns = columns;
+      if (colIdx === EN_ESPERA_COL_IDX) {
+        enEsperaHighlight = true;
+      } else {
+        columns[colIdx].highlight = true;
+        columns = columns;
+      }
     }
   }
 
   function handleDragLeave(colIdx: number) {
-    columns[colIdx].highlight = false;
-    columns = columns;
+    if (colIdx === EN_ESPERA_COL_IDX) {
+      enEsperaHighlight = false;
+    } else {
+      columns[colIdx].highlight = false;
+      columns = columns;
+    }
   }
 
   async function handleDrop(e: DragEvent, toIdx: number) {
     e.preventDefault();
     for (const col of columns) col.highlight = false;
     columns = columns;
+    enEsperaHighlight = false;
     if (draggedCard && draggedCard.colIdx !== toIdx) {
       await moveCards(draggedCard.colIdx, toIdx);
     }
@@ -617,11 +692,82 @@
 </script>
 
 <div class="kanban">
-  <!-- Kanban Grid -->
-  <div class="kanban-grid">
-    {#each COLUMNS as col, i}
+  {#snippet cardTemplate(card: Factura, colIdx: number)}
+    <div
+      class="kanban-card"
+      class:selected={selectedIds.has(card.id)}
+      class:editing={editingCardId === card.id}
+      class:no-confirmado={card._no_confirmado}
+      draggable="true"
+      ondragstart={(e) => handleDragStart(e, card.id, colIdx)}
+      ondragend={handleDragEnd}
+      onclick={(e) => toggleSelect(card.id, e.ctrlKey)}
+      oncontextmenu={(e) => handleCardContextMenu(e, card)}
+      role="button"
+      tabindex="0"
+      onkeydown={(e) => { if (e.key === 'Escape') { cancelEdit(); e.preventDefault(); } else if (e.key === 'Enter') toggleSelect(card.id, e.ctrlKey); }}
+    >
+      <div class="card-body">
+        <div class="card-header-row">
+          <span class="card-cliente">{card.cliente_nombre || 'Sin nombre'}</span>
+          <span class="card-fecha">{shortDate(card.fecha)}</span>
+        </div>
+        {#if card._no_confirmado}
+          <div class="card-no-confirmado-badge">⏳ No Confirmado</div>
+        {/if}
+        {#if card.cliente_domicilio}
+          <div class="card-addr">{card.cliente_domicilio}{card.cliente_piso_depto ? ` - ${card.cliente_piso_depto}` : ''}</div>
+        {/if}
+        {#if editingCardId === card.id}
+          <div class="card-edit-row">
+            <select class="edit-select" bind:value={editTipo}>
+              <option value="Retira">Retira</option>
+              <option value="Envio">Envío</option>
+              <option value="Retiro y Envio">Ret+Env</option>
+            </select>
+            <input class="edit-date" type="date" bind:value={editFecha} />
+          </div>
+          <div class="card-edit-actions">
+            {#if isDirty(card)}
+              <button class="edit-btn edit-save" onclick={(e) => { e.stopPropagation(); saveEdits(card); }} disabled={savingCard}>💾 {savingCard ? 'Guardando...' : 'Guardar'}</button>
+            {/if}
+            <button class="edit-btn edit-cancel" onclick={(e) => { e.stopPropagation(); cancelEdit(); }}>✕</button>
+          </div>
+        {:else}
+          <div class="card-entrega">
+            <span class="badge badge-tipo" style="background: {getTipoBadge(card.tipo_entrega || '').color};">{getTipoBadge(card.tipo_entrega || '').label}</span>
+            {#if card.fecha_entrega}
+              <span class="badge badge-fecha">📅 {formatFechaDisplay(card.fecha_entrega)}</span>
+            {/if}
+            {#if getUrgencia(card)}
+              <span class="badge badge-urgencia" style="background: {getUrgencia(card)!.bg}; color: {getUrgencia(card)!.color};">{getUrgencia(card)!.label}</span>
+            {/if}
+          </div>
+        {/if}
+        {#if card.items && card.items.length > 0}
+          <div class="card-items">
+            <span class="item-preview">{card.items[0].cantidad}x {card.items[0].descripcion}</span>
+            {#if card.items.length > 1}
+              <span class="item-more" onclick={(e) => { e.stopPropagation(); openItemsModal(card); }} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openItemsModal(card)}>Ver +{card.items.length - 1}</span>
+            {/if}
+          </div>
+        {:else}
+          <div class="card-items empty">(sin items)</div>
+        {/if}
+        <div class="card-sep"></div>
+        <div class="card-footer">
+          <span class="card-num">N° {card.numero_factura || `#${card.id}`}</span>
+          <span class="card-open" onclick={(e) => { e.stopPropagation(); openCard(card.id); }} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openCard(card.id)}>→</span>
+        </div>
+      </div>
+    </div>
+  {/snippet}
+
+  <!-- Kanban Body (7 cols x 2 rows) -->
+  <div class="kanban-body">
+    {#each COLUMNS.slice(0, 3) as col, i}
       {#if i > 0}
-        <div class="nav-col">
+        <div class="nav-col" style="grid-row: 1 / 3;">
           <button class="nav-btn nav-fwd" title="Mover seleccionados a {col.title}" onclick={() => moveCards(i - 1, i)} disabled={selectedIds.size === 0}>›</button>
           <button class="nav-btn nav-bck" title="Mover seleccionados a {COLUMNS[i - 1].title}" onclick={() => moveCards(i, i - 1)} disabled={selectedIds.size === 0}>‹</button>
         </div>
@@ -629,6 +775,7 @@
       <div
         class="kanban-col"
         class:highlight={columns[i]?.highlight}
+        style="grid-row: 1 / 3;"
         ondragenter={(e) => e.preventDefault()}
         ondragover={(e) => handleDragOver(e, i)}
         ondragleave={() => handleDragLeave(i)}
@@ -693,79 +840,85 @@
             {/if}
           {:else}
             {#each columns[i]?.cards || [] as card (card.id)}
-              <div
-                class="kanban-card"
-                class:selected={selectedIds.has(card.id)}
-                class:editing={editingCardId === card.id}
-                class:no-confirmado={card._no_confirmado}
-                draggable="true"
-                ondragstart={(e) => handleDragStart(e, card.id, i)}
-                ondragend={handleDragEnd}
-                onclick={(e) => toggleSelect(card.id, e.ctrlKey)}
-                oncontextmenu={(e) => handleCardContextMenu(e, card)}
-                role="button"
-                tabindex="0"
-                onkeydown={(e) => { if (e.key === 'Escape') { cancelEdit(); e.preventDefault(); } else if (e.key === 'Enter') toggleSelect(card.id, e.ctrlKey); }}
-              >
-                <div class="card-body">
-                  <div class="card-header-row">
-                    <span class="card-cliente">{card.cliente_nombre || 'Sin nombre'}</span>
-                    <span class="card-fecha">{shortDate(card.fecha)}</span>
-                  </div>
-                  {#if card._no_confirmado}
-                    <div class="card-no-confirmado-badge">⏳ No Confirmado</div>
-                  {/if}
-                  {#if card.cliente_domicilio}
-                    <div class="card-addr">{card.cliente_domicilio}{card.cliente_piso_depto ? ` - ${card.cliente_piso_depto}` : ''}</div>
-                  {/if}
-                  {#if editingCardId === card.id}
-                    <div class="card-edit-row">
-                      <select class="edit-select" bind:value={editTipo}>
-                        <option value="Retira">Retira</option>
-                        <option value="Envio">Envío</option>
-                        <option value="Retiro y Envio">Ret+Env</option>
-                      </select>
-                      <input class="edit-date" type="date" bind:value={editFecha} />
-                    </div>
-                    <div class="card-edit-actions">
-                      {#if isDirty(card)}
-                        <button class="edit-btn edit-save" onclick={(e) => { e.stopPropagation(); saveEdits(card); }} disabled={savingCard}>💾 {savingCard ? 'Guardando...' : 'Guardar'}</button>
-                      {/if}
-                      <button class="edit-btn edit-cancel" onclick={(e) => { e.stopPropagation(); cancelEdit(); }}>✕</button>
-                    </div>
-                  {:else}
-                    <div class="card-entrega">
-                      <span class="badge badge-tipo" style="background: {getTipoBadge(card.tipo_entrega || '').color};">{getTipoBadge(card.tipo_entrega || '').label}</span>
-                      {#if card.fecha_entrega}
-                        <span class="badge badge-fecha">📅 {formatFechaDisplay(card.fecha_entrega)}</span>
-                      {/if}
-                      {#if getUrgencia(card)}
-                        <span class="badge badge-urgencia" style="background: {getUrgencia(card)!.bg}; color: {getUrgencia(card)!.color};">{getUrgencia(card)!.label}</span>
-                      {/if}
-                    </div>
-                  {/if}
-                  {#if card.items && card.items.length > 0}
-                    <div class="card-items">
-                      <span class="item-preview">{card.items[0].cantidad}x {card.items[0].descripcion}</span>
-                      {#if card.items.length > 1}
-                        <span class="item-more" onclick={(e) => { e.stopPropagation(); openItemsModal(card); }} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openItemsModal(card)}>Ver +{card.items.length - 1}</span>
-                      {/if}
-                    </div>
-                  {:else}
-                    <div class="card-items empty">(sin items)</div>
-                  {/if}
-                  <div class="card-sep"></div>
-                  <div class="card-footer">
-                    <span class="card-num">N° {card.numero_factura || `#${card.id}`}</span>
-                    <span class="card-open" onclick={(e) => { e.stopPropagation(); openCard(card.id); }} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openCard(card.id)}>→</span>
-                  </div>
-                </div>
-              </div>
+              {@render cardTemplate(card, i)}
             {/each}
           {/if}
         </div>
       </div>
     {/each}
+
+    <!-- Nav LISTO ↔ ENTREGADO (row span 2) -->
+    <div class="nav-col" style="grid-row: 1 / 3;">
+      <button class="nav-btn nav-fwd" title="Mover seleccionados a Entregados" onclick={() => moveCards(2, 3)} disabled={selectedIds.size === 0}>›</button>
+      <button class="nav-btn nav-bck" title="Mover seleccionados a Listo" onclick={() => moveCards(3, 2)} disabled={selectedIds.size === 0}>‹</button>
+    </div>
+
+    <!-- ENTREGADO (row 1) -->
+    <div
+      class="kanban-col"
+      class:highlight={columns[3]?.highlight}
+      style="grid-column: 7; grid-row: {enEsperaOpen ? '1 / 2' : '1 / 3'};"
+      ondragenter={(e) => e.preventDefault()}
+      ondragover={(e) => handleDragOver(e, 3)}
+      ondragleave={() => handleDragLeave(3)}
+      ondrop={(e) => handleDrop(e, 3)}
+    >
+      <div class="col-header" style="--col-color: #6c757d;">
+        <span>🚚 Entregados</span>
+        <div class="col-header-right">
+          <span class="col-count">{columns[3]?.cards.length || 0}</span>
+          <button
+            class="filter-btn"
+            class:filter-active={hasActiveFilters('ENTREGADO')}
+            title="Filtrar Entregados"
+            onclick={(e) => toggleFilter('ENTREGADO', e)}
+          >▾</button>
+        </div>
+      </div>
+      <div class="col-body" ondragenter={(e) => e.preventDefault()} ondragover={(e) => handleDragOver(e, 3)} ondrop={(e) => handleDrop(e, 3)}>
+        {#if loading && (columns[3]?.cards.length || 0) === 0}
+          <div class="col-loading">Cargando...</div>
+        {:else if (columns[3]?.cards.length || 0) === 0}
+          {#if hasActiveFilters('ENTREGADO')}
+            <div class="col-empty filtered">Sin resultados con el filtro actual</div>
+          {:else}
+            <div class="col-empty">Sin facturas</div>
+          {/if}
+        {:else}
+          {#each columns[3]?.cards || [] as card (card.id)}
+            {@render cardTemplate(card, 3)}
+          {/each}
+        {/if}
+      </div>
+    </div>
+
+    <!-- EN ESPERA (row 2) -->
+    <div
+      class="kanban-col"
+      class:highlight={enEsperaHighlight}
+      class:collapsed={!enEsperaOpen}
+      style="grid-column: 7; grid-row: 2 / 3;"
+      ondragenter={(e) => e.preventDefault()}
+      ondragover={(e) => handleDragOver(e, EN_ESPERA_COL_IDX)}
+      ondragleave={() => handleDragLeave(EN_ESPERA_COL_IDX)}
+      ondrop={(e) => handleDrop(e, EN_ESPERA_COL_IDX)}
+    >
+      <div class="col-header" style="background:#3b82f6;cursor:pointer;" onclick={() => enEsperaOpen = !enEsperaOpen} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && (enEsperaOpen = !enEsperaOpen)}>
+        <span>{enEsperaOpen ? '▼' : '▶'} ⏳ En espera</span>
+        <span class="col-count">{enEsperaCards.length}</span>
+      </div>
+      {#if enEsperaOpen}
+        <div class="col-body">
+          {#if enEsperaCards.length === 0}
+            <div class="col-empty">Sin facturas en espera</div>
+          {:else}
+            {#each enEsperaCards as card (card.id)}
+              {@render cardTemplate(card, EN_ESPERA_COL_IDX)}
+            {/each}
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 
   {#if selectedIds.size > 0}
@@ -897,12 +1050,13 @@
     overflow: hidden;
   }
 
-  /* === Kanban Grid === */
-  .kanban-grid {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+  /* === Kanban Body (7 cols x 2 rows) === */
+  .kanban-body {
     flex: 1;
     min-height: 0;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr auto 1fr auto 1fr;
+    grid-template-rows: 1fr 1fr;
     gap: 0;
   }
 
@@ -943,6 +1097,10 @@
     transition: border-color 0.15s, box-shadow 0.15s;
     min-width: 0;
   }
+  .kanban-col.collapsed {
+    align-self: end;
+    height: min-content;
+  }
   .kanban-col.highlight {
     border-color: var(--accent);
     box-shadow: inset 0 0 0 0.143rem rgba(52,152,219,0.15);
@@ -982,7 +1140,6 @@
     font-size: 0.82rem;
   }
   .col-empty.filtered { color: var(--warning); font-style: italic; }
-
   /* === Column Header Right === */
   .col-header-right {
     display: flex;
