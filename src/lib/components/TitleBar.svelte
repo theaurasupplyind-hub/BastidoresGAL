@@ -27,7 +27,6 @@
     { id: 'clientes', icon: 'user', label: 'Clientes' },
     { id: 'estadisticas', icon: 'chart', label: 'Estadísticas' },
     { id: 'analisis-usd', icon: 'usd', label: 'USD' },
-    { id: 'gastos', icon: 'wallet', label: 'Gastos' },
   ];
 
   const ICONS: Record<string, string> = {
@@ -128,6 +127,9 @@
     </button>
     <button class="tb-btn-sm" class:active={appStore.currentTab === 'print-agent'} onclick={() => selectTab('print-agent')} title="Impresión">
       {@html ICONS.printer}
+    </button>
+    <button class="tb-btn-sm" class:active={appStore.currentTab === 'gastos'} onclick={() => selectTab('gastos')} title="Gastos">
+      {@html ICONS.wallet}
     </button>
     <div class="more-wrap" onmouseenter={onMoreEnter} onmouseleave={onMoreLeave}>
       <button

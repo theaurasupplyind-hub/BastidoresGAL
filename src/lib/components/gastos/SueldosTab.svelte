@@ -9,8 +9,8 @@
   let selectedEmployee = $state<Employee | null>(null);
   let employeePayments = $state<any[]>([]);
   let showEmployeeForm = $state(false);
-  let employeeForm = $state<{ id: number | null; name: string; phone: string; address: string; job_type: string; payment_freq: string; base_salary: number; attendance_bonus: number; work_days: string }>({
-    id: null, name: '', phone: '', address: '', job_type: 'NOMINA', payment_freq: 'MENSUAL', base_salary: 0, attendance_bonus: 0, work_days: 'L M M J V S'
+  let employeeForm = $state<{ id: number | null; name: string; phone: string; address: string; cuit: string; cbu: string; alias: string; job_type: string; payment_freq: string; base_salary: number; attendance_bonus: number; work_days: string; is_owner: number }>({
+    id: null, name: '', phone: '', address: '', job_type: 'NOMINA', payment_freq: 'MENSUAL', base_salary: 0, attendance_bonus: 0, work_days: 'L M M J V S', is_owner: 0
   });
   let showEmployeePayForm = $state(false);
   let empPayForm = $state<{ amount: number; date: string; concept: string }>({ amount: 0, date: '', concept: '' });
@@ -49,16 +49,18 @@
   }
 
   function openNewEmployee() {
-    employeeForm = { id: null, name: '', phone: '', address: '', job_type: 'NOMINA', payment_freq: 'MENSUAL', base_salary: 0, attendance_bonus: 0, work_days: 'L M M J V S' };
+    employeeForm = { id: null, name: '', phone: '', address: '', cuit: '', cbu: '', alias: '', job_type: 'NOMINA', payment_freq: 'MENSUAL', base_salary: 0, attendance_bonus: 0, work_days: 'L M M J V S', is_owner: 0 };
     showEmployeeForm = true;
   }
 
   function openEditEmployee(e: Employee) {
     employeeForm = {
       id: e.id, name: e.name, phone: e.phone, address: e.address,
+      cuit: e.cuit, cbu: e.cbu, alias: e.alias,
       job_type: e.job_type, payment_freq: e.payment_freq,
       base_salary: e.base_salary, attendance_bonus: e.attendance_bonus,
       work_days: e.work_days || 'L M M J V S',
+      is_owner: e.is_owner ?? 0,
     };
     showEmployeeForm = true;
   }
@@ -122,6 +124,17 @@
       appStore.alert('Error: ' + (e as Error).message);
     }
   }
+
+  async function toggleOwner(emp: Employee) {
+    const newVal = emp.is_owner ? 0 : 1;
+    try {
+      await api.updateEmployee(emp.id, { is_owner: newVal });
+      emp.is_owner = newVal;
+      invalidateCache();
+    } catch (e) {
+      appStore.alert('Error al cambiar: ' + (e as Error).message);
+    }
+  }
 </script>
 
 <div class="g-sueldos">
@@ -139,8 +152,14 @@
           tabindex="0"
           onkeydown={(e2) => e2.key === 'Enter' && selectEmployee(e)}
         >
-          <span class="g-emp-name">{e.name}</span>
-          <span class="g-emp-type">{e.job_type}</span>
+          <div class="g-emp-info-col">
+            <span class="g-emp-name">{e.name}</span>
+            <span class="g-emp-type">{e.job_type}</span>
+          </div>
+          <label class="g-emp-owner-toggle" onclick={(ev) => ev.stopPropagation()} title="Excluir de gastos">
+            <input type="checkbox" checked={e.is_owner === 1} onchange={() => toggleOwner(e)} />
+            <span class="toggle-lbl">Dueño</span>
+          </label>
         </div>
       {:else}
         <div class="g-empty">Sin empleados</div>
@@ -153,6 +172,9 @@
         <h3>{selectedEmployee.name}</h3>
         <span class="g-emp-badge">{selectedEmployee.job_type}</span>
         <span class="g-emp-badge">{selectedEmployee.payment_freq}</span>
+        {#if selectedEmployee.is_owner}
+          <span class="g-emp-badge g-emp-badge-owner">Dueño</span>
+        {/if}
         <div class="g-emp-actions">
           <button class="btn btn-xs btn-secondary" onclick={() => openEditEmployee(selectedEmployee)}>✏️</button>
           <button class="btn btn-xs btn-primary" onclick={openPayEmployee}>💰 Pago</button>
@@ -162,6 +184,9 @@
       <div class="g-emp-info">
         <span>Tel: {selectedEmployee.phone || '—'}</span>
         <span>Dir: {selectedEmployee.address || '—'}</span>
+        <span>CUIT: {selectedEmployee.cuit || '—'}</span>
+        <span>CBU: {selectedEmployee.cbu || '—'}</span>
+        <span>Alias: {selectedEmployee.alias || '—'}</span>
         <span>Salario base: {formatCurrency(selectedEmployee.base_salary || 0)}</span>
         <span>Días: {selectedEmployee.work_days}</span>
       </div>
@@ -194,6 +219,11 @@
         <div class="form-group"><label>Teléfono</label><input type="text" bind:value={employeeForm.phone} /></div>
         <div class="form-group"><label>Dirección</label><input type="text" bind:value={employeeForm.address} /></div>
         <div class="form-row">
+          <div class="form-group"><label>CUIT</label><input type="text" bind:value={employeeForm.cuit} placeholder="20-12345678-9" /></div>
+          <div class="form-group"><label>CBU</label><input type="text" bind:value={employeeForm.cbu} placeholder="CBU / CVU" /></div>
+          <div class="form-group"><label>Alias</label><input type="text" bind:value={employeeForm.alias} placeholder="Alias Mercado Pago" /></div>
+        </div>
+        <div class="form-row">
           <div class="form-group"><label>Tipo</label>
             <select bind:value={employeeForm.job_type}>
               <option value="NOMINA">Nómina</option>
@@ -213,6 +243,12 @@
           <div class="form-group"><label>Bono asistencia</label><input type="number" bind:value={employeeForm.attendance_bonus} step="0.01" /></div>
         </div>
         <div class="form-group"><label>Días laborales</label><input type="text" bind:value={employeeForm.work_days} placeholder="L M M J V S" /></div>
+        <div class="form-group">
+          <label class="owner-check-label">
+            <input type="checkbox" bind:checked={employeeForm.is_owner} />
+            Dueño — sus gastos no cuentan en totales
+          </label>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick={() => showEmployeeForm = false}>Cancelar</button>
@@ -263,11 +299,28 @@
     padding: 0.571rem 0.714rem;
     cursor: pointer;
     border-bottom: 1px solid #f5f5f5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
   }
   .g-emp-item:hover { background: var(--bg-page); }
   .g-emp-item.active { background: var(--accent-light); border-left: 0.214rem solid var(--accent); }
+  .g-emp-info-col { min-width: 0; }
   .g-emp-name { display: block; font-weight: 600; font-size: 0.85rem; }
   .g-emp-type { font-size: 0.7rem; color: var(--text-muted); }
+  .g-emp-owner-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    cursor: pointer;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+    user-select: none;
+  }
+  .g-emp-owner-toggle input { accent-color: var(--accent, #2563eb); }
+  .g-emp-owner-toggle:has(input:checked) { color: var(--accent, #2563eb); font-weight: 600; }
+  .g-emp-badge-owner { background: #fef3c7; color: #92400e; font-weight: 600; }
 
   .g-emp-detail {
     flex: 1;

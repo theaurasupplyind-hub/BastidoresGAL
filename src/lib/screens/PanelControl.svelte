@@ -310,11 +310,14 @@
 
       for (const p of (pagos || [])) {
         if ((p.created_at || '').startsWith(todayStr)) {
+          const isAuto = p.user_id === 0 || p.user_id === '0'
           items.push({
             id: p.id,
             type: 'pago',
-            color: '#f59e0b',
-            message: `Pago de $${(p.amount || 0).toLocaleString('es-AR')}`,
+            color: isAuto ? '#8b5cf6' : '#f59e0b',
+            message: isAuto
+              ? `🤖 Pago automático de $${(p.amount || 0).toLocaleString('es-AR')}`
+              : `Pago de $${(p.amount || 0).toLocaleString('es-AR')}`,
             time: p.created_at || '',
             section: p.method || 'Pago',
           });

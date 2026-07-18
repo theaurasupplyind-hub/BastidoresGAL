@@ -210,6 +210,15 @@
           <button class="filter-clear-btn" onclick={() => { appStore.fsStartDate = ''; appStore.fsEndDate = ''; appStore.fsFilterCliente = ''; appStore.fsFilterEstado = 'TODOS'; appStore.fsFilterEntrega = 'TODOS'; }} title="Limpiar">✕</button>
         </div>
       {/if}
+      {#if appStore.currentTab === 'gastos'}
+        <div class="gastos-topbar">
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'dashboard'} onclick={() => appStore.gastosTab = 'dashboard'}>📊 Dashboard</button>
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'proveedores'} onclick={() => appStore.gastosTab = 'proveedores'}>📂 Proveedores</button>
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'sueldos'} onclick={() => appStore.gastosTab = 'sueldos'}>👷 Sueldos</button>
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'asistencia'} onclick={() => appStore.gastosTab = 'asistencia'}>📅 Asistencia</button>
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'categorias'} onclick={() => appStore.gastosTab = 'categorias'}>🏷️ Categorías</button>
+        </div>
+      {/if}
       {#if appStore.currentTab === 'mapa'}
         <div class="mapa-bar">
           <div class="mapa-bar-left">
@@ -331,6 +340,25 @@
     flex-shrink: 0;
     gap: 0.571rem;
   }
+  .gastos-topbar {
+    display: flex;
+    gap: 0.143rem;
+    background: #e9ecef;
+    border-radius: 0.429rem;
+    padding: 0.143rem;
+  }
+  .g-top-btn {
+    padding: 0.429rem 1rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    border-radius: 0.286rem;
+    transition: all 0.12s;
+  }
+  .g-top-btn:hover { background: var(--bg-card); }
+  .g-top-btn.active { background: var(--bg-card); color: var(--text-primary); font-weight: 600; box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.08); }
   .tipo-toggle-bar {
     display: flex;
     gap: 0;

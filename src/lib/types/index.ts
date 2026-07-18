@@ -128,6 +128,11 @@ export interface VoucherReview {
   extracted_fecha?: string | null;
   extracted_referencia?: string | null;
   extracted_banco?: string | null;
+  extracted_nombre_cliente?: string | null;
+  extracted_nombre_origen?: string | null;
+  extracted_nombre_destino?: string | null;
+  extracted_cbu_destino?: string | null;
+  extracted_cuit_destino?: string | null;
   match_status: 'matched' | 'ambiguous' | 'no_match';
   matched_invoice_id?: number | null;
   matched_invoice_numero?: string | null;
@@ -137,6 +142,12 @@ export interface VoucherReview {
   media_mime_type: string;
   media_size_bytes: number;
   review_status: string;
+  entity_type?: string | null;
+  entity_id?: number | null;
+  entity_name?: string | null;
+  entity_cuit?: string | null;
+  entity_cbu?: string | null;
+  entity_match_field?: string | null;
   created_at: string;
 }
 
@@ -191,6 +202,9 @@ export interface Employee {
   name: string;
   phone: string;
   address: string;
+  cuit: string;
+  cbu: string;
+  alias: string;
   hire_date: string;
   job_type: string;
   payment_freq: string;

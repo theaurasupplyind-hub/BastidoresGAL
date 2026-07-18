@@ -217,6 +217,12 @@ export const api = {
 
   getVoucherReviewMediaUrl: (id: number) => `${API_URL}/voucher-reviews/${id}/media`,
 
+  deleteVoucherReview: (id: number) =>
+    request<{ status: string }>('DELETE', `/voucher-reviews/${id}`),
+
+  cleanupVoucherReviews: (keep = 200) =>
+    request<{ deleted: number; kept: number }>('POST', `/voucher-reviews/cleanup?keep=${keep}`, undefined, 30),
+
   // ---- Providers ----
   listProviders: () => handleResponse(request<import('$lib/types').Provider[]>('GET', '/providers'), []),
   getProvider: (id: number) => request<any>('GET', `/providers/${id}`),
@@ -335,26 +341,30 @@ export const api = {
     request<import('$lib/types').ExpenseCategory[]>('GET', '/expense-categories').catch(() => [] as import('$lib/types').ExpenseCategory[]),
   createExpenseCategory: (data: Omit<import('$lib/types').ExpenseCategory, 'id' | 'created_at'>) =>
     request<import('$lib/types').ExpenseCategory>('POST', '/expense-categories', data),
-  listExpenses: (params?: { from_date?: string; to_date?: string; category_id?: number; limit?: number }) => {
+  listExpenses: (params?: { from_date?: string; to_date?: string; category_id?: number; exclude_owners?: boolean; limit?: number }) => {
     const q = new URLSearchParams();
     if (params?.from_date) q.set('from_date', params.from_date);
     if (params?.to_date) q.set('to_date', params.to_date);
     if (params?.category_id) q.set('category_id', String(params.category_id));
+    if (params?.exclude_owners) q.set('exclude_owners', 'true');
     if (params?.limit) q.set('limit', String(params.limit));
     const qs = q.toString();
     return request<import('$lib/types').Expense[]>('GET', `/expenses${qs ? '?' + qs : ''}`).catch(() => [] as import('$lib/types').Expense[]);
   },
   createExpense: (data: Omit<import('$lib/types').Expense, 'id' | 'created_at' | 'updated_at'>) =>
     request<import('$lib/types').Expense>('POST', '/expenses', data),
-  getExpensesSummary: (from_date?: string, to_date?: string, group_by: string = 'category') => {
+  getExpensesSummary: (from_date?: string, to_date?: string, group_by: string = 'category', exclude_owners?: boolean) => {
     const q = new URLSearchParams();
     if (from_date) q.set('from_date', from_date);
     if (to_date) q.set('to_date', to_date);
     q.set('group_by', group_by);
+    if (exclude_owners) q.set('exclude_owners', 'true');
     return request<{ group_by: string; total: number; groups: Record<string, number> }>('GET', `/expenses/summary?${q.toString()}`);
   },
   migrateExpenses: () =>
     request<{ status: string; created: number }>('POST', '/expenses/migrate'),
+  updateExpense: (id: number, data: { date?: string; amount?: number; description?: string; category_id?: number; payment_method?: string; reference?: string; status?: string }) =>
+    request<import('$lib/types').Expense>('PUT', `/expenses/${id}`, data),
   deleteExpense: (id: number) =>
     request<{ status: string }>('DELETE', `/expenses/${id}`),
 

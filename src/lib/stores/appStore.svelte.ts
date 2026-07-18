@@ -29,6 +29,7 @@ let _kanbanSelectedCount = $state(0);
 let _pendingInvoiceId = $state<number | null>(null);
 let _activeStations = $state<any[]>([]);
 let _selectedStation = $state<any | null>(null);
+let _gastosTab = $state<'dashboard' | 'proveedores' | 'sueldos' | 'asistencia' | 'categorias'>('dashboard');
 
 export const appStore = {
   get user() { return _currentUser; },
@@ -101,6 +102,9 @@ export const appStore = {
 
   get selectedStation() { return _selectedStation; },
   set selectedStation(v) { _selectedStation = v; },
+
+  get gastosTab() { return _gastosTab; },
+  set gastosTab(v) { _gastosTab = v; },
 
   showToast(message: string, type: 'success' | 'error' | 'info' = 'success') {
     _toast = { message, type };
