@@ -10,6 +10,7 @@
   import Productos from './Productos.svelte';
   import Facturacion from './Facturacion.svelte';
   import FichaSemanal from './FichaSemanal.svelte';
+  import RevisionComprobantes from './RevisionComprobantes.svelte';
   import Produccion from './Produccion.svelte';
   import Molduras from './Molduras.svelte';
   import Estadisticas from './Estadisticas.svelte';
@@ -268,6 +269,8 @@
       </div>
       {#if appStore.currentTab === 'ficha-semanal'}
         <FichaSemanal />
+      {:else if appStore.currentTab === 'revision-comprobantes'}
+        <RevisionComprobantes />
       {:else if appStore.currentTab === 'tela'}
         <Produccion />
       {:else if appStore.currentTab === 'molduras'}

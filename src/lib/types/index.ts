@@ -111,6 +111,35 @@ export interface Pago {
   updated_at?: string;
 }
 
+export interface VoucherReviewCandidate {
+  invoice_id: number;
+  numero_factura: string;
+  saldo_pendiente: number;
+  cliente_nombre?: string | null;
+  fecha?: string | null;
+}
+
+export interface VoucherReview {
+  id: number;
+  source_message_id?: string | null;
+  wa_id: string;
+  contact_name?: string | null;
+  extracted_monto?: number | null;
+  extracted_fecha?: string | null;
+  extracted_referencia?: string | null;
+  extracted_banco?: string | null;
+  match_status: 'matched' | 'ambiguous' | 'no_match';
+  matched_invoice_id?: number | null;
+  matched_invoice_numero?: string | null;
+  matched_cliente_nombre?: string | null;
+  matched_saldo_pendiente?: number | null;
+  candidatas: VoucherReviewCandidate[];
+  media_mime_type: string;
+  media_size_bytes: number;
+  review_status: string;
+  created_at: string;
+}
+
 export interface Kpis {
   v_p: number;
   v_g: number;
@@ -208,7 +237,7 @@ export interface PlanDeViaje {
   updated_at: string;
 }
 
-export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent' | 'panel-control';
+export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'revision-comprobantes' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent' | 'panel-control';
 
 // ── Reglas de precios ──
 
@@ -238,4 +267,37 @@ export interface PricingRule {
   conditions: RuleCondition[];
   enabled: boolean;
   rounding: number;
+}
+
+export interface ExpenseCategory {
+  id: number;
+  name: string;
+  slug: string;
+  color: string;
+  icon: string;
+  type: string;
+  is_default: number;
+  created_by: number | null;
+  created_at: string;
+}
+
+export interface Expense {
+  id: number;
+  date: string;
+  amount: number;
+  description: string;
+  category_id: number;
+  provider_id: number | null;
+  employee_id: number | null;
+  payment_method: string;
+  reference: string | null;
+  source: string;
+  created_by_user_id: number | null;
+  created_by_contact_id: number | null;
+  status: string;
+  raw_input: string | null;
+  media_url: string | null;
+  media_id: string | null;
+  created_at: string;
+  updated_at: string;
 }

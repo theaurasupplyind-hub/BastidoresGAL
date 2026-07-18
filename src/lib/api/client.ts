@@ -203,6 +203,20 @@ export const api = {
 
   deletePago: (id: number) => request('DELETE', `/payments/${id}`),
 
+  // ---- Voucher Reviews (solo lectura) ----
+  listVoucherReviews: (params?: { status?: 'pending' | 'seen' | 'all'; from_date?: string; to_date?: string; limit?: number; offset?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.status) q.set('status', params.status);
+    if (params?.from_date) q.set('from_date', params.from_date);
+    if (params?.to_date) q.set('to_date', params.to_date);
+    if (params?.limit) q.set('limit', String(params.limit));
+    if (params?.offset) q.set('offset', String(params.offset));
+    const qs = q.toString();
+    return handleResponse(request<import('$lib/types').VoucherReview[]>('GET', `/voucher-reviews${qs ? '?' + qs : ''}`, undefined, 20), []);
+  },
+
+  getVoucherReviewMediaUrl: (id: number) => `${API_URL}/voucher-reviews/${id}/media`,
+
   // ---- Providers ----
   listProviders: () => handleResponse(request<import('$lib/types').Provider[]>('GET', '/providers'), []),
   getProvider: (id: number) => request<any>('GET', `/providers/${id}`),
@@ -315,6 +329,34 @@ export const api = {
 
   deletePricingRule: (id: number) =>
     request<{ status: string }>('DELETE', `/pricing-rules/${id}`),
+
+  // ---- Expenses ----
+  listExpenseCategories: () =>
+    request<import('$lib/types').ExpenseCategory[]>('GET', '/expense-categories').catch(() => [] as import('$lib/types').ExpenseCategory[]),
+  createExpenseCategory: (data: Omit<import('$lib/types').ExpenseCategory, 'id' | 'created_at'>) =>
+    request<import('$lib/types').ExpenseCategory>('POST', '/expense-categories', data),
+  listExpenses: (params?: { from_date?: string; to_date?: string; category_id?: number; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.from_date) q.set('from_date', params.from_date);
+    if (params?.to_date) q.set('to_date', params.to_date);
+    if (params?.category_id) q.set('category_id', String(params.category_id));
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return request<import('$lib/types').Expense[]>('GET', `/expenses${qs ? '?' + qs : ''}`).catch(() => [] as import('$lib/types').Expense[]);
+  },
+  createExpense: (data: Omit<import('$lib/types').Expense, 'id' | 'created_at' | 'updated_at'>) =>
+    request<import('$lib/types').Expense>('POST', '/expenses', data),
+  getExpensesSummary: (from_date?: string, to_date?: string, group_by: string = 'category') => {
+    const q = new URLSearchParams();
+    if (from_date) q.set('from_date', from_date);
+    if (to_date) q.set('to_date', to_date);
+    q.set('group_by', group_by);
+    return request<{ group_by: string; total: number; groups: Record<string, number> }>('GET', `/expenses/summary?${q.toString()}`);
+  },
+  migrateExpenses: () =>
+    request<{ status: string; created: number }>('POST', '/expenses/migrate'),
+  deleteExpense: (id: number) =>
+    request<{ status: string }>('DELETE', `/expenses/${id}`),
 
   // ---- Tasks ----
   listTasks: () =>

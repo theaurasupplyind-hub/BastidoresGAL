@@ -3,8 +3,10 @@
   import ProveedoresTab from '$lib/components/gastos/ProveedoresTab.svelte';
   import SueldosTab from '$lib/components/gastos/SueldosTab.svelte';
   import AsistenciaTab from '$lib/components/gastos/AsistenciaTab.svelte';
+  import ExpensesTab from '$lib/components/gastos/ExpensesTab.svelte';
+  import ExpenseCategoriesTab from '$lib/components/gastos/ExpenseCategoriesTab.svelte';
 
-  type GTab = 'dashboard' | 'proveedores' | 'sueldos' | 'asistencia';
+  type GTab = 'dashboard' | 'proveedores' | 'sueldos' | 'asistencia' | 'gastos' | 'categorias';
   let currentGTab = $state<GTab>('dashboard');
 </script>
 
@@ -16,6 +18,8 @@
       <button class="g-tab-btn" class:active={currentGTab === 'proveedores'} onclick={() => currentGTab = 'proveedores'}>📂 Proveedores</button>
       <button class="g-tab-btn" class:active={currentGTab === 'sueldos'} onclick={() => currentGTab = 'sueldos'}>👷 Sueldos</button>
       <button class="g-tab-btn" class:active={currentGTab === 'asistencia'} onclick={() => currentGTab = 'asistencia'}>📅 Asistencia</button>
+      <button class="g-tab-btn" class:active={currentGTab === 'gastos'} onclick={() => currentGTab = 'gastos'}>📋 Gastos</button>
+      <button class="g-tab-btn" class:active={currentGTab === 'categorias'} onclick={() => currentGTab = 'categorias'}>🏷️ Categorías</button>
     </div>
   </div>
 
@@ -27,6 +31,10 @@
     <SueldosTab />
   {:else if currentGTab === 'asistencia'}
     <AsistenciaTab />
+  {:else if currentGTab === 'gastos'}
+    <ExpensesTab />
+  {:else if currentGTab === 'categorias'}
+    <ExpenseCategoriesTab />
   {/if}
 </div>
 
