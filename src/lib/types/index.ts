@@ -212,6 +212,9 @@ export interface Employee {
   attendance_bonus: number;
   work_days: string;
   active: boolean;
+  entry_time?: string;
+  exit_time?: string;
+  late_threshold?: number;
 }
 
 export interface Attendance {
@@ -219,6 +222,7 @@ export interface Attendance {
   employee_id: number;
   date: string;
   status: string;
+  created_at?: string;
 }
 
 export interface AnalisisPeriodo {

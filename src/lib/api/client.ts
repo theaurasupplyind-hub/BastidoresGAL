@@ -240,6 +240,7 @@ export const api = {
   addEmployee: (data: any) => request<{ id: number }>('POST', '/employees', data),
   updateEmployee: (id: number, data: any) => request('PUT', `/employees/${id}`, data),
   deleteEmployee: (id: number) => request('DELETE', `/employees/${id}`),
+  hardDeleteEmployee: (id: number) => request('DELETE', `/employees/${id}/hard`),
   addEmployeePayment: (data: any) => request('POST', '/employees/payments', data),
   listEmployeePaymentsRecent: (limit = 100) =>
     handleResponse(request<any[]>('GET', `/employees/payments/recent?limit=${limit}`), []),
@@ -257,6 +258,8 @@ export const api = {
 
   saveAttendanceBulk: (records: any[]) =>
     request('POST', '/attendance/bulk', { records }),
+  deleteAttendance: (employee_id: number, date: string) =>
+    request('DELETE', `/attendance?employee_id=${employee_id}&date=${encodeURIComponent(date)}`),
 
   // ---- Price List Images ----
   async uploadPriceListImage(position: number, name: string, file: Uint8Array) {

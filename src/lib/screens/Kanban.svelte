@@ -680,6 +680,11 @@
     }
   }
 
+  async function reloadKanban() {
+    cacheStore.invalidate('facturas:kanban');
+    await loadData();
+  }
+
   onMount(async () => {
     try { config = await invoke('get_config'); } catch {}
   });
@@ -762,6 +767,14 @@
       </div>
     </div>
   {/snippet}
+
+  <button class="kanban-reload-btn" onclick={reloadKanban} disabled={loading} title="Recargar datos">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class:spin={loading}>
+      <polyline points="23 4 23 10 17 10"/>
+      <polyline points="1 20 1 14 7 14"/>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+    </svg>
+  </button>
 
   <!-- Kanban Body (7 cols x 2 rows) -->
   <div class="kanban-body">
@@ -1048,7 +1061,30 @@
     gap: 0.571rem;
     background: var(--bg-page);
     overflow: hidden;
+    position: relative;
   }
+  .kanban-reload-btn {
+    position: absolute;
+    top: 0.714rem;
+    right: 0.714rem;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: none;
+    border-radius: 0.4rem;
+    background: var(--bg-card);
+    color: var(--text-muted);
+    cursor: pointer;
+    box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.1);
+    transition: all 0.15s;
+  }
+  .kanban-reload-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .kanban-reload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  @keyframes kanban-spin { to { transform: rotate(360deg); } }
+  .spin { animation: kanban-spin 1s linear infinite; }
 
   /* === Kanban Body (7 cols x 2 rows) === */
   .kanban-body {

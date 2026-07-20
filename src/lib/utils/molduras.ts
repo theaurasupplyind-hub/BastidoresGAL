@@ -117,7 +117,14 @@ export function groupMaterials(materials: CardMaterial[]): Array<Record<string, 
 
 export function hasMolduraItems(f: Factura): boolean {
   if (!f.items || f.items.length === 0) return false;
-  for (const it of f.items) {
+  const doneSet = new Set<number>();
+  try {
+    const parsed = JSON.parse(f.items_done || '[]');
+    if (Array.isArray(parsed)) parsed.forEach((i: number) => doneSet.add(i));
+  } catch {}
+  for (let i = 0; i < f.items.length; i++) {
+    if (doneSet.has(i)) continue;
+    const it = f.items[i];
     const desc = it.descripcion || '';
     if (/rollo/i.test(desc)) continue;
     if (/circular/i.test(desc)) return true;
@@ -136,8 +143,15 @@ export function parseCard(f: Factura): {
 } {
   const items: CardItem[] = [];
   const allMats: CardMaterial[] = [];
+  const doneSet = new Set<number>();
+  try {
+    const parsed = JSON.parse(f.items_done || '[]');
+    if (Array.isArray(parsed)) parsed.forEach((i: number) => doneSet.add(i));
+  } catch {}
 
-  for (const it of (f.items || [])) {
+  for (let i = 0; i < (f.items || []).length; i++) {
+    if (doneSet.has(i)) continue;
+    const it = f.items[i];
     const desc = it.descripcion || '';
     if (/rollo/i.test(desc)) continue;
 

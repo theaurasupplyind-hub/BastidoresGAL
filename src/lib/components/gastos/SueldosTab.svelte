@@ -9,10 +9,11 @@
   let selectedEmployee = $state<Employee | null>(null);
   let employeePayments = $state<any[]>([]);
   let showEmployeeForm = $state(false);
-  let employeeForm = $state<{ id: number | null; name: string; phone: string; address: string; cuit: string; cbu: string; alias: string; job_type: string; payment_freq: string; base_salary: number; attendance_bonus: number; work_days: string; is_owner: number }>({
+  let employeeForm = $state<{ id: number | null; name: string; phone: string; address: string; cuit: string; cbu: string; alias: string; job_type: string; payment_freq: string; base_salary: number; attendance_bonus: number; work_days: string; is_owner: number; entry_time: string; exit_time: string; late_threshold: number }>({
     id: null, name: '', phone: '', address: '', job_type: 'NOMINA', payment_freq: 'MENSUAL', base_salary: 0, attendance_bonus: 0, work_days: 'L M M J V S', is_owner: 0
   });
   let showEmployeePayForm = $state(false);
+  let confirmHardDelete = $state(false);
   let empPayForm = $state<{ amount: number; date: string; concept: string }>({ amount: 0, date: '', concept: '' });
 
   function formatCurrency(n: number): string {
@@ -49,7 +50,7 @@
   }
 
   function openNewEmployee() {
-    employeeForm = { id: null, name: '', phone: '', address: '', cuit: '', cbu: '', alias: '', job_type: 'NOMINA', payment_freq: 'MENSUAL', base_salary: 0, attendance_bonus: 0, work_days: 'L M M J V S', is_owner: 0 };
+    employeeForm = { id: null, name: '', phone: '', address: '', cuit: '', cbu: '', alias: '', job_type: 'NOMINA', payment_freq: 'MENSUAL', base_salary: 0, attendance_bonus: 0, work_days: 'L M M J V S', is_owner: 0, entry_time: '', exit_time: '', late_threshold: 5 };
     showEmployeeForm = true;
   }
 
@@ -61,6 +62,8 @@
       base_salary: e.base_salary, attendance_bonus: e.attendance_bonus,
       work_days: e.work_days || 'L M M J V S',
       is_owner: e.is_owner ?? 0,
+      entry_time: e.entry_time || '', exit_time: e.exit_time || '',
+      late_threshold: e.late_threshold ?? 5,
     };
     showEmployeeForm = true;
   }
@@ -89,6 +92,20 @@
       await loadEmployees();
     } catch (e) {
       appStore.alert('Error: ' + (e as Error).message);
+    }
+  }
+
+  async function hardDeleteEmployee(id: number) {
+    if (!confirmHardDelete) { confirmHardDelete = true; return; }
+    try {
+      await api.hardDeleteEmployee(id);
+      confirmHardDelete = false;
+      if (selectedEmployee?.id === id) selectedEmployee = null;
+      invalidateCache();
+      await loadEmployees();
+    } catch (e) {
+      appStore.alert('Error: ' + (e as Error).message);
+      confirmHardDelete = false;
     }
   }
 
@@ -178,7 +195,10 @@
         <div class="g-emp-actions">
           <button class="btn btn-xs btn-secondary" onclick={() => openEditEmployee(selectedEmployee)}>✏️</button>
           <button class="btn btn-xs btn-primary" onclick={openPayEmployee}>💰 Pago</button>
-          <button class="btn btn-xs btn-danger" onclick={() => deleteEmployee(selectedEmployee.id)}>🗑</button>
+          <button class="btn btn-xs btn-danger" onclick={() => deleteEmployee(selectedEmployee.id)} title="Desactivar">🗑</button>
+          <button class="btn btn-xs btn-danger" onclick={() => hardDeleteEmployee(selectedEmployee.id)} title="Eliminar permanente">
+            {confirmHardDelete ? '¿Confirmar?' : '🔥'}
+          </button>
         </div>
       </div>
       <div class="g-emp-info">
@@ -243,6 +263,11 @@
           <div class="form-group"><label>Bono asistencia</label><input type="number" bind:value={employeeForm.attendance_bonus} step="0.01" /></div>
         </div>
         <div class="form-group"><label>Días laborales</label><input type="text" bind:value={employeeForm.work_days} placeholder="L M M J V S" /></div>
+        <div class="form-row">
+          <div class="form-group"><label>Entrada</label><input type="time" bind:value={employeeForm.entry_time} /></div>
+          <div class="form-group"><label>Salida</label><input type="time" bind:value={employeeForm.exit_time} /></div>
+          <div class="form-group"><label>Tolerancia (min)</label><input type="number" bind:value={employeeForm.late_threshold} min="0" max="120" /></div>
+        </div>
         <div class="form-group">
           <label class="owner-check-label">
             <input type="checkbox" bind:checked={employeeForm.is_owner} />

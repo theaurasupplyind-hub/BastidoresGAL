@@ -10,6 +10,17 @@
   let moreOpen = $state(false);
   let usersOpen = $state(false);
   let moreCloseTimeout: ReturnType<typeof setTimeout> | null = null;
+  let gastosOpen = $state(false);
+  let gastosCloseTimeout: ReturnType<typeof setTimeout> | null = null;
+
+  function onGastosEnter() {
+    if (gastosCloseTimeout) clearTimeout(gastosCloseTimeout);
+    gastosOpen = true;
+  }
+
+  function onGastosLeave() {
+    gastosCloseTimeout = setTimeout(() => { gastosOpen = false; }, 200);
+  }
   const win = getCurrentWindow();
 
   const PRIMARIOS: { id: TabId; label: string }[] = [
@@ -125,11 +136,22 @@
     <button class="tb-btn-sm" class:active={appStore.currentTab === 'papelera'} onclick={() => selectTab('papelera')} title="Papelera">
       {@html ICONS.trash}
     </button>
+    <div class="gastos-wrap" onmouseenter={onGastosEnter} onmouseleave={onGastosLeave}>
+      <button class="tb-btn-sm" class:active={appStore.currentTab === 'gastos'} onclick={() => selectTab('gastos')} title="Gastos">
+        {@html ICONS.wallet}
+      </button>
+      {#if gastosOpen}
+        <div class="dropdown gastos-dropdown" transition:slide={{ duration: 120 }}>
+          <button class="more-item" class:active={appStore.gastosTab === 'dashboard'} onclick={() => { appStore.gastosTab = 'dashboard'; selectTab('gastos'); }}>📊 Dashboard</button>
+          <button class="more-item" class:active={appStore.gastosTab === 'proveedores'} onclick={() => { appStore.gastosTab = 'proveedores'; selectTab('gastos'); }}>📂 Proveedores</button>
+          <button class="more-item" class:active={appStore.gastosTab === 'sueldos'} onclick={() => { appStore.gastosTab = 'sueldos'; selectTab('gastos'); }}>👷 Sueldos</button>
+          <button class="more-item" class:active={appStore.gastosTab === 'asistencia'} onclick={() => { appStore.gastosTab = 'asistencia'; selectTab('gastos'); }}>📅 Asistencia</button>
+          <button class="more-item" class:active={appStore.gastosTab === 'categorias'} onclick={() => { appStore.gastosTab = 'categorias'; selectTab('gastos'); }}>🏷️ Categorías</button>
+        </div>
+      {/if}
+    </div>
     <button class="tb-btn-sm" class:active={appStore.currentTab === 'print-agent'} onclick={() => selectTab('print-agent')} title="Impresión">
       {@html ICONS.printer}
-    </button>
-    <button class="tb-btn-sm" class:active={appStore.currentTab === 'gastos'} onclick={() => selectTab('gastos')} title="Gastos">
-      {@html ICONS.wallet}
     </button>
     <div class="more-wrap" onmouseenter={onMoreEnter} onmouseleave={onMoreLeave}>
       <button
@@ -385,4 +407,6 @@
   .more-item-icon { display: flex; align-items: center; flex-shrink: 0; }
   .more-item-label { white-space: nowrap; }
   .more-divider { height: 1px; background: var(--border-light); margin: 0.25rem 0; }
+  .gastos-wrap { position: relative; }
+  .gastos-dropdown { left: 0; min-width: 11rem; }
 </style>
