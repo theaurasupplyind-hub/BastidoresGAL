@@ -114,16 +114,7 @@
           <span class="zoom-pct">{zoomPercent}%</span>
         </div>
 
-        <label>Tema Visual</label>
-        <select bind:value={config.theme}>
-          <option value="flatly">Flatly</option>
-          <option value="darkly">Darkly</option>
-          <option value="minty">Minty</option>
-          <option value="cosmo">Cosmo</option>
-          <option value="superhero">Superhero</option>
-        </select>
-
-        <label>Diseño Factura</label>
+<label>Diseño Factura</label>
         <select bind:value={config.selected_template_name}>
           <option value="Original">Original</option>
           <option value="Moderno">Moderno</option>

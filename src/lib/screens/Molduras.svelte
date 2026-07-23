@@ -6,6 +6,7 @@
   import type { Factura } from '$lib/types';
   import { parseCard, typeLabel, groupMaterials, buildMoldurasHtmlByTemplate, calcMaterials, applyCorrection, parse2DItem, calcFilas, calcLargueros, consolidateMaterials } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
+  import MoldurasReorderModal from '$lib/components/MoldurasReorderModal.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { confirm as dialogConfirm } from '@tauri-apps/plugin-dialog';
   import type { CardItem, CardMaterial, MolduraCorrectionData } from '$lib/utils/molduras';
@@ -14,6 +15,7 @@
   let cards = $state<ParsedCard[]>([]);
   let selectedIds = $state<Set<number>>(new Set());
   let generatingPdf = $state(false);
+  let showReorderModal = $state(false);
   let config = $state<any>({});
 
   // Add manual dialog
@@ -49,6 +51,15 @@
     materials: CardMaterial[];
     hasCorrection: boolean;
   }
+
+  let selectedCardsData = $derived(
+    cards.filter(c => selectedIds.has(c.id)).map(c => ({
+      cliente: c.cliente,
+      num: c.num,
+      items: c.items,
+      materials: c.materials,
+    }))
+  );
 
   function parseCardLocal(f: Factura): ParsedCard {
     const p = parseCard(f);
@@ -454,10 +465,10 @@
       <button class="btn btn-sm btn-secondary" onclick={openAddDialog}>➕ Agregar Manual</button>
       <button class="btn btn-sm btn-secondary" onclick={syncStatus} disabled={loading}>🔗 Sincronizar</button>
       <button class="btn btn-sm btn-danger" onclick={markDone} disabled={selectedIds.size === 0}>🗑 Marcar Listo</button>
-      <button class="btn btn-sm btn-primary" onclick={() => generatePDF(false)} disabled={selectedIds.size === 0 || generatingPdf}>
-        {generatingPdf ? '...' : '📄 Ver PDF Sel.'}
+      <button class="btn btn-sm btn-primary" onclick={() => showReorderModal = true} disabled={selectedIds.size === 0}>
+        📄 Ver PDF Sel.
       </button>
-      <button class="btn btn-sm btn-success" onclick={() => generatePDF(true)} disabled={selectedIds.size === 0 || generatingPdf}>
+      <button class="btn btn-sm btn-success" onclick={() => showReorderModal = true} disabled={selectedIds.size === 0}>
         🖨 Imprimir Sel.
       </button>
       {#if appStore.activeStations.length > 0}
@@ -745,6 +756,8 @@
     </div>
   </div>
 {/if}
+
+<MoldurasReorderModal show={showReorderModal} cards={selectedCardsData} onClose={() => showReorderModal = false} />
 
 <style>
   .molduras {

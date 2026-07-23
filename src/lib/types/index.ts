@@ -66,6 +66,116 @@ export interface InvoiceItem {
   total: number;
 }
 
+export interface FechasEntrega {
+  desde: string;
+  hasta: string;
+  extras: string[];
+}
+
+export function defaultFechasEntrega(): FechasEntrega {
+  return { desde: '', hasta: '', extras: [] };
+}
+
+export function parseFechasEntrega(val: string | undefined | null): FechasEntrega {
+  if (!val) return defaultFechasEntrega();
+  try {
+    const parsed = JSON.parse(val);
+    if (parsed && typeof parsed === 'object' && 'desde' in parsed) {
+      return {
+        desde: parsed.desde || '',
+        hasta: parsed.hasta || '',
+        extras: Array.isArray(parsed.extras) ? parsed.extras : [],
+      };
+    }
+  } catch {}
+  if (val.includes('/')) {
+    return { desde: val, hasta: val, extras: [] };
+  }
+  return defaultFechasEntrega();
+}
+
+export function serializeFechasEntrega(fe: FechasEntrega): string {
+  if (!fe.desde && !fe.hasta && fe.extras.length === 0) return '';
+  return JSON.stringify(fe);
+}
+
+export function getEffectiveDates(fe: FechasEntrega): string[] {
+  const dates: string[] = [];
+  if (fe.desde && fe.hasta) {
+    const [dD, mM, yY] = fe.desde.split('/').map(Number);
+    const [dH, mH, yH] = fe.hasta.split('/').map(Number);
+    const start = new Date(yY, mM - 1, dD);
+    const end = new Date(yH, mH - 1, dH);
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      dates.push(`${d.getDate()}/${d.getMonth() + 1}/${d.getFullYear()}`);
+    }
+  }
+  for (const e of fe.extras) {
+    if (!dates.includes(e)) dates.push(e);
+  }
+  return dates;
+}
+
+export function hasFechaEntrega(fe: FechasEntrega, date: string): boolean {
+  return getEffectiveDates(fe).includes(date);
+}
+
+export function formatFechasEntregaDisplay(fe: FechasEntrega): string {
+  if (!fe.desde && !fe.hasta) return '';
+  let s = '';
+  if (fe.desde === fe.hasta) {
+    s = fe.desde;
+  } else if (fe.desde && fe.hasta) {
+    s = `${fe.desde} al ${fe.hasta}`;
+  }
+  if (fe.extras.length === 1) {
+    s += s ? ` · ${fe.extras[0]}` : fe.extras[0];
+  } else if (fe.extras.length > 1) {
+    s += s ? ` · ${fe.extras.slice(0, 2).join(', ')}` : fe.extras.slice(0, 2).join(', ');
+    if (fe.extras.length > 2) s += ` +${fe.extras.length - 2}`;
+  }
+  return s;
+}
+
+export function getDiaSemana(fecha: string): string {
+  if (!fecha) return '';
+  const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
+  let d: Date;
+  if (fecha.includes('/')) {
+    const p = fecha.split('/');
+    d = new Date(+p[2], +p[1] - 1, +p[0]);
+  } else if (fecha.includes('-')) {
+    d = new Date(fecha);
+  } else return '';
+  return dias[d.getDay()];
+}
+
+export function fechaToInput(fecha: string): string {
+  if (!fecha) return '';
+  const parts = fecha.split('/');
+  if (parts.length === 3) {
+    return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+  }
+  return '';
+}
+
+export function inputToFecha(val: string): string {
+  if (!val) return '';
+  const parts = val.split('-');
+  if (parts.length === 3) {
+    return `${parseInt(parts[2])}/${parseInt(parts[1])}/${parts[0]}`;
+  }
+  return '';
+}
+
+export function parseFecha(fecha: string): Date {
+  if (fecha.includes('/')) {
+    const p = fecha.split('/');
+    return new Date(+p[2], +p[1] - 1, +p[0]);
+  }
+  return new Date(fecha);
+}
+
 export interface Factura {
   id: number;
   numero_factura: string;

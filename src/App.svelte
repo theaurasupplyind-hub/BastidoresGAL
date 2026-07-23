@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { appStore } from '$lib/stores/appStore.svelte';
+  import type { AppConfig } from '$lib/types';
   import Login from '$lib/screens/Login.svelte';
   import Splash from '$lib/screens/Splash.svelte';
   import Dashboard from '$lib/screens/Dashboard.svelte';
@@ -31,6 +32,12 @@
         appStore.user = user;
         view = 'splash';
       }
+    } catch { }
+
+    try {
+      const cfg = await invoke<AppConfig>('get_config');
+      appStore.pdfStyle = cfg.selected_template_name;
+      appStore.molduraTemplate = cfg.moldura_template;
     } catch { }
   });
 

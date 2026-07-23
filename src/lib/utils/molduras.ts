@@ -1,5 +1,7 @@
 import type { Factura, InvoiceItem } from '$lib/types';
 
+export const PAGE_HEIGHT = 1113;
+
 export interface CardItem {
   cantidad: number;
   medida: string;
@@ -113,6 +115,80 @@ export function groupMaterials(materials: CardMaterial[]): Array<Record<string, 
     rows.push(row);
   }
   return rows;
+}
+
+export function colHeight(card: { items: CardItem[]; materials: CardMaterial[] }): number {
+  const g = groupMaterials(card.materials).length;
+  return 44 * card.items.length + 32 * g + 124;
+}
+
+function ffdColumns<T extends { items: CardItem[]; materials: CardMaterial[] }>(
+  cards: T[]
+): [T[], T[]] {
+  const sorted = [...cards].sort((a, b) => colHeight(b) - colHeight(a));
+  return splitIntoColumns(sorted, 2);
+}
+
+export function splitIntoColumns<T extends { items: CardItem[]; materials: CardMaterial[] }>(
+  cards: T[], cols: number
+): T[][] {
+  const result: T[][] = Array.from({ length: cols }, () => []);
+  const heights: number[] = new Array(cols).fill(0);
+  for (const card of cards) {
+    let minIdx = 0;
+    for (let i = 1; i < cols; i++) if (heights[i] < heights[minIdx]) minIdx = i;
+    result[minIdx].push(card);
+    heights[minIdx] += colHeight(card);
+  }
+  return result;
+}
+
+export function pageAwarePacking<T>(
+  items: T[],
+  getHeight: (item: T, idx: number) => number
+): Array<{ left: T[]; right: T[] }> {
+  const sorted = items.map((item, i) => ({ item, idx: i, h: getHeight(item, i) }))
+    .sort((a, b) => b.h - a.h);
+
+  const pages: Array<{ left: T[]; right: T[] }> = [];
+  let remaining = [...sorted];
+
+  while (remaining.length > 0) {
+    const left: T[] = [];
+    const right: T[] = [];
+    let leftH = 0, rightH = 0;
+    const used = new Set<number>();
+
+    for (const s of remaining) {
+      if (used.has(s.idx)) continue;
+      if (s.h > PAGE_HEIGHT) continue;
+
+      const fitsLeft = leftH + s.h <= PAGE_HEIGHT;
+      const fitsRight = rightH + s.h <= PAGE_HEIGHT;
+
+      if (fitsLeft && fitsRight) {
+        if (leftH <= rightH) {
+          left.push(s.item); leftH += s.h;
+        } else {
+          right.push(s.item); rightH += s.h;
+        }
+        used.add(s.idx);
+      } else if (fitsLeft) {
+        left.push(s.item); leftH += s.h;
+        used.add(s.idx);
+      } else if (fitsRight) {
+        right.push(s.item); rightH += s.h;
+        used.add(s.idx);
+      }
+    }
+
+    if (used.size === 0) break;
+
+    pages.push({ left, right });
+    remaining = remaining.filter(s => !used.has(s.idx));
+  }
+
+  return pages;
 }
 
 export function hasMolduraItems(f: Factura): boolean {
@@ -305,11 +381,7 @@ export function buildMoldurasHtml(cards: Array<{
   items: CardItem[];
   materials: CardMaterial[];
 }>): string {
-  const left: typeof cards = [];
-  const right: typeof cards = [];
-  cards.forEach((card, i) => {
-    (i % 2 === 0 ? left : right).push(card);
-  });
+  const [left, right] = splitIntoColumns(cards, 2);
 
   function renderCard(card: typeof cards[0], side: 'left' | 'right'): string {
     const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
@@ -404,11 +476,7 @@ export function buildMoldurasHtmlClasicoModificado(cards: Array<{
   items: CardItem[];
   materials: CardMaterial[];
 }>): string {
-  const left: typeof cards = [];
-  const right: typeof cards = [];
-  cards.forEach((card, i) => {
-    (i % 2 === 0 ? left : right).push(card);
-  });
+  const [left, right] = splitIntoColumns(cards, 2);
 
   function renderCard(card: typeof cards[0], side: 'left' | 'right'): string {
     const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
@@ -525,11 +593,7 @@ export function buildMoldurasHtmlJuli(cards: Array<{
   items: CardItem[];
   materials: CardMaterial[];
 }>): string {
-  const left: typeof cards = [];
-  const right: typeof cards = [];
-  cards.forEach((card, i) => {
-    (i % 2 === 0 ? left : right).push(card);
-  });
+  const [left, right] = splitIntoColumns(cards, 2);
 
   function renderCard(card: typeof cards[0], side: 'left' | 'right'): string {
     const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
@@ -592,6 +656,160 @@ export function buildMoldurasHtmlJuli(cards: Array<{
   <div class='col-left'>${leftHtml}</div>
   <div class='col-right'>${rightHtml}</div>
 </div></body></html>`;
+}
+
+export function getTemplateCss(template: string): string {
+  if (template === 'juli') {
+    return `
+.card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
+.header { background: #000; color: #fff; text-align: center; }
+.client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
+.order-id { font-size: 14px; color: #ddd; }
+.summary-table { width: 100%; border-collapse: collapse; background: #eee; border-bottom: 3px solid #000; }
+.summary-table td { padding: 8px 4px; border: 1px solid #444; vertical-align: middle; }
+.sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
+.sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
+.sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
+.mat-cell { text-align: center; vertical-align: middle; padding: 6px 8px; }
+.mat-detail { font-size: 14px; font-weight: 700; color: #fff; padding: 3px 10px; border-radius: 4px; display: inline-block; white-space: nowrap; }
+.mat-detail.lar { background: #27ae60; }
+.mat-detail.tra { background: #d35400; }`;
+  }
+  return `
+.card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
+.header { background: #000; color: #fff; text-align: center; }
+.client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
+.order-id { font-size: 14px; color: #ddd; }
+.summary-table { width: 100%; border-collapse: collapse; background: #eee; border-bottom: 3px solid #000; }
+.summary-table td { padding: 2px; border: 1px solid #444; vertical-align: middle; }
+.sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
+.sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
+.sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
+.mat-cell { text-align: center; vertical-align: middle; padding: 1px 4px; }
+.mat-detail { font-size: 13px; font-weight: 900; color: #000; white-space: nowrap; }
+.mat-table { width: 100%; border-collapse: collapse; text-align: center; }
+.mat-table th { border: 1px solid #000; padding: 2px; font-size: 18px; font-weight: 900; text-transform: uppercase; }
+.mat-table td { border: 1px solid #000; padding: 0; height: 30px; }
+.th-var { background: #2c3e50; color: #fff; }
+.td-var { background: #ebf5fb; }
+.th-lar { background: #27ae60; color: #fff; }
+.td-lar { background: #e9f7ef; }
+.th-tra { background: #d35400; color: #fff; }
+.td-tra { background: #fdf2e9; }
+.val-cell { font-weight: 900; font-size: 26px; line-height: 1; }`;
+}
+
+export function renderSingleCardHtml(card: {
+  cliente: string;
+  num: string;
+  items: CardItem[];
+  materials: CardMaterial[];
+}, template: string, idx: number): string {
+  const cliente = card.cliente.length > (template === 'juli' ? 30 : 25) ? card.cliente.slice(0, template === 'juli' ? 30 : 25) : card.cliente;
+  const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
+
+  const square = `<div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-right:10px;'></div><div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div>`;
+
+  if (template === 'juli') {
+    const summaryRows = validItems.map(it => {
+      const lHtml = it.larguero ? `<span class='mat-detail lar'>${it.larguero}</span>` : '<span class="mat-detail lar">—</span>';
+      const tHtml = it.travesaño ? `<span class='mat-detail tra'>${it.travesaño}</span>` : '<span class="mat-detail tra">—</span>';
+      return `
+        <tr>
+          <td width='15%' rowspan='2'><span class='sum-qty'>${it.cantidad}</span></td>
+          <td width='30%' rowspan='2'><span class='sum-dim'>${it.medida}</span></td>
+          <td width='30%' rowspan='2'><span class='sum-type'>${it.tipo}</span></td>
+          <td width='25%' class='mat-cell'>${lHtml}</td>
+        </tr>
+        <tr><td class='mat-cell'>${tHtml}</td></tr>`;
+    }).join('');
+    return `
+<div class='card' data-card-idx='${idx}'>
+  <div class='header' style='display:flex;align-items:center;justify-content:space-between;padding:4px 8px;'>
+    ${square}
+  </div>
+  <table class='summary-table'>
+    <tbody>${summaryRows}</tbody>
+  </table>
+</div>`;
+  }
+
+  const summaryRows = validItems.map(it => {
+    return `
+      <tr>
+        <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
+        <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
+        <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
+      </tr>`;
+  }).join('');
+
+  let matBody: string;
+  if (template === 'clasico-modificado') {
+    const matItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
+    const larRows: string[] = [];
+    const travRows: string[] = [];
+    for (const item of matItems) {
+      const dims = item.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
+      if (!dims) continue;
+      const w = parseFloat(dims[1]), h = parseFloat(dims[2]);
+      const vs = (item.varilla ?? '').split(' ').filter(Boolean).map(s => {
+        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+      });
+      const ls = (item.larguero ?? '').split(' ').filter(Boolean).map(s => {
+        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+      });
+      const ts = (item.travesaño ?? '').split(' ').filter(Boolean).map(s => {
+        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+      });
+      vs.forEach((v, i) => {
+        const withLonger = (w > h && i === 0) || (w < h && i === 1) || (w === h && i === 1);
+        if (!withLonger) {
+          larRows.push(`<tr>
+      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
+      <td class='td-lar val-cell'>${ls[0] ? ls[0].qty : ''}</td><td class='td-lar val-cell'>${ls[0] ? ls[0].cm : ''}</td>
+      <td class='td-tra val-cell'></td><td class='td-tra val-cell'></td>
+    </tr>`);
+        } else {
+          travRows.push(`<tr>
+      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
+      ${ts[0] ? `<td class='td-lar val-cell' colspan='2'><span style='font-size:32px;color:#000;font-weight:900;'>➡</span></td>` : `<td class='td-lar val-cell'></td><td class='td-lar val-cell'></td>`}
+      <td class='td-tra val-cell'>${ts[0] ? ts[0].qty : ''}</td><td class='td-tra val-cell'>${ts[0] ? ts[0].cm : ''}</td>
+    </tr>`);
+        }
+      });
+    }
+    matBody = [...larRows, ...travRows].join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
+  } else {
+    const matGroups = groupMaterials(card.materials);
+    matBody = matGroups.map(g => {
+      const cells = ['V', 'L', 'T'].map(t => {
+        const m = g[t];
+        const cls = t === 'V' ? 'td-var' : t === 'L' ? 'td-lar' : 'td-tra';
+        if (m) {
+          return `<td class='${cls} val-cell'>${m.qty}</td><td class='${cls} val-cell'>${m.cm}</td>`;
+        }
+        return `<td class='${cls} val-cell'></td><td class='${cls} val-cell'></td>`;
+      }).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
+  }
+
+  return `
+<div class='card' data-card-idx='${idx}'>
+  <div class='header' style='display:flex;align-items:center;justify-content:space-between;padding:4px 8px;'>
+    ${square}
+  </div>
+  <table class='summary-table'>
+    <tbody>${summaryRows}</tbody>
+  </table>
+  <table class='mat-table'>
+    <thead>
+      <tr><th colspan='2' class='th-var'>VARILLA</th><th colspan='2' class='th-lar'>LARGUERO</th><th colspan='2' class='th-tra'>TRAV.</th></tr>
+      <tr><th width='12%' class='td-var'>#</th><th width='21%' class='td-var'>CM</th><th width='12%' class='td-lar'>#</th><th width='21%' class='td-lar'>CM</th><th width='12%' class='td-tra'>#</th><th width='21%' class='td-tra'>CM</th></tr>
+    </thead>
+    <tbody>${matBody}</tbody>
+  </table>
+</div>`;
 }
 
 export function buildMoldurasHtmlByTemplate(cards: Array<{

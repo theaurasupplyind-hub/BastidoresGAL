@@ -4,6 +4,7 @@
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import type { Factura, Pago, FichaSemanalRow, Kpis, Cliente } from '$lib/types';
+  import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
 
   let loading = $state(false);
   let rows = $state<FichaSemanalRow[]>([]);
@@ -164,7 +165,7 @@
         saldo,
         estado,
         estado_entrega: f.estado_entrega || 'PENDIENTE',
-        fecha_entrega: f.fecha_entrega || '',
+        fecha_entrega: formatFechasEntregaDisplay(parseFechasEntrega(f.fecha_entrega)),
       };
     });
   }

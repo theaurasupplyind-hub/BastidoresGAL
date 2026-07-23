@@ -4,7 +4,8 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import type { Factura, InvoiceItem, Cliente, Producto, PrecioReferencia, PricingRule } from '$lib/types';
+  import type { Factura, InvoiceItem, Cliente, Producto, PrecioReferencia, PricingRule, FechasEntrega } from '$lib/types';
+import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/types';
   import { invoke } from '@tauri-apps/api/core';
   import { Image } from '@tauri-apps/api/image';
   import { writeImage } from '@tauri-apps/plugin-clipboard-manager';
@@ -17,6 +18,8 @@
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, type PriceSuggestion } from '$lib/utils/precios';
 import { nominatimSearchUrl, limpiarDireccion } from '$lib/utils/geocoding';
 import type { ClientAddress } from '$lib/types';
+import flatpickr from 'flatpickr';
+import 'flatpickr/dist/flatpickr.min.css';
 
   let loading = $state(false);
   let saving = $state(false);
@@ -33,7 +36,7 @@ import type { ClientAddress } from '$lib/types';
     if (!formAreaRef) return [];
     return Array.from(
       formAreaRef.querySelectorAll<HTMLElement>(
-        'input:not(.date-picker-hidden):not([readonly]), select, button:not(.btn-del)'
+        'input:not([readonly]), select, button:not(.btn-del)'
       )
     );
   }
@@ -121,7 +124,7 @@ import type { ClientAddress } from '$lib/types';
   let selectedNominatimLng = $state<number | null>(null);
   let envio = $state(0);
   let tipo_entrega = $state('Retira');
-  let fecha_entrega = $state('');
+  let fechasEntrega = $state<FechasEntrega>({ desde: '', hasta: '', extras: [] });
   let pagoRapidoMonto = $state(0);
   let pagoRapidoAplicado = $state(false);
   let showPagoDialog = $state(false);
@@ -163,45 +166,111 @@ import type { ClientAddress } from '$lib/types';
   }
   let items = $state<InvoiceItem[]>([]);
 
-  // Date picker for fecha_entrega
-  let datePickerVal = $state('');
+  let fpInstance: any = null;
 
-  $effect(() => {
-    if (fecha_entrega) {
-      const parts = fecha_entrega.split('/');
-      if (parts.length === 3) {
-        datePickerVal = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
-      }
-    } else {
-      datePickerVal = '';
+  function openDatePicker(
+    buttonEl: HTMLElement,
+    onSelect: (date: string) => void,
+    currentDate?: string
+  ) {
+    console.log('[DatePicker] open', { currentDate });
+    if (fpInstance) {
+      try { fpInstance.destroy(); } catch (e) { console.warn('[DatePicker] destroy error', e); }
+      fpInstance = null;
     }
-  });
+    const existing = document.getElementById('__fp_temp');
+    if (existing) existing.remove();
 
-  function onDatePick() {
-    if (datePickerVal) {
-      const [y, m, d] = datePickerVal.split('-');
-      fecha_entrega = `${parseInt(d)}/${parseInt(m)}/${y}`;
-    } else {
-      fecha_entrega = '';
+    const input = document.createElement('input');
+    input.id = '__fp_temp';
+    input.style.position = 'absolute';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    input.style.width = '1px';
+    input.style.height = '1px';
+    buttonEl.parentNode?.insertBefore(input, buttonEl.nextSibling);
+
+    try {
+      fpInstance = flatpickr(input, {
+        dateFormat: 'j/n/Y',
+        defaultDate: currentDate || undefined,
+        closeOnSelect: true,
+        onClose: function(_: any, dateStr: string) {
+          console.log('[DatePicker] closed', { dateStr });
+          if (dateStr) onSelect(dateStr);
+          setTimeout(() => {
+            if (fpInstance) { try { fpInstance.destroy(); } catch (e) { console.warn('[DatePicker] cleanup error', e); } fpInstance = null; }
+            input.remove();
+          }, 150);
+        },
+      });
+      fpInstance.open();
+      console.log('[DatePicker] opened');
+    } catch (e) {
+      console.error('[DatePicker] init error', e);
+      input.remove();
     }
   }
 
-  function getDiaSemana(fecha: string): string {
-    if (!fecha) return '';
-    const dias = ['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado'];
-    let d: Date;
-    if (fecha.includes('/')) {
-      const p = fecha.split('/');
-      d = new Date(+p[2], +p[1] - 1, +p[0]);
-    } else if (fecha.includes('-')) {
-      d = new Date(fecha);
-    } else return '';
-    return dias[d.getDay()];
+  function openDateRangePicker(
+    buttonEl: HTMLElement,
+    onSelect: (desde: string, hasta: string) => void,
+    currentDesde?: string,
+    currentHasta?: string
+  ) {
+    console.log('[DateRangePicker] open', { currentDesde, currentHasta });
+    if (fpInstance) {
+      try { fpInstance.destroy(); } catch (e) { console.warn('[DateRangePicker] destroy error', e); }
+      fpInstance = null;
+    }
+    const existing = document.getElementById('__fp_temp');
+    if (existing) existing.remove();
+
+    const input = document.createElement('input');
+    input.id = '__fp_temp';
+    input.style.position = 'absolute';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    input.style.width = '1px';
+    input.style.height = '1px';
+    buttonEl.parentNode?.insertBefore(input, buttonEl.nextSibling);
+
+    try {
+      fpInstance = flatpickr(input, {
+        mode: 'range',
+        dateFormat: 'j/n/Y',
+        defaultDate: currentDesde && currentHasta ? [currentDesde, currentHasta] : currentDesde ? [currentDesde] : undefined,
+        closeOnSelect: true,
+        onClose: function(selectedDates: Date[], _dateStr: string) {
+          console.log('[DateRangePicker] closed', { count: selectedDates?.length });
+          if (selectedDates && selectedDates.length >= 2) {
+            const desde = `${selectedDates[0].getDate()}/${selectedDates[0].getMonth() + 1}/${selectedDates[0].getFullYear()}`;
+            const hasta = `${selectedDates[1].getDate()}/${selectedDates[1].getMonth() + 1}/${selectedDates[1].getFullYear()}`;
+            onSelect(desde, hasta);
+          } else if (selectedDates && selectedDates.length === 1) {
+            const d = `${selectedDates[0].getDate()}/${selectedDates[0].getMonth() + 1}/${selectedDates[0].getFullYear()}`;
+            onSelect(d, d);
+          }
+          setTimeout(() => {
+            if (fpInstance) { try { fpInstance.destroy(); } catch (e) { console.warn('[DateRangePicker] cleanup error', e); } fpInstance = null; }
+            input.remove();
+          }, 150);
+        },
+      });
+      fpInstance.open();
+      console.log('[DateRangePicker] opened');
+    } catch (e) {
+      console.error('[DateRangePicker] init error', e);
+      input.remove();
+    }
   }
 
-  function showDatePicker() {
-    const el = document.getElementById('date-picker-input');
-    if (el) (el as HTMLInputElement).showPicker();
+  function addExtraDate() {
+    fechasEntrega = { ...fechasEntrega, extras: [...fechasEntrega.extras, ''] };
+  }
+
+  function removeExtraDate(idx: number) {
+    fechasEntrega = { ...fechasEntrega, extras: fechasEntrega.extras.filter((_, i) => i !== idx) };
   }
 
   // UI state
@@ -437,9 +506,13 @@ import type { ClientAddress } from '$lib/types';
     let newDesc = sug.description;
     const sugBase = sug.basedOn;
     if (sugBase) {
-      const cleanBase = sugBase.includes(' → ') ? sugBase.split(' → ').pop()!.trim() : sugBase;
-      const userDims = userQuery.match(/\d+\s*[xX×]\s*\d+/);
-      newDesc = userDims ? cleanBase.replace(/\d+\s*[xX×]\s*\d+/i, userDims[0]) : cleanBase;
+      if (sugBase.includes(' → ')) {
+        newDesc = userQuery;
+      } else {
+        const cleanBase = sugBase.includes(' → ') ? sugBase.split(' → ').pop()!.trim() : sugBase;
+        const userDims = userQuery.match(/\d+\s*[xX×]\s*\d+/);
+        newDesc = userDims ? cleanBase.replace(/\d+\s*[xX×]\s*\d+/i, userDims[0]) : cleanBase;
+      }
     }
     items[index].descripcion = newDesc;
     items[index].precio_unitario = sug.price;
@@ -683,9 +756,11 @@ import type { ClientAddress } from '$lib/types';
     cliente_nombre = f.cliente_nombre;
     cliente_domicilio = f.cliente_domicilio;
     cliente_telefono = f.cliente_telefono;
+    cliente_piso_depto = f.cliente_piso_depto || '';
+    cliente_taller = f.cliente_taller || '';
     envio = f.envio || 0;
     tipo_entrega = f.tipo_entrega || 'Retira';
-    fecha_entrega = f.fecha_entrega || '';
+    fechasEntrega = parseFechasEntrega(f.fecha_entrega);
     items = f.items?.length ? f.items.map(i => ({ ...i })) : [{ cantidad: 1, descripcion: '', precio_unitario: 0, total: 0 }];
     productSearch = f.items?.length ? f.items.map(i => i.descripcion) : [''];
     selectedProdIndex = items.map(() => -1);
@@ -717,7 +792,7 @@ import type { ClientAddress } from '$lib/types';
     clienteAddresses = [];
     envio = 0;
     tipo_entrega = 'Retira';
-    fecha_entrega = '';
+    fechasEntrega = { desde: '', hasta: '', extras: [] };
     items = Array.from({ length: 7 }, () => ({ cantidad: 1, descripcion: '', precio_unitario: 0, total: 0 }));
     productSearch = Array.from({ length: 7 }, () => '');
     selectedProdIndex = Array.from({ length: 7 }, () => -1);
@@ -894,8 +969,8 @@ import type { ClientAddress } from '$lib/types';
         tipo,
         user_id: appStore.user?.user_id || 0,
         tipo_entrega,
-        fecha_entrega,
-        ...(!id ? { estado_kanban: 'NO_CONFIRMADO' } : {}),
+        fecha_entrega: serializeFechasEntrega(fechasEntrega),
+        ...(!id ? { estado_kanban: 'PEDIDO' } : {}),
       };
 
       if (id) {
@@ -1336,7 +1411,7 @@ import type { ClientAddress } from '$lib/types';
   <div class="main-layout">
     <div class="content-row">
     <!-- Form -->
-    <div class="form-area" bind:this={formAreaRef} onkeydown={handleFormKeydown}>
+    <form class="form-area" bind:this={formAreaRef} onkeydown={handleFormKeydown} onsubmit={(e) => e.preventDefault()}>
         <div class="paper-card" style="position:relative;">
         {#if loading}
           <div class="loading-overlay">
@@ -1632,15 +1707,33 @@ import type { ClientAddress } from '$lib/types';
               <button class:active={tipo_entrega === 'Retiro y Envio'} onclick={() => tipo_entrega = 'Retiro y Envio'} type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/></svg> Ret+Env</button>
             </div>
             <div class="delivery-date-group">
-              <button class="date-btn" type="button" onclick={showDatePicker}>
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                {#if fecha_entrega}
-                  <span class="date-text">{getDiaSemana(fecha_entrega)} {fecha_entrega}</span>
+              <button class="date-btn date-btn-rango" type="button" onclick={(e) => openDateRangePicker(e.currentTarget as HTMLElement, (d, h) => fechasEntrega = { ...fechasEntrega, desde: d, hasta: h }, fechasEntrega.desde, fechasEntrega.hasta)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                {#if fechasEntrega.desde && fechasEntrega.hasta}
+                  {#if fechasEntrega.desde === fechasEntrega.hasta}
+                    <span class="date-text">{getDiaSemana(fechasEntrega.desde)} {fechasEntrega.desde}</span>
+                  {:else}
+                    <span class="date-text">{getDiaSemana(fechasEntrega.desde)} {fechasEntrega.desde} → {getDiaSemana(fechasEntrega.hasta)} {fechasEntrega.hasta}</span>
+                  {/if}
                 {:else}
                   <span>Elegir fecha</span>
                 {/if}
               </button>
-              <input id="date-picker-input" type="date" bind:value={datePickerVal} onchange={onDatePick} class="date-picker-hidden" />
+              {#each fechasEntrega.extras as extra, ei}
+                <div class="extra-date-row">
+                  <button class="date-btn date-btn-extra" type="button" onclick={(ev) => openDatePicker(ev.currentTarget as HTMLElement, v => { const e = [...fechasEntrega.extras]; e[ei] = v; fechasEntrega = { ...fechasEntrega, extras: e }; }, extra)}>
+                    {#if extra}
+                      <span class="date-text">{getDiaSemana(extra)} {extra}</span>
+                    {:else}
+                      <span>+Fecha</span>
+                    {/if}
+                  </button>
+                  <button class="date-btn-remove" type="button" onclick={() => removeExtraDate(ei)} aria-label="Quitar fecha">×</button>
+                </div>
+              {/each}
+              <button class="date-btn-add" type="button" onclick={addExtraDate} title="Agregar otra fecha">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
             </div>
             <div class="delivery-discount">
               <button class="top-btn top-btn-discount" onclick={() => showDiscountModal = true}>
@@ -1656,7 +1749,7 @@ import type { ClientAddress } from '$lib/types';
             </div>
           </div>
         </div>
-    </div>
+    </form>
 
     {#if showDiscountModal}
       <div class="modal-overlay" onclick={() => showDiscountModal = false} role="presentation">
@@ -2378,7 +2471,7 @@ import type { ClientAddress } from '$lib/types';
     display: flex;
     align-items: center;
     gap: 0.429rem;
-    width: 100%;
+    width: auto;
     padding: 0.429rem 0.571rem;
     border: 1.5px solid var(--border);
     border-radius: var(--radius-sm);
@@ -2388,6 +2481,7 @@ import type { ClientAddress } from '$lib/types';
     cursor: pointer;
     transition: border-color 0.15s;
     font-family: inherit;
+    white-space: nowrap;
   }
   .date-btn:hover { border-color: var(--border-focus); }
   .date-btn svg { flex-shrink: 0; color: var(--text-muted); }
@@ -2395,7 +2489,108 @@ import type { ClientAddress } from '$lib/types';
     font-weight: 700;
     color: var(--text-primary);
   }
-  .date-picker-hidden { display: none; }
+
+  .date-btn-rango {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    font-weight: 600;
+  }
+  .date-btn-rango:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+  .extra-date-row {
+    display: flex;
+    align-items: center;
+    gap: 0.286rem;
+  }
+  .date-btn-extra {
+    border-color: var(--border-light);
+    background: var(--bg-hover);
+  }
+  .date-btn-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: none;
+    background: none;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 1.1rem;
+    border-radius: 50%;
+    padding: 0;
+    transition: background 0.12s;
+  }
+  .date-btn-remove:hover { background: rgba(220,38,38,0.1); }
+  .date-btn-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 1.5px dashed var(--border);
+    border-radius: var(--radius-sm);
+    background: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: all 0.12s;
+    flex-shrink: 0;
+  }
+  .date-btn-add:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-light); }
+
+  /* Flatpickr theme */
+  :global(.flatpickr-calendar) {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-lg);
+    font-family: inherit;
+  }
+  :global(.flatpickr-months) {
+    background: var(--bg-hover);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+  }
+  :global(.flatpickr-months .flatpickr-month),
+  :global(.flatpickr-current-month .flatpickr-monthDropdown-months),
+  :global(.flatpickr-current-month input.cur-year) {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  :global(.flatpickr-months .flatpickr-prev-month, .flatpickr-months .flatpickr-next-month) {
+    fill: var(--text-secondary);
+  }
+  :global(.flatpickr-day) {
+    color: var(--text-primary);
+    border-radius: var(--radius-sm);
+    font-weight: 500;
+  }
+  :global(.flatpickr-day.today) {
+    border-color: var(--accent);
+    font-weight: 700;
+  }
+  :global(.flatpickr-day.selected),
+  :global(.flatpickr-day.startRange),
+  :global(.flatpickr-day.endRange),
+  :global(.flatpickr-day.inRange) {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  :global(.flatpickr-day.inRange) {
+    background: color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  :global(.flatpickr-day:hover) {
+    background: var(--bg-hover);
+  }
+  :global(.flatpickr-day.flatpickr-disabled) {
+    color: var(--text-muted);
+  }
+  :global(.flatpickr-weekday) {
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  :global(.flatpickr-current-month .flatpickr-monthDropdown-months:hover) {
+    background: var(--bg-hover);
+  }
 
   .summary-divider {
     height: 0.071rem;
@@ -2519,16 +2714,9 @@ import type { ClientAddress } from '$lib/types';
   .delivery-date-group {
     display: flex;
     align-items: center;
-    gap: 0.571rem;
+    gap: 0.286rem;
     flex-shrink: 0;
-  }
-  .delivery-date-group label {
-    font-size: var(--text-xs);
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    white-space: nowrap;
+    flex-wrap: wrap;
   }
   .delivery-whatsapp {
     margin-left: auto;

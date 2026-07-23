@@ -165,8 +165,8 @@ fn build_items_rows(items: &[InvoiceItem]) -> String {
         let (qty, desc, price, total) = if i < items.len() {
             let it = &items[i];
             let q = if it.cantidad == 0.0 { String::new() } else { format!("{}", it.cantidad as i64) };
-            let p = if it.cantidad == 0.0 { String::new() } else { format!("{:.0}", it.precio_unitario) };
-            let t = if it.cantidad == 0.0 { String::new() } else { format!("{:.0}", it.total) };
+            let p = if it.cantidad == 0.0 { String::new() } else { format!("${:.0}", it.precio_unitario) };
+            let t = if it.cantidad == 0.0 { String::new() } else { format!("${:.0}", it.total) };
             (q, it.descripcion.clone(), p, t)
         } else {
             (String::new(), String::new(), String::new(), String::new())

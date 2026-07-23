@@ -3,7 +3,8 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import type { Factura, InvoiceItem } from '$lib/types';
+  import type { Factura, InvoiceItem, FechasEntrega } from '$lib/types';
+  import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
   import { hasMolduraItems, parseCard, buildMoldurasHtmlByTemplate } from '$lib/utils/molduras';
   import { invoke } from '@tauri-apps/api/core';
   import InvoicePrintModal from '$lib/components/InvoicePrintModal.svelte';
@@ -122,7 +123,7 @@
     }
     editingCardId = card.id;
     editTipo = card.tipo_entrega || '';
-    editFecha = fechaToInput(card.fecha_entrega || '');
+    editFecha = fechaToInput(getFechaEntregaEarliest(card));
   }
 
   function closeItemsModal() {
@@ -139,7 +140,7 @@
   }
 
   function isDirty(card: Factura): boolean {
-    return (card.tipo_entrega || '') !== editTipo || fechaToInput(card.fecha_entrega || '') !== editFecha;
+    return (card.tipo_entrega || '') !== editTipo || fechaToInput(getFechaEntregaEarliest(card)) !== editFecha;
   }
 
   async function saveEdits(card: Factura) {
@@ -150,7 +151,7 @@
       if ((card.tipo_entrega || '') !== editTipo) {
         patches.push(api.patchInvoiceField(card.id, 'tipo_entrega', editTipo));
       }
-      if (fechaToInput(card.fecha_entrega || '') !== editFecha) {
+      if (fechaToInput(getFechaEntregaEarliest(card)) !== editFecha) {
         patches.push(api.patchInvoiceField(card.id, 'fecha_entrega', inputToFecha(editFecha)));
       }
       if (patches.length > 0) {
@@ -224,6 +225,55 @@
     return formatFecha(s);
   }
 
+  function getFechaEntregaEarliest(card: Factura): string {
+    if (!card.fecha_entrega) return '';
+    try {
+      const parsed = JSON.parse(card.fecha_entrega);
+      if (parsed && typeof parsed === 'object' && parsed.desde) {
+        return parsed.desde;
+      }
+    } catch {}
+    return card.fecha_entrega;
+  }
+
+  const diasAbr = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+  function shortDia(fecha: string): string {
+    if (!fecha) return '';
+    const p = fecha.split('/');
+    const d = new Date(+p[2], +p[1] - 1, +p[0]);
+    return `${diasAbr[d.getDay()]} ${parseInt(p[0])}`;
+  }
+
+  function formatFechasCard(card: Factura): string {
+    if (!card.fecha_entrega) return '';
+    try {
+      const parsed = JSON.parse(card.fecha_entrega);
+      if (parsed && typeof parsed === 'object' && parsed.desde) {
+        const fe = parsed as FechasEntrega;
+        let s = '';
+        if (fe.desde && fe.hasta) {
+          if (fe.desde === fe.hasta) {
+            s = shortDia(fe.desde);
+          } else {
+            const dp = fe.desde.split('/');
+            const hp = fe.hasta.split('/');
+            if (dp[2] === hp[2] && dp[1] === hp[1]) {
+              s = `${shortDia(fe.desde)} al ${shortDia(fe.hasta)}`;
+            } else {
+              s = `${shortDia(fe.desde)} al ${shortDia(fe.hasta)}`;
+            }
+          }
+        }
+        if (fe.extras.length > 0) {
+          s += s ? ` +${fe.extras.length}` : `+${fe.extras.length}`;
+        }
+        return s || '';
+      }
+    } catch {}
+    return formatFechaDisplay(card.fecha_entrega);
+  }
+
   const entregaLabels: Record<string, string> = {
     'Retira': 'Retira',
     'Envio': 'Envío',
@@ -237,8 +287,9 @@
   }
 
   function getUrgencia(f: Factura): { label: string; color: string; bg: string } | null {
-    if (!f.fecha_entrega) return null;
-    const fe = parseFecha(f.fecha_entrega);
+    const earliest = getFechaEntregaEarliest(f);
+    if (!earliest) return null;
+    const fe = parseFecha(earliest);
     if (fe.getTime() === 0) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -291,7 +342,8 @@
     return cards.filter(card => {
       if (f.tipo_entrega !== 'TODOS' && card.tipo_entrega !== f.tipo_entrega) return false;
       if (f.periodo !== 'TODOS') {
-        const fe = card.fecha_entrega ? parseFecha(card.fecha_entrega) : null;
+        const earliest = getFechaEntregaEarliest(card);
+        const fe = earliest ? parseFecha(earliest) : null;
         if (!matchesPeriodo(fe, f.periodo)) return false;
       }
       if (f.search && f.search.trim()) {
@@ -354,7 +406,8 @@
         }
         if (kanban === 'ARCHIVADO') continue;
         if (kanban === 'ENTREGADO' && f.fecha_entrega) {
-          const fe = parseFecha(f.fecha_entrega);
+          const earliest = getFechaEntregaEarliest(f);
+          const fe = earliest ? parseFecha(earliest) : new Date(0);
           if (fe.getTime() > 0) {
             const days = Math.ceil((today.getTime() - fe.getTime()) / 86400000);
             if (days > 7) {
@@ -389,8 +442,10 @@
       const colEnt = columns.find(c => c.key === 'ENTREGADO');
       if (colEnt) {
         colEnt.cards.sort((a, b) => {
-          const da = a.fecha_entrega ? parseFecha(a.fecha_entrega).getTime() : 0;
-          const db = b.fecha_entrega ? parseFecha(b.fecha_entrega).getTime() : 0;
+          const ea = getFechaEntregaEarliest(a);
+          const eb = getFechaEntregaEarliest(b);
+          const da = ea ? parseFecha(ea).getTime() : 0;
+          const db = eb ? parseFecha(eb).getTime() : 0;
           return db - da;
         });
       }
@@ -742,7 +797,7 @@
           <div class="card-entrega">
             <span class="badge badge-tipo" style="background: {getTipoBadge(card.tipo_entrega || '').color};">{getTipoBadge(card.tipo_entrega || '').label}</span>
             {#if card.fecha_entrega}
-              <span class="badge badge-fecha">📅 {formatFechaDisplay(card.fecha_entrega)}</span>
+              <span class="badge badge-fecha">📅 {formatFechasCard(card)}</span>
             {/if}
             {#if getUrgencia(card)}
               <span class="badge badge-urgencia" style="background: {getUrgencia(card)!.bg}; color: {getUrgencia(card)!.color};">{getUrgencia(card)!.label}</span>
