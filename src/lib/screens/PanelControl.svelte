@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
@@ -261,8 +261,8 @@
     dragOverColIdx = null;
   }
 
-  // ── Actividad (facturas + pagos) ──
-  type ActivityItem = { id: number; type: 'factura' | 'pago'; color: string; message: string; time: string; section: string };
+  // ── Actividad (facturas + pagos + entregas) ──
+  type ActivityItem = { id: number; type: 'factura' | 'pago' | 'entrega'; color: string; message: string; time: string; section: string };
   let activity = $state<ActivityItem[]>([]);
   let usersMap = $state<Map<number, string>>(new Map());
   let dismissed = $state<Set<string>>(new Set());
@@ -284,8 +284,9 @@
 
   async function loadActivity() {
     try {
-      const [facturas, pagos, usuarios] = await Promise.all([
+      const [facturas, facturasEntregadas, pagos, usuarios] = await Promise.all([
         api.listFacturas({ limit: 30 }),
+        api.listFacturas({ estado_entrega: 'ENTREGADO', limit: 20 }),
         api.listPagos(),
         api.getUsers(),
       ]);
@@ -306,6 +307,17 @@
             section: f.cliente_nombre || 'Cliente',
           });
         }
+      }
+
+      for (const f of (facturasEntregadas || [])) {
+        items.push({
+          id: f.id,
+          type: 'entrega',
+          color: '#3b82f6',
+          message: `📦 Entrega: Factura ${f.numero_factura || '#' + f.id} — $${(f.total || 0).toLocaleString('es-AR')} (${f.cliente_nombre || 'Cliente'})`,
+          time: f.created_at || '',
+          section: f.cliente_nombre || 'Cliente',
+        });
       }
 
       for (const p of (pagos || [])) {
@@ -481,12 +493,19 @@
     return d.toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   }
 
+  let activityInterval: ReturnType<typeof setInterval>;
+
   onMount(() => {
     loadTasks();
     loadNotes();
     loadDashboardPanel();
     loadActivity();
     loadDismissed();
+    activityInterval = setInterval(loadActivity, 15000);
+  });
+
+  onDestroy(() => {
+    if (activityInterval) clearInterval(activityInterval);
   });
 </script>
 
@@ -688,7 +707,11 @@
             <span class="activity-dot" style="background:{item.color}"></span>
             <div class="activity-body">
               <span class="activity-msg">{item.message}</span>
-              <span class="activity-meta">{item.section} · {shortTime(item.time)}</span>
+              {#if item.type === 'entrega'}
+                <span class="activity-meta">{item.section}</span>
+              {:else}
+                <span class="activity-meta">{item.section} · {shortTime(item.time)}</span>
+              {/if}
             </div>
             <button class="activity-dismiss" onclick={() => dismissActivity(`${item.type}-${item.id}`)} aria-label="Descartar">✕</button>
           </div>

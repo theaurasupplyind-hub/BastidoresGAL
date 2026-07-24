@@ -76,6 +76,44 @@ export const api = {
     }
   },
 
+  mergeClients: async (sourceIds: number[], targetId: number) => {
+    const facturas = await api.listFacturas({ limit: 2000 });
+    const addressesCache = new Map<number, import('$lib/types').ClientAddress[]>();
+
+    for (const sid of sourceIds) {
+      const srcFacturas = facturas.filter(f => f.cliente_id === sid);
+      for (const inv of srcFacturas) {
+        await request('PATCH', `/invoices/${inv.id}`, { cliente_id: targetId });
+      }
+
+      if (!addressesCache.has(sid)) {
+        addressesCache.set(sid, await api.listAddresses(sid));
+      }
+      const dirs = addressesCache.get(sid)!;
+      for (const d of dirs) {
+        await api.addAddress(targetId, {
+          address: d.address,
+          extra: d.extra,
+          label: d.label,
+          is_default: d.is_default,
+          lat: d.lat,
+          lng: d.lng,
+        });
+        await api.deleteAddress(sid, d.id);
+      }
+
+      try {
+        await api.deleteCliente(sid);
+      } catch {
+        // If it still fails, force-delete via raw fetch
+        const res = await tauriFetch(`${API_URL}/clients/${sid}?force=true`, { method: 'DELETE' });
+        if (![200, 204].includes(res.status)) {
+          throw new Error(`No se pudo eliminar el cliente ${sid} incluso después de reasignar sus datos.`);
+        }
+      }
+    }
+  },
+
   // ---- Direcciones ----
   listAddresses: (clientId: number) =>
     handleResponse(request<import('$lib/types').ClientAddress[]>('GET', `/clients/${clientId}/addresses`), []),
@@ -150,13 +188,14 @@ export const api = {
       .then(r => r.next_number)
       .catch(() => 'F-00000'),
 
-  listFacturas: (params?: { search?: string; user_id?: number; start?: string; end?: string; limit?: number }) => {
+  listFacturas: (params?: { search?: string; user_id?: number; start?: string; end?: string; limit?: number; estado_entrega?: string }) => {
     const q = new URLSearchParams();
     if (params?.search) q.set('search', params.search);
     if (params?.user_id) q.set('user_id', String(params.user_id));
     if (params?.start) q.set('start', params.start);
     if (params?.end) q.set('end', params.end);
     if (params?.limit) q.set('limit', String(params.limit));
+    if (params?.estado_entrega) q.set('estado_entrega', params.estado_entrega);
     const qs = q.toString();
     return handleResponse(request<import('$lib/types').Factura[]>('GET', `/invoices${qs ? '?' + qs : ''}`, undefined, 25), []);
   },

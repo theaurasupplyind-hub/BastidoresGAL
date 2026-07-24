@@ -94,6 +94,12 @@
   let savingCard = $state(false);
   let generatingPdfCol = $state<number | null>(null);
   let config = $state<any>({});
+  let showHelpBanner = $state(localStorage.getItem('kanban_drag_help_dismissed') !== 'true');
+
+  function dismissHelp(savePreference = false) {
+    showHelpBanner = false;
+    if (savePreference) localStorage.setItem('kanban_drag_help_dismissed', 'true');
+  }
 
   function fechaToInput(fechaEntrega: string): string {
     if (!fechaEntrega) return '';
@@ -438,14 +444,22 @@
       }
       columns = columns;
 
-      // Sort ENTREGADO cards by fecha_entrega descending (newest first)
+      // Sort PEDIDO: no confirmados al fondo
+      const colPed = columns.find(c => c.key === 'PEDIDO');
+      if (colPed) {
+        colPed.cards.sort((a, b) => {
+          if (a._no_confirmado && !b._no_confirmado) return 1;
+          if (!a._no_confirmado && b._no_confirmado) return -1;
+          return parseFecha(a.fecha).getTime() - parseFecha(b.fecha).getTime();
+        });
+      }
+
+      // Sort ENTREGADO cards by entregado_at descending (last delivered first)
       const colEnt = columns.find(c => c.key === 'ENTREGADO');
       if (colEnt) {
         colEnt.cards.sort((a, b) => {
-          const ea = getFechaEntregaEarliest(a);
-          const eb = getFechaEntregaEarliest(b);
-          const da = ea ? parseFecha(ea).getTime() : 0;
-          const db = eb ? parseFecha(eb).getTime() : 0;
+          const da = a.entregado_at ? new Date(a.entregado_at).getTime() : 0;
+          const db = b.entregado_at ? new Date(b.entregado_at).getTime() : 0;
           return db - da;
         });
       }
@@ -457,14 +471,9 @@
     }
   }
 
-  function toggleSelect(id: number, ctrl = false) {
+  function toggleSelect(id: number) {
     const s = new Set(selectedIds);
-    if (ctrl) {
-      if (s.has(id)) s.delete(id); else s.add(id);
-    } else {
-      if (s.has(id) && s.size === 1) { s.delete(id); }
-      else { s.clear(); s.add(id); }
-    }
+    if (s.has(id)) s.delete(id); else s.add(id);
     selectedIds = s;
   }
 
@@ -689,6 +698,7 @@
     enEsperaHighlight = false;
     if (draggedCard && draggedCard.colIdx !== toIdx) {
       await moveCards(draggedCard.colIdx, toIdx);
+      showHelpBanner = false;
     }
   }
 
@@ -761,11 +771,11 @@
       draggable="true"
       ondragstart={(e) => handleDragStart(e, card.id, colIdx)}
       ondragend={handleDragEnd}
-      onclick={(e) => toggleSelect(card.id, e.ctrlKey)}
+      onclick={(e) => { e.stopPropagation(); toggleSelect(card.id); }}
       oncontextmenu={(e) => handleCardContextMenu(e, card)}
       role="button"
       tabindex="0"
-      onkeydown={(e) => { if (e.key === 'Escape') { cancelEdit(); e.preventDefault(); } else if (e.key === 'Enter') toggleSelect(card.id, e.ctrlKey); }}
+      onkeydown={(e) => { if (e.key === 'Escape') { cancelEdit(); e.preventDefault(); } else if (e.key === 'Enter') { toggleSelect(card.id); e.preventDefault(); } }}
     >
       <div class="card-body">
         <div class="card-header-row">
@@ -830,6 +840,23 @@
       <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
     </svg>
   </button>
+
+  {#if showHelpBanner}
+    <div class="kanban-help-banner">
+      <div class="help-body">
+        <span class="help-icon">🖱</span>
+        <div class="help-texts">
+          <p class="help-line"><strong>Click</strong> en cualquier tarjeta para seleccionarla</p>
+          <p class="help-line">Hacé <strong>click en varias</strong> para seleccionar múltiples</p>
+          <p class="help-line"><strong>Arrastralas</strong> a otra columna para moverlas juntas</p>
+        </div>
+      </div>
+      <div class="help-actions">
+        <button class="help-btn" onclick={() => dismissHelp(false)}>Entendido</button>
+        <button class="help-btn-dismiss" onclick={() => dismissHelp(true)}>No mostrar más</button>
+      </div>
+    </div>
+  {/if}
 
   <!-- Kanban Body (7 cols x 2 rows) -->
   <div class="kanban-body">
@@ -897,7 +924,7 @@
             >▾</button>
           </div>
         </div>
-        <div class="col-body" ondragenter={(e) => e.preventDefault()} ondragover={(e) => handleDragOver(e, i)} ondrop={(e) => handleDrop(e, i)}>
+        <div class="col-body" ondragenter={(e) => e.preventDefault()} ondragover={(e) => handleDragOver(e, i)} ondrop={(e) => handleDrop(e, i)} onclick={() => deselectAll()}>
           {#if loading && columns[i]?.cards.length === 0}
             <div class="col-loading">Cargando...</div>
           {:else if (columns[i]?.cards.length || 0) === 0}
@@ -943,7 +970,7 @@
           >▾</button>
         </div>
       </div>
-      <div class="col-body" ondragenter={(e) => e.preventDefault()} ondragover={(e) => handleDragOver(e, 3)} ondrop={(e) => handleDrop(e, 3)}>
+      <div class="col-body" ondragenter={(e) => e.preventDefault()} ondragover={(e) => handleDragOver(e, 3)} ondrop={(e) => handleDrop(e, 3)} onclick={() => deselectAll()}>
         {#if loading && (columns[3]?.cards.length || 0) === 0}
           <div class="col-loading">Cargando...</div>
         {:else if (columns[3]?.cards.length || 0) === 0}
@@ -976,7 +1003,7 @@
         <span class="col-count">{enEsperaCards.length}</span>
       </div>
       {#if enEsperaOpen}
-        <div class="col-body">
+        <div class="col-body" onclick={() => deselectAll()}>
           {#if enEsperaCards.length === 0}
             <div class="col-empty">Sin facturas en espera</div>
           {:else}
@@ -1140,6 +1167,77 @@
   .kanban-reload-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   @keyframes kanban-spin { to { transform: rotate(360deg); } }
   .spin { animation: kanban-spin 1s linear infinite; }
+
+  /* === Help Banner === */
+  .kanban-help-banner {
+    position: absolute;
+    top: 0.714rem;
+    right: 3.5rem;
+    z-index: 9;
+    display: flex;
+    flex-direction: column;
+    gap: 0.571rem;
+    padding: 0.714rem 1rem;
+    min-width: 24rem;
+    max-width: 30rem;
+    background: #dbeafe;
+    border: 1px solid #93c5fd;
+    border-radius: 0.571rem;
+    color: #1e40af;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    animation: helpFadeIn 0.3s ease-out;
+    box-shadow: 0 0.214rem 0.571rem rgba(0,0,0,0.1);
+  }
+  @keyframes helpFadeIn {
+    from { opacity: 0; transform: translateY(-0.429rem); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .help-body {
+    display: flex;
+    gap: 0.643rem;
+    align-items: flex-start;
+  }
+  .help-icon { font-size: 1.3rem; flex-shrink: 0; margin-top: 0.071rem; }
+  .help-texts {
+    display: flex;
+    flex-direction: column;
+    gap: 0.143rem;
+  }
+  .help-line { margin: 0; }
+  .help-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    padding-left: 2rem;
+  }
+  .help-btn {
+    padding: 0.357rem 0.857rem;
+    border: none;
+    border-radius: 0.357rem;
+    background: #3b82f6;
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1.4;
+    transition: background 0.12s;
+  }
+  .help-btn:hover { background: #2563eb; }
+  .help-btn-dismiss {
+    padding: 0.357rem 0.857rem;
+    border: 1px solid rgba(30,64,175,0.3);
+    border-radius: 0.357rem;
+    background: transparent;
+    color: #1e40af;
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    line-height: 1.4;
+    transition: background 0.12s, border-color 0.12s;
+    opacity: 0.75;
+  }
+  .help-btn-dismiss:hover { opacity: 1; background: rgba(30,64,175,0.06); border-color: rgba(30,64,175,0.5); }
 
   /* === Kanban Body (7 cols x 2 rows) === */
   .kanban-body {
@@ -1459,7 +1557,24 @@
     min-height: 6.429rem;
   }
   .kanban-card:hover { border-color: var(--text-muted); box-shadow: 0 0.143rem 0.429rem rgba(0,0,0,0.08); }
-  .kanban-card.selected { border-color: var(--col-color, #dc3545); box-shadow: 0 0 0 0.143rem rgba(var(--col-color), 0.15); }
+  .kanban-card.selected { border-color: var(--col-color, #dc3545); box-shadow: 0 0 0 0.143rem var(--col-color, #3498db); position: relative; }
+  .kanban-card.selected::after {
+    content: '✓';
+    position: absolute;
+    top: 0.214rem;
+    right: 0.214rem;
+    width: 1.142rem;
+    height: 1.142rem;
+    background: var(--col-color, #3498db);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 0.72rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
   .kanban-card.dragging { opacity: 0.4; }
   .kanban-card.no-confirmado { opacity: 0.55; }
   .card-no-confirmado-badge {

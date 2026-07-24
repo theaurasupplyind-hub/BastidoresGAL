@@ -958,6 +958,7 @@ import 'flatpickr/dist/flatpickr.min.css';
         cliente_domicilio,
         cliente_piso_depto,
         cliente_telefono,
+        cliente_taller,
         items: validItems.map(i => ({
           cantidad: i.cantidad,
           descripcion: i.descripcion,

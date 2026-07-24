@@ -195,9 +195,11 @@ export interface Factura {
   estado_entrega: string;
   items_done?: string;
   cliente_piso_depto?: string;
+  cliente_taller?: string;
   estado_moldura: string;
   estado_orden_tela: string;
   estado_kanban: string;
+  entregado_at?: string;
 }
 
 export interface OnlineUser {

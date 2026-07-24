@@ -5,12 +5,14 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import type { Cliente } from '$lib/types';
   import EditClienteModal from '$lib/components/EditClienteModal.svelte';
+  import FusionarClientesModal from '$lib/components/FusionarClientesModal.svelte';
 
   let clientes = $state<Cliente[]>([]);
   let search = $state('');
   let loading = $state(true);
   let showModal = $state(false);
   let selectedCliente = $state<Cliente | null>(null);
+  let showMergeModal = $state(false);
 
   onMount(() => { refresh(); });
 
@@ -68,7 +70,10 @@
 <div class="screen">
   <div class="screen-header">
     <h2>Clientes</h2>
-    <button class="btn-primary" onclick={openNew}>+ Nuevo Cliente</button>
+    <div class="header-actions">
+      <button class="btn-secondary" onclick={() => showMergeModal = true}>Fusionar</button>
+      <button class="btn-primary" onclick={openNew}>+ Nuevo Cliente</button>
+    </div>
   </div>
 
   <div class="search-bar">
@@ -123,10 +128,25 @@
   onsaved={onClienteSaved}
 />
 
+<FusionarClientesModal
+  show={showMergeModal}
+  clientes={clientes}
+  onclose={() => showMergeModal = false}
+  onsaved={() => { showMergeModal = false; refresh(); }}
+/>
+
 <style>
   .screen { padding: 1.429rem; }
   .screen-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.143rem; }
   .screen-header h2 { margin: 0; font-size: 1.429rem; color: var(--text-primary); }
+  .header-actions { display: flex; gap: 0.571rem; align-items: center; }
+  .btn-secondary {
+    padding: 0.571rem 1.286rem; background: var(--bg-card, #fff);
+    border: 1px solid var(--border, #ddd); border-radius: 0.429rem;
+    cursor: pointer; font-size: 0.929rem; font-weight: 500;
+    color: var(--text-primary);
+  }
+  .btn-secondary:hover { background: var(--bg-hover, #f5f5f5); }
   .search-bar { margin-bottom: 0.857rem; }
   .search-bar input {
     width: 100%; padding: 0.714rem 1rem; border: 1px solid var(--border); border-radius: 0.571rem;
