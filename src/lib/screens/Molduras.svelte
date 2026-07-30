@@ -581,9 +581,12 @@
 
 <!-- Add Manual Dialog -->
 {#if showAddDialog}
-  <div class="modal-overlay" onclick={() => showAddDialog = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal modal-add" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showAddDialog = false)}>
-      <h3>Agregar Facturas a Molduras</h3>
+      <div class="modal-header">
+        <h3>Agregar Facturas a Molduras</h3>
+        <button class="modal-close" onclick={() => showAddDialog = false} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         <input type="text" bind:value={addSearch} placeholder="Buscar por número o cliente..." class="add-search" />
         <div class="add-list">
@@ -618,9 +621,12 @@
 
 <!-- Formula Modal -->
 {#if showFormulaModal}
-  <div class="modal-overlay" onclick={() => showFormulaModal = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal modal-formula" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showFormulaModal = false)}>
-      <h3>📐 Fórmula de Materiales</h3>
+      <div class="modal-header">
+        <h3>📐 Fórmula de Materiales</h3>
+        <button class="modal-close" onclick={() => showFormulaModal = false} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         <div class="formula-section">
           <h4 style="color:#2c3e50;">Varillas (V)</h4>
@@ -657,9 +663,12 @@
 
 <!-- Detail Modal -->
 {#if showDetailModal && detailCard}
-  <div class="modal-overlay" onclick={closeDetailModal} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal modal-detail" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && closeDetailModal()}>
-      <h3>📦 {detailCard.num} — {detailCard.cliente}</h3>
+      <div class="modal-header">
+        <h3>📦 {detailCard.num} — {detailCard.cliente}</h3>
+        <button class="modal-close" onclick={closeDetailModal} aria-label="Cerrar">✕</button>
+      </div>
       <div class="detail-body">
         <div class="detail-items">
           <h4>Productos</h4>
@@ -889,7 +898,10 @@
 
   .modal-add { min-width: 35.714rem; max-height: 70vh; }
   .modal-formula { min-width: 26rem; max-width: 90vw; }
-  .modal-formula h3 { margin: 0 0 0.857rem; }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.857rem; }
+  .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .formula-section { margin-bottom: 0.857rem; }
   .formula-section h4 { margin: 0 0 0.286rem; font-size: 0.95rem; }
   .formula-section p { margin: 0.143rem 0; font-size: 0.82rem; color: var(--text-primary); line-height: 1.4; }
@@ -897,7 +909,7 @@
   .formula-section ul li { margin: 0.071rem 0; }
   .formula-example { font-size: 0.75rem !important; color: var(--text-muted) !important; font-style: italic; }
   .modal-detail { min-width: 38rem; max-width: 90vw; min-height: 28rem; }
-  .modal-detail h3 { margin: 0 0 0.714rem; }
+
   .detail-body { display: flex; gap: 1.143rem; flex: 1; min-height: 0; }
   .detail-items { flex: 0 0 16rem; display: flex; flex-direction: column; }
   .detail-items h4 { margin: 0 0 0.429rem; font-size: 0.85rem; color: var(--text-secondary); }

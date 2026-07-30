@@ -15,7 +15,7 @@ export interface PriceSuggestion {
 export function normalizeText(text: string): string {
   let t = text.toLowerCase().trim();
   t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  t = t.replace(/(\d)\s*[xX*×]\s*(\d)/g, '$1x$2');
+  t = t.replace(/(\d+(?:[.,]\d+)?)\s*[xX*×]\s*(\d+(?:[.,]\d+)?)/g, '$1x$2');
   t = t.replace(/\s+/g, ' ').trim();
   return t;
 }
@@ -36,7 +36,7 @@ function extractDims(text: string): Set<string> {
 export function getBaseAndDims(text: string): { base: string; dims: Set<string> } {
   const norm = normalizeText(text);
   const dims = extractDims(norm);
-  const base = norm.replace(/\d+x\d+/g, '').replace(/\s+/g, ' ').trim();
+  const base = norm.replace(/\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?/g, '').replace(/\s+/g, ' ').trim();
   return { base, dims };
 }
 
@@ -323,7 +323,7 @@ export function smartProductSearch(query: string, products: Producto[], maxResul
 
   const qNorm = normalizeText(q);
   const qDims = extractDims(qNorm);
-  const qTokens = qNorm.split(/\s+/).filter(t => !/^\d+x\d+$/.test(t));
+  const qTokens = qNorm.split(/\s+/).filter(t => !/^\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?$/.test(t));
 
   const scored: Array<[number, Producto]> = [];
 
@@ -587,9 +587,17 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
   const roundedSmall = roundDim(dimSmall);
   const roundedLarge = roundDim(dimLarge);
 
+  const slPriority = (desc: string): boolean =>
+    /(?:^|[ (])[SL][a-záéíóúñ]{2,}/i.test(desc);
+
   const exactMatches = productsWithDims
     .filter(pd => pd.dimSmall === roundedSmall && pd.dimLarge === roundedLarge)
-    .slice(0, 3);
+    .sort((a, b) => {
+      const aPrio = slPriority(a.product.descripcion) ? 0 : 1;
+      const bPrio = slPriority(b.product.descripcion) ? 0 : 1;
+      return aPrio - bPrio;
+    })
+    .slice(0, 4);
 
   if (exactMatches.length > 0) {
     result = exactMatches.map(pd => ({
@@ -601,12 +609,15 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
   } else {
     const targetPerimeter = 2 * (roundedSmall + roundedLarge);
     const sorted = [...productsWithDims].sort((a, b) => {
+      const aPrio = slPriority(a.product.descripcion) ? 0 : 1;
+      const bPrio = slPriority(b.product.descripcion) ? 0 : 1;
+      if (aPrio !== bPrio) return aPrio - bPrio;
       const da = Math.abs(2 * (a.dimSmall + a.dimLarge) - targetPerimeter);
       const db = Math.abs(2 * (b.dimSmall + b.dimLarge) - targetPerimeter);
       return da - db;
     });
 
-    result = sorted.slice(0, 3).map(pd => ({
+    result = sorted.slice(0, 4).map(pd => ({
       description: query,
       price: pd.product.precio_unitario,
       basedOn: pd.product.descripcion,

@@ -231,9 +231,12 @@
 
 <!-- Employee Form Modal -->
 {#if showEmployeeForm}
-  <div class="modal-overlay" onclick={() => showEmployeeForm = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showEmployeeForm = false)}>
-      <h3>{employeeForm.id ? 'Editar' : 'Nuevo'} Empleado</h3>
+      <div class="modal-header">
+        <h3>{employeeForm.id ? 'Editar' : 'Nuevo'} Empleado</h3>
+        <button class="modal-close" onclick={() => showEmployeeForm = false} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         <div class="form-group"><label>Nombre</label><input type="text" bind:value={employeeForm.name} /></div>
         <div class="form-group"><label>Teléfono</label><input type="text" bind:value={employeeForm.phone} /></div>
@@ -285,9 +288,12 @@
 
 <!-- Employee Pay Modal -->
 {#if showEmployeePayForm}
-  <div class="modal-overlay" onclick={() => showEmployeePayForm = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showEmployeePayForm = false)}>
-      <h3>Registrar Pago - {selectedEmployee?.name}</h3>
+      <div class="modal-header">
+        <h3>Registrar Pago - {selectedEmployee?.name}</h3>
+        <button class="modal-close" onclick={() => showEmployeePayForm = false} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         <div class="form-group"><label>Fecha</label><input type="date" bind:value={empPayForm.date} /></div>
         <div class="form-group"><label>Monto</label><input type="number" bind:value={empPayForm.amount} step="0.01" /></div>
@@ -395,5 +401,9 @@
   .g-pay-date { font-family: monospace; font-size: 0.72rem; color: var(--text-muted); min-width: 3.929rem; }
   .g-pay-concept { flex: 1; }
   .g-pay-amount { font-family: monospace; font-weight: 600; min-width: 4.286rem; text-align: right; }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.857rem; }
+  .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .g-empty { padding: 1.429rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
 </style>

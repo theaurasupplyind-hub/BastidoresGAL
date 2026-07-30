@@ -10,7 +10,7 @@
 </script>
 
 {#if show}
-  <div class="update-overlay" onclick={onclose} role="presentation">
+  <div class="update-overlay" role="presentation">
     <div class="update-modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && onclose()}>
       <div class="update-header">
         <div class="update-icon">🎉</div>

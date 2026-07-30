@@ -420,9 +420,12 @@
 
 <!-- ============ PROVIDER FORM MODAL ============ -->
 {#if showProviderForm}
-  <div class="modal-overlay" onclick={() => showProviderForm = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showProviderForm = false)}>
-      <h3>{providerForm.id ? 'Editar' : 'Nuevo'} Proveedor</h3>
+      <div class="modal-header">
+        <h3>{providerForm.id ? 'Editar' : 'Nuevo'} Proveedor</h3>
+        <button class="modal-close" onclick={() => showProviderForm = false} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         <div class="form-group"><label>Nombre</label><input type="text" bind:value={providerForm.name} /></div>
         <div class="form-group"><label>CUIT</label><input type="text" bind:value={providerForm.cuit} /></div>
@@ -440,9 +443,12 @@
 
 <!-- ============ MOVEMENT FORM MODAL ============ -->
 {#if showMoveForm}
-  <div class="modal-overlay" onclick={() => showMoveForm = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showMoveForm = false)}>
-      <h3>Nuevo {moveForm.type === 'PAYMENT' ? 'Pago' : moveForm.type === 'PURCHASE' ? 'Compra' : moveForm.type === 'STOCK_IN' ? 'Entrada Stock' : 'Movimiento'}</h3>
+      <div class="modal-header">
+        <h3>Nuevo {moveForm.type === 'PAYMENT' ? 'Pago' : moveForm.type === 'PURCHASE' ? 'Compra' : moveForm.type === 'STOCK_IN' ? 'Entrada Stock' : 'Movimiento'}</h3>
+        <button class="modal-close" onclick={() => showMoveForm = false} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         <div class="form-group"><label>Fecha</label><input type="date" bind:value={moveForm.date} /></div>
         <div class="form-group"><label>Descripción</label><input type="text" bind:value={moveForm.description} /></div>
@@ -588,6 +594,10 @@
   .pp-card:hover .pp-act-del { color: #e74c3c; }
   .pp-act-del:hover { background: #fff5f5; color: #e74c3c !important; }
 
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.857rem; }
+  .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .pp-empty {
     grid-column: 1 / -1;
     padding: 2rem;

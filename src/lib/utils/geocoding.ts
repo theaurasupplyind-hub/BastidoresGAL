@@ -36,10 +36,63 @@ export function limpiarDireccion(dir: string): string {
   return limpia || dir.trim();
 }
 
+export function formatearDireccionNominatim(r: { display_name: string; address?: Record<string, string> }): string {
+  const addr = r.address;
+  if (addr) {
+    const calle = addr.road || addr.pedestrian || addr.street || '';
+    const numero = addr.house_number || '';
+    const estado = addr.state || '';
+    const ciudad = addr.city || addr.town || addr.village || addr.municipality || '';
+
+    let direccion = '';
+    if (calle && numero) {
+      direccion = `${calle} ${numero}`;
+    } else if (calle) {
+      direccion = calle;
+    } else {
+      const parts = r.display_name.split(',').map(s => s.trim());
+      direccion = parts.slice(0, 2).join(' ');
+    }
+
+    const barrio = addr.suburb || addr.neighbourhood || '';
+    if (barrio) {
+      direccion += `, ${barrio}`;
+    }
+
+    if (estado.includes('Ciudad Autónoma de Buenos Aires')) {
+      direccion += ', CABA';
+    } else if (ciudad) {
+      direccion += `, ${ciudad}`;
+    } else if (estado) {
+      direccion += `, ${estado.replace(/^Provincia de /, '')}`;
+    }
+
+    return direccion;
+  }
+
+  const parts = r.display_name.split(',').map(s => s.trim());
+  const calle = parts[1] || '';
+  const numero = parts[0] || '';
+  let direccion = calle && numero ? `${calle} ${numero}` : (calle || numero);
+
+  if (parts[2]) {
+    direccion += `, ${parts[2].trim()}`;
+  }
+
+  const estado = parts[5] || '';
+  if (estado.includes('Ciudad Autónoma de Buenos Aires')) {
+    direccion += ', CABA';
+  } else if (parts[3]) {
+    direccion += `, ${parts[3].trim()}`;
+  }
+
+  return direccion;
+}
+
 export function nominatimSearchUrl(direccion: string): string {
   const limpia = limpiarDireccion(direccion);
   const q = encodeURIComponent(`${limpia}, Buenos Aires, Argentina`);
-  return `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=ar&viewbox=${NOMINATIM_VIEWBOX_AMBA}`;
+  return `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=ar&addressdetails=1&viewbox=${NOMINATIM_VIEWBOX_AMBA}`;
 }
 
 export function nominatimReverseUrl(lat: number, lng: number): string {

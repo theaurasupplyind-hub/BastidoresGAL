@@ -16,7 +16,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import PagoDialog from '$lib/components/PagoDialog.svelte';
   import PriceListModal from '$lib/components/PriceListModal.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, type PriceSuggestion } from '$lib/utils/precios';
-import { nominatimSearchUrl, limpiarDireccion } from '$lib/utils/geocoding';
+import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
 import type { ClientAddress } from '$lib/types';
 import flatpickr from 'flatpickr';
 import 'flatpickr/dist/flatpickr.min.css';
@@ -111,6 +111,12 @@ import 'flatpickr/dist/flatpickr.min.css';
   let cliente_telefono = $state('');
   let cliente_taller = $state('');
   let clienteAddresses = $state<import('$lib/types').ClientAddress[]>([]);
+  let totalDirecciones = $derived.by(() => {
+    let total = clienteAddresses.length;
+    const dom = clienteDomicilioPrincipal();
+    if (dom && !clienteAddresses.some(a => a.address === dom)) total++;
+    return total;
+  });
   let showNewAddressPrompt = $state(false);
   let newAddressLabel = $state('');
   let newAddressDefault = $state(false);
@@ -283,11 +289,6 @@ import 'flatpickr/dist/flatpickr.min.css';
   let discountMode = $state<'amount' | 'percent'>('amount');
   let discountValue = $state(0);
   let productSuggestions = $state<PriceSuggestion[][]>([[]]);
-  let showPriceModal = $state(false);
-  let priceAdjustIndex = $state(-1);
-  let priceAdjustSuggestion = $state<PriceSuggestion | null>(null);
-  let priceAdjustValue = $state(0);
-  let priceInputEl = $state<HTMLInputElement | null>(null);
   let clienteSearch = $state('');
   let showClienteResults = $state(false);
   let selectedClienteIndex = $state(-1);
@@ -487,6 +488,9 @@ import 'flatpickr/dist/flatpickr.min.css';
         cliente_piso_depto = def.extra || '';
       }
     });
+    if (c.ultimo_tipo_entrega && ['Retira', 'Envio', 'Retiro y Envio'].includes(c.ultimo_tipo_entrega)) {
+      tipo_entrega = c.ultimo_tipo_entrega;
+    }
   }
 
   function selectProducto(index: number, prod: Producto) {
@@ -522,41 +526,8 @@ import 'flatpickr/dist/flatpickr.min.css';
     productSearch = productSearch;
     showProdResults[index] = false;
     selectedProdIndex[index] = -1;
-    priceAdjustIndex = index;
-    priceAdjustSuggestion = sug;
-    priceAdjustValue = sug.price;
-    showPriceModal = true;
-  }
-
-  function applyPriceAdjust() {
-    const idx = priceAdjustIndex;
-    if (idx >= 0 && priceAdjustValue > 0) {
-      items[idx].precio_unitario = priceAdjustValue;
-      items[idx].total = items[idx].cantidad * priceAdjustValue;
-      items = items;
-    }
-    showPriceModal = false;
-    priceAdjustIndex = -1;
-    priceAdjustSuggestion = null;
-    setTimeout(() => focusRowInput(idx), 50);
-  }
-
-  function adjustByPercent(pct: number) {
-    if (!priceAdjustSuggestion) return;
-    priceAdjustValue = Math.round(priceAdjustSuggestion.price * (1 + pct / 100));
-  }
-
-  function cancelPriceAdjust() {
-    const idx = priceAdjustIndex;
-    if (idx >= 0 && priceAdjustSuggestion) {
-      items[idx].precio_unitario = priceAdjustSuggestion.price;
-      items[idx].total = items[idx].cantidad * priceAdjustSuggestion.price;
-      items = items;
-    }
-    showPriceModal = false;
-    priceAdjustIndex = -1;
-    priceAdjustSuggestion = null;
-    setTimeout(() => focusRowInput(idx), 50);
+    if (index === items.length - 1) addItem();
+    setTimeout(() => focusRowInput(index + 1), 50);
   }
 
   function focusRowInput(idx: number) {
@@ -570,13 +541,6 @@ import 'flatpickr/dist/flatpickr.min.css';
   function onVisibilityChange() {
     if (document.visibilityState === 'visible') refreshHistory();
   }
-
-  $effect(() => {
-    if (showPriceModal && priceInputEl) {
-      priceInputEl.focus();
-      priceInputEl.select();
-    }
-  });
 
   function getAllResults(index: number): Array<{ type: 'suggestion' | 'product'; data: any }> {
     const suggs = (productSuggestions[index] || [])
@@ -984,15 +948,25 @@ import 'flatpickr/dist/flatpickr.min.css';
       }
       invalidateCache();
       await refreshHistory();
-      // Prompt to save new address if client has addresses and domicilio doesn't match any
-      if (cliente_id && clienteAddresses.length > 0 && cliente_domicilio.trim()) {
+      // Save address automatically if it doesn't match any existing client address
+      if (cliente_id && cliente_domicilio.trim()) {
         const match = clienteAddresses.find(a => a.address === cliente_domicilio.trim());
         if (!match) {
-          pendingSavePayload = null;
-          newAddressLabel = '';
-          newAddressDefault = false;
-          showNewAddressPrompt = true;
+          try {
+            const newAddr = await api.addAddress(cliente_id, {
+              address: cliente_domicilio.trim(),
+              extra: cliente_piso_depto,
+              lat: selectedNominatimLat,
+              lng: selectedNominatimLng,
+            });
+            clienteAddresses = [...clienteAddresses, newAddr];
+          } catch {}
         }
+      }
+      if (cliente_id) {
+        api.saveClientPreference(cliente_id, tipo_entrega).catch(() => {});
+        const idx = clientes.findIndex(c => c.id === cliente_id);
+        if (idx >= 0) clientes[idx] = { ...clientes[idx], ultimo_tipo_entrega: tipo_entrega };
       }
     } catch (e: any) {
       appStore.showToast('Error al guardar: ' + e.message, 'error');
@@ -1031,27 +1005,37 @@ import 'flatpickr/dist/flatpickr.min.css';
     }
   }
 
+  function clienteDomicilioPrincipal(): string {
+    if (!cliente_id) return '';
+    const c = clientes.find(c => c.id === cliente_id);
+    return c?.domicilio?.trim() || '';
+  }
+
+  function buildAddressSugerencias() {
+    const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
+    for (const a of clienteAddresses) {
+      items.push({ type: 'saved', data: a });
+    }
+    const dom = clienteDomicilioPrincipal();
+    if (dom && !clienteAddresses.some(a => a.address === dom)) {
+      items.push({ type: 'saved', data: { id: -1, client_id: cliente_id, address: dom, extra: '', label: '📋 Domicilio principal', is_default: false, lat: null, lng: null } });
+    }
+    return items;
+  }
+
   function toggleAddressDropdown() {
     if (showAddressDropdown) {
       showAddressDropdown = false;
       return;
     }
-    const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
-    for (const a of clienteAddresses) {
-      items.push({ type: 'saved', data: a });
-    }
-    addressSuggestions = items;
+    addressSuggestions = buildAddressSugerencias();
     selectedAddressIdx = -1;
     showAddressDropdown = true;
   }
 
   function handleAddressFocus() {
     if (clienteAddresses.length > 0 && !cliente_domicilio.trim()) {
-      const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
-      for (const a of clienteAddresses) {
-        items.push({ type: 'saved', data: a });
-      }
-      addressSuggestions = items;
+      addressSuggestions = buildAddressSugerencias();
       selectedAddressIdx = -1;
       showAddressDropdown = true;
     }
@@ -1062,12 +1046,8 @@ import 'flatpickr/dist/flatpickr.min.css';
     const text = cliente_domicilio.trim();
     if (text.length >= 4) {
       isSearchingAddress = true;
-      const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
-      for (const a of clienteAddresses) {
-        items.push({ type: 'saved', data: a });
-      }
-      addressSuggestions = items;
-      showAddressDropdown = items.length > 0;
+      addressSuggestions = buildAddressSugerencias();
+      showAddressDropdown = addressSuggestions.length > 0;
       addressDebounceTimer = setTimeout(() => searchNominatim(text), 400);
     } else if (text.length > 0) {
       addressSuggestions = [];
@@ -1081,22 +1061,15 @@ import 'flatpickr/dist/flatpickr.min.css';
       const url = nominatimSearchUrl(query);
       const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
       const data = await res.json();
-      const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
-      for (const a of clienteAddresses) {
-        items.push({ type: 'saved', data: a });
-      }
+      const items = buildAddressSugerencias();
       for (const r of data.slice(0, 5)) {
         items.push({ type: 'nominatim', data: r });
       }
       addressSuggestions = items;
       showAddressDropdown = items.length > 0;
     } catch {
-      const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
-      for (const a of clienteAddresses) {
-        items.push({ type: 'saved', data: a });
-      }
-      addressSuggestions = items;
-      showAddressDropdown = items.length > 0;
+      addressSuggestions = buildAddressSugerencias();
+      showAddressDropdown = addressSuggestions.length > 0;
     } finally {
       isSearchingAddress = false;
     }
@@ -1111,7 +1084,7 @@ import 'flatpickr/dist/flatpickr.min.css';
       selectedNominatimLng = addr.lng ?? null;
     } else {
       const r = sug.data;
-      cliente_domicilio = limpiarDireccion(r.display_name);
+      cliente_domicilio = formatearDireccionNominatim(r);
       cliente_piso_depto = '';
       selectedNominatimLat = parseFloat(r.lat);
       selectedNominatimLng = parseFloat(r.lon);
@@ -1500,7 +1473,8 @@ import 'flatpickr/dist/flatpickr.min.css';
                 <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                 {#if clienteAddresses.length > 0}
                   <button class="address-inner-btn address-btn-saved" onclick={toggleAddressDropdown} tabindex="-1" type="button" title="Direcciones guardadas">
-                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>
+                    <span class="addr-count-text">{totalDirecciones} direcciones</span>
+                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
                 {/if}
                 <button class="address-inner-btn address-btn-add" onclick={openAddAddressModal} tabindex="-1" type="button" title="Agregar nueva dirección">
@@ -1514,7 +1488,7 @@ import 'flatpickr/dist/flatpickr.min.css';
                           <span class="addr-label">{sug.data.label || 'Dirección'}</span>
                           <span class="addr-text">{sug.data.address}{sug.data.extra ? ` - ${sug.data.extra}` : ''}</span>
                         {:else}
-                          <span class="addr-nominatim">{limpiarDireccion(sug.data.display_name)}</span>
+                          <span class="addr-nominatim">{formatearDireccionNominatim(sug.data)}</span>
                         {/if}
                       </div>
                     {/each}
@@ -1753,9 +1727,12 @@ import 'flatpickr/dist/flatpickr.min.css';
     </form>
 
     {#if showDiscountModal}
-      <div class="modal-overlay" onclick={() => showDiscountModal = false} role="presentation">
+      <div class="modal-overlay" role="presentation">
         <div class="modal modal-discount" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showDiscountModal = false)}>
-          <h3>Descuento</h3>
+          <div class="modal-header">
+            <h3>Descuento</h3>
+            <button class="modal-close" onclick={() => showDiscountModal = false} aria-label="Cerrar">✕</button>
+          </div>
           <div class="modal-body">
             <div class="discount-tabs">
               <button class:active={discountMode === 'amount'} onclick={() => discountMode = 'amount'} type="button">$ Monto</button>
@@ -1785,36 +1762,6 @@ import 'flatpickr/dist/flatpickr.min.css';
             {/if}
             <button class="btn btn-secondary" onclick={() => showDiscountModal = false}>Cancelar</button>
             <button class="btn btn-primary" onclick={applyDiscount} disabled={discountValue <= 0}>Aplicar</button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    {#if showPriceModal && priceAdjustSuggestion}
-      <div class="modal-overlay" onclick={cancelPriceAdjust} role="presentation">
-        <div class="modal modal-price" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => { if (e.key === 'Escape') cancelPriceAdjust(); if (e.key === 'Enter') applyPriceAdjust(); }}>
-          <h3>Ajustar Precio</h3>
-          <div class="modal-body">
-            <p class="price-suggestion-label">Precio sugerido</p>
-            <p class="price-suggestion-source">Basado en: {priceAdjustSuggestion.basedOn || priceAdjustSuggestion.description}</p>
-            <p class="price-suggestion-value">${priceAdjustSuggestion.price.toFixed(0)}</p>
-            <div class="price-divider"></div>
-            <p class="price-quick-label">Ajuste rápido:</p>
-            <div class="price-quick-btns">
-              <button class="btn btn-xs btn-price" onclick={() => adjustByPercent(-10)}>-10%</button>
-              <button class="btn btn-xs btn-price" onclick={() => adjustByPercent(-5)}>-5%</button>
-              <button class="btn btn-xs btn-price" onclick={() => adjustByPercent(5)}>+5%</button>
-              <button class="btn btn-xs btn-price" onclick={() => adjustByPercent(10)}>+10%</button>
-              <button class="btn btn-xs btn-price" onclick={() => adjustByPercent(20)}>+20%</button>
-            </div>
-            <div class="form-group">
-              <label>Precio final:</label>
-              <input type="number" bind:value={priceAdjustValue} bind:this={priceInputEl} autofocus min="0" step="1" class="price-final-input" />
-            </div>
-          </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" onclick={cancelPriceAdjust}>Cancelar</button>
-            <button class="btn btn-primary" onclick={applyPriceAdjust}>Confirmar</button>
           </div>
         </div>
       </div>
@@ -1924,9 +1871,12 @@ import 'flatpickr/dist/flatpickr.min.css';
 {/if}
 
 {#if showNewAddressPrompt}
-  <div class="modal-overlay" onclick={() => showNewAddressPrompt = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
-      <h3>¿Guardar nueva dirección?</h3>
+      <div class="modal-header">
+        <h3>¿Guardar nueva dirección?</h3>
+        <button class="modal-close" onclick={() => showNewAddressPrompt = false} aria-label="Cerrar">✕</button>
+      </div>
       <p style="margin:0.5rem 0;color:var(--text-secondary);font-size:0.9rem;">
         "{cliente_domicilio}{cliente_piso_depto ? ` - ${cliente_piso_depto}` : ''}" no está guardada como dirección de <strong>{cliente_nombre}</strong>.
       </p>
@@ -2767,6 +2717,10 @@ import 'flatpickr/dist/flatpickr.min.css';
     background: #fffbeb;
     border-color: #f59e0b;
   }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.857rem; }
+  .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .modal-discount { min-width: 22rem; max-width: 90vw; }
   .discount-tabs {
     display: flex;
@@ -2829,64 +2783,6 @@ import 'flatpickr/dist/flatpickr.min.css';
     border: 0.071rem solid #fcd34d;
     border-radius: var(--radius-sm);
     text-align: center;
-  }
-  .modal-price { min-width: 20rem; max-width: 90vw; }
-  .price-suggestion-label {
-    font-size: var(--text-xs);
-    text-transform: uppercase;
-    color: var(--text-muted);
-    font-weight: 600;
-    letter-spacing: 0.03em;
-    margin: 0;
-  }
-  .price-suggestion-source {
-    font-size: var(--text-sm);
-    color: var(--text-secondary);
-    margin: 0.143rem 0 0 0;
-  }
-  .price-suggestion-value {
-    font-size: 2rem;
-    font-weight: 800;
-    color: #16a34a;
-    margin: 0.429rem 0;
-  }
-  .price-divider {
-    height: 0.071rem;
-    background: var(--border);
-    margin: 0.429rem 0;
-  }
-  .price-quick-label {
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-    margin: 0 0 0.429rem 0;
-    font-weight: 500;
-  }
-  .price-quick-btns {
-    display: flex;
-    gap: 0.286rem;
-    flex-wrap: wrap;
-    margin-bottom: 0.857rem;
-  }
-  .btn-price {
-    background: var(--bg-hover);
-    color: var(--text-secondary);
-    font-weight: 600;
-    padding: 0.357rem 0.714rem;
-  }
-  .btn-price:hover {
-    background: var(--accent-light);
-    color: var(--accent);
-  }
-  .price-final-input {
-    padding: 0.5rem 0.714rem;
-    border: 0.071rem solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: 1.2rem;
-    font-weight: 700;
-    width: 100%;
-    box-sizing: border-box;
-    text-align: center;
-    font-family: var(--font-mono);
   }
 
   .summary-total {
@@ -3170,7 +3066,12 @@ import 'flatpickr/dist/flatpickr.min.css';
     color: var(--text-primary);
     background: var(--bg-hover);
   }
-  .address-btn-saved { right: 1.5rem; }
+  .address-btn-saved {
+    right: 1.5rem;
+    gap: 0.2rem;
+    padding: 0.2rem 0.4rem;
+  }
+  .addr-count-text { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
   .address-btn-add { right: 0.2rem; }
   .add-address-item {
     display: flex;

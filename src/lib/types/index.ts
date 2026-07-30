@@ -38,6 +38,7 @@ export interface Cliente {
   estudiante: string;
   lat?: number | null;
   lng?: number | null;
+  ultimo_tipo_entrega?: string;
   addresses?: ClientAddress[];
 }
 
@@ -200,6 +201,9 @@ export interface Factura {
   estado_orden_tela: string;
   estado_kanban: string;
   entregado_at?: string;
+  lat?: number | null;
+  lng?: number | null;
+  geocode_error?: string | null;
 }
 
 export interface OnlineUser {

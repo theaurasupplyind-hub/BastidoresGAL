@@ -85,7 +85,7 @@
 </script>
 
 {#if show}
-  <div class="overlay" onclick={handleClose} role="presentation">
+  <div class="overlay" role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-label="Fusionar clientes">
       <div class="modal-header">
         <h3>Fusionar Clientes</h3>

@@ -3,7 +3,7 @@
 
   let { show, clientes, onclose, onseleccionar }: {
     show: boolean;
-    clientes: { id: number; domicilio: string }[];
+    clientes: { id: number; domicilio?: string; lat?: number; lng?: number }[];
     onclose: () => void;
     onseleccionar: (ids: number[]) => void;
   } = $props();
@@ -26,7 +26,7 @@
 </script>
 
 {#if show}
-  <div class="modal-overlay" class:cerrando onclick={onclose} role="presentation">
+  <div class="modal-overlay" class:cerrando role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" onkeydown={handleKeydown} tabindex="-1">
       <div class="modal-header">
         <h2>🗺 Rutas recomendadas</h2>

@@ -247,11 +247,23 @@
     showPagoDialog = true;
   }
 
+  function dateToInput(val: string | undefined): string {
+    if (!val) return '';
+    // Already ISO: YYYY-MM-DD or YYYY-MM-DDTHH:mm...
+    if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0, 10);
+    // Argentine: D/M/YYYY or DD/MM/YYYY
+    const parts = val.split('/');
+    if (parts.length === 3) {
+      return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+    }
+    return '';
+  }
+
   function openEditPago(pago: Pago & { cliente_nombre: string }) {
     pagoEditando = true;
     pagoId = pago.id;
     pagoInvId = pago.invoice_id;
-    pagoDate = pago.date;
+    pagoDate = dateToInput(pago.date);
     pagoAmount = pago.amount;
     pagoMethod = pago.method;
     pagoEntityType = pago.entity_type || 'Ninguno';
@@ -552,9 +564,12 @@
 
 <!-- Payment Dialog -->
 {#if showPagoDialog}
-  <div class="modal-overlay" onclick={() => showPagoDialog = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showPagoDialog = false)}>
-      <h3>{pagoEditando ? 'Editar Pago' : 'Nuevo Pago'}</h3>
+      <div class="modal-header">
+        <h3>{pagoEditando ? 'Editar Pago' : 'Nuevo Pago'}</h3>
+        <button class="modal-close" onclick={() => showPagoDialog = false} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         {#if pagoInvCliente}
           <div class="pago-dialog-header">
@@ -634,9 +649,12 @@
 
 <!-- Audit Dialog -->
 {#if showAudit}
-  <div class="modal-overlay" onclick={() => showAudit = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal modal-lg" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showAudit = false)}>
-      <h3>Auditoría - Historial de Cambios</h3>
+      <div class="modal-header">
+        <h3>Auditoría - Historial de Cambios</h3>
+        <button class="modal-close" onclick={() => showAudit = false} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         {#if auditLogs.length === 0}
           <p>Sin registros de auditoría.</p>
@@ -961,7 +979,10 @@
     box-shadow: 0 0.571rem 2.143rem rgba(0,0,0,0.15);
   }
   :global(.modal-lg) { min-width: 35.714rem; min-height: 21.429rem; }
-  :global(.modal h3) { margin: 0 0 1rem; color: var(--text-primary); }
+  :global(.modal-header) { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  :global(.modal-header h3) { margin: 0; color: var(--text-primary); }
+  :global(.modal-close) { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  :global(.modal-close:hover) { background: var(--bg-hover); color: var(--text-primary); }
   :global(.modal-body) { display: flex; flex-direction: column; gap: 0.714rem; }
   :global(.modal-footer) {
     display: flex;

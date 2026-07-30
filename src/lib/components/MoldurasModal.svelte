@@ -197,7 +197,7 @@
 </script>
 
 {#if show}
-  <div class="modal-overlay" onclick={onClose} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div
       class="modal modal-molduras"
       onclick={(e) => e.stopPropagation()}

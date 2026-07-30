@@ -272,7 +272,7 @@
   ];
 </script>
 
-<div class="overlay" onclick={() => appStore.showPricingRules = false} role="presentation">
+<div class="overlay" role="presentation">
   <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
     <div class="modal-header">
       <h2>⚙ Reglas de Precio</h2>

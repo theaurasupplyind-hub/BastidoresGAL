@@ -132,6 +132,9 @@ export const api = {
   setDefaultAddress: (clientId: number, addressId: number) =>
     request('PUT', `/clients/${clientId}/addresses/${addressId}/default`),
 
+  saveClientPreference: (clientId: number, tipoEntrega: string) =>
+    request('PATCH', `/clients/${clientId}/preference`, { ultimo_tipo_entrega: tipoEntrega }),
+
   // ---- Mapa ----
   getMapaClientes: () => handleResponse(request<any[]>('GET', '/mapa/clientes', undefined, 15), []),
 
@@ -144,6 +147,9 @@ export const api = {
   geocodificarAddress: (clientId: number, addressId: number) =>
     request<{ status: string; lat: number; lng: number }>('POST', `/clients/${clientId}/addresses/${addressId}/geocode`, undefined, 15),
 
+  geocodificarFactura: (facturaId: number) =>
+    request<{ status: string; lat: number; lng: number }>('POST', `/mapa/geocodificar-factura/${facturaId}`, undefined, 15),
+
   getMapaOrigen: () =>
     handleResponse(request<{ direccion: string; lat: number | null; lng: number | null }>('GET', '/mapa/origen', undefined, 15),
       { direccion: 'Bermudez 331', lat: null, lng: null }),
@@ -151,8 +157,8 @@ export const api = {
   updateMapaOrigen: (data: { direccion: string; lat?: number | null; lng?: number | null }) =>
     request<{ status: string; direccion: string; lat: number | null; lng: number | null }>('PUT', '/mapa/origen', data, 15),
 
-  getMapaDashboard: (fecha: string, todas = false) =>
-    request<{ clientes: any[]; entregas: any[]; plan: import('$lib/types').PlanDeViaje | null }>('GET', `/mapa/dashboard?fecha=${fecha}&todas=${todas}`, undefined, 20),
+  getMapaDashboard: (fecha: string, todas = false, recencia_meses = 0) =>
+    request<{ clientes: any[]; entregas: any[]; plan: import('$lib/types').PlanDeViaje | null }>('GET', `/mapa/dashboard?fecha=${fecha}&todas=${todas}&recencia_meses=${recencia_meses}`, undefined, 20),
 
   getPlanViaje: (fecha: string) =>
     request<import('$lib/types').PlanDeViaje | null>('GET', `/mapa/planes?fecha=${fecha}`, undefined, 15),
@@ -412,16 +418,40 @@ export const api = {
 
   // ---- Tasks ----
   listTasks: () =>
-    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null }[]>('GET', '/tasks', undefined, 10), []),
+    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: Array<{ id: number }> }[]>('GET', '/tasks', undefined, 10), [] as any[]),
 
-  createTask: (data: { text: string }) =>
-    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null }>('POST', '/tasks', data),
+  createTask: (data: { text: string; assigned_by?: string }) =>
+    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: Array<{ id: number }> }>('POST', '/tasks', data),
 
   updateTask: (id: number, data: { text?: string; done?: boolean; position?: number }) =>
-    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null }>('PUT', `/tasks/${id}`, data),
+    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: Array<{ id: number }> }>('PUT', `/tasks/${id}`, data),
 
   deleteTask: (id: number) =>
     request<{ status: string }>('DELETE', `/tasks/${id}`),
+
+listTaskTrash: () =>
+    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; deleted_at: string | null; assigned_by: string | null; images: Array<{ id: number }> }[]>('GET', '/tasks/trash'), [] as any[]),
+
+  restoreTask: (id: number) =>
+    request<{ status: string }>('POST', '/tasks/' + id + '/restore'),
+
+  listTaskImages: (taskId: number) =>
+    handleResponse(request<{ id: number; created_at: string | null }[]>('GET', '/tasks/' + taskId + '/images'), []),
+
+  async uploadTaskImage(taskId: number, file: Uint8Array, name: string) {
+    const formData = new FormData();
+    formData.append('file', new Blob([file], { type: 'image/webp' }), name);
+    const url = `${API_URL}/tasks/${taskId}/images`;
+    const resp = await tauriFetch(url, { method: 'POST', body: formData });
+    if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }
+    return resp.json();
+  },
+
+  getTaskImageViewUrl: (taskId: number, imageId: number) =>
+    `${API_URL}/tasks/${taskId}/images/${imageId}/view`,
+
+  deleteTaskImage: (taskId: number, imageId: number) =>
+    request<{ status: string }>('DELETE', `/tasks/${taskId}/images/${imageId}`),
 
   // ---- Notes ----
   getNotes: () =>

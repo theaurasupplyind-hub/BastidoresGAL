@@ -6,9 +6,18 @@
   import { animate, spring } from 'animejs';
 
   // ── Task List (API) ──
-  let tasks = $state<Array<{ id: number; text: string; done: boolean; position: number }>>([]);
+  let tasks = $state<Array<{ id: number; text: string; done: boolean; position: number; assigned_by: string | null; images: Array<{ id: number }> }>>([]);
   let loadingTasks = $state(false);
   let newTaskText = $state('');
+  let imageFileInput = $state<HTMLInputElement>();
+  let pendingUploadTaskId = $state<number | null>(null);
+  let uploadingTaskId = $state<number | null>(null);
+  let selectedImageUrl = $state<string | null>(null);
+  let pastedImage = $state<Uint8Array | null>(null);
+  let pastedImageUrl = $state<string | null>(null);
+  let showTaskTrash = $state(false);
+  let trashTasks = $state<Array<{ id: number; text: string; done: boolean; assigned_by: string | null; images: Array<{ id: number }> }>>([]);
+  let loadingTrash = $state(false);
 
   async function loadTasks() {
     loadingTasks = true;
@@ -17,10 +26,15 @@
   }
   async function addTask() {
     const t = newTaskText.trim();
-    if (!t) return;
+    if (!t && !pastedImage) return;
     newTaskText = '';
     try {
-      await api.createTask({ text: t });
+      const task = await api.createTask({ text: t || '(imagen)', assigned_by: appStore.user?.user_name || null });
+      if (pastedImage) {
+        await api.uploadTaskImage(task.id, pastedImage, 'clipboard.webp');
+        pastedImage = null;
+        if (pastedImageUrl) { URL.revokeObjectURL(pastedImageUrl); pastedImageUrl = null; }
+      }
       await loadTasks();
     } catch {}
   }
@@ -37,6 +51,89 @@
       await api.deleteTask(id);
       await loadTasks();
     } catch {}
+  }
+
+  function triggerImageUpload(taskId: number) {
+    pendingUploadTaskId = taskId;
+    imageFileInput?.click();
+  }
+
+  async function handleFileSelected(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const file = target.files?.[0];
+    const taskId = pendingUploadTaskId;
+    pendingUploadTaskId = null;
+    if (!file || taskId === null) return;
+    try {
+      uploadingTaskId = taskId;
+      const buffer = await file.arrayBuffer();
+      const data = new Uint8Array(buffer);
+      await api.uploadTaskImage(taskId, data, file.name);
+      await loadTasks();
+    } catch (err) {
+      appStore.alert('Error al subir imagen: ' + (err as Error).message);
+    } finally {
+      uploadingTaskId = null;
+      target.value = '';
+    }
+  }
+
+  function openImagePreview(taskId: number, imageId: number) {
+    selectedImageUrl = api.getTaskImageViewUrl(taskId, imageId);
+  }
+
+  function closeImagePreview() {
+    selectedImageUrl = null;
+  }
+
+  async function removeTaskImage(taskId: number, imageId: number) {
+    try {
+      await api.deleteTaskImage(taskId, imageId);
+      await loadTasks();
+    } catch {}
+  }
+
+  function handleTaskPaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (!file) return;
+        if (pastedImageUrl) URL.revokeObjectURL(pastedImageUrl);
+        pastedImageUrl = URL.createObjectURL(file);
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const result = ev.target?.result;
+          if (result instanceof ArrayBuffer) {
+            pastedImage = new Uint8Array(result);
+          }
+        };
+        reader.readAsArrayBuffer(file);
+        break;
+      }
+    }
+  }
+
+  async function loadTrash() {
+    loadingTrash = true;
+    try { trashTasks = await api.listTaskTrash(); } catch { trashTasks = []; }
+    finally { loadingTrash = false; }
+  }
+
+  async function restoreTaskFromTrash(id: number) {
+    try {
+      await api.restoreTask(id);
+      await loadTrash();
+      await loadTasks();
+      appStore.showToast('Tarea restaurada', 'success');
+    } catch {}
+  }
+
+  function toggleTaskTrash() {
+    showTaskTrash = !showTaskTrash;
+    if (showTaskTrash) loadTrash();
   }
 
   // ── Entregas pendientes ──
@@ -518,9 +615,52 @@
           <svg class="card-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
           <span class="card-title">LISTA DE TAREAS</span>
         </div>
-        <span class="card-badge">{taskDone}/{taskCount} · {taskPct}%</span>
+        <div class="card-header-actions">
+          <button class="card-trash-btn" onclick={toggleTaskTrash} aria-label="Papelera de tareas">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+          </button>
+          {#if !showTaskTrash}
+            <span class="card-badge">{taskDone}/{taskCount} · {taskPct}%</span>
+          {:else}
+            <button class="card-back-btn" onclick={toggleTaskTrash} aria-label="Volver">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+          {/if}
+        </div>
       </div>
-      <div class="task-list">
+      {#if showTaskTrash}
+        <div class="task-list">
+          {#if loadingTrash}
+            <div class="task-empty">Cargando...</div>
+          {:else if trashTasks.length === 0}
+            <div class="task-empty">La papelera está vacía</div>
+          {:else}
+            {#each trashTasks as task (task.id)}
+              <div class="task-item" class:done={task.done}>
+                <div class="task-content">
+                  <span class="task-text">{task.text}</span>
+                  {#if task.assigned_by}
+                    <span class="task-assigned-by">{task.assigned_by}</span>
+                  {/if}
+                  {#if task.images?.length}
+                    <div class="task-thumbs">
+                      {#each task.images as img}
+                        <button class="task-thumb" onclick={() => openImagePreview(task.id, img.id)} aria-label="Ver imagen">
+                          <img src={api.getTaskImageViewUrl(task.id, img.id)} alt="" loading="lazy" />
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+                <button class="task-restore-btn" onclick={() => restoreTaskFromTrash(task.id)} aria-label="Restaurar tarea">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+                </button>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      {:else}
+        <div class="task-list">
         {#each tasks as task (task.id)}
           <div class="task-item" class:done={task.done}>
             <button class="task-check" onclick={() => toggleTask(task.id)} aria-label="Marcar tarea">
@@ -530,7 +670,29 @@
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
               {/if}
             </button>
-            <span class="task-text">{task.text}</span>
+            <div class="task-content">
+              <span class="task-text">{task.text}</span>
+              {#if task.assigned_by}
+                <span class="task-assigned-by">{task.assigned_by}</span>
+              {/if}
+              {#if task.images?.length}
+                <div class="task-thumbs">
+                  {#each task.images as img}
+                    <button class="task-thumb" onclick={() => openImagePreview(task.id, img.id)} aria-label="Ver imagen">
+                      <img src={api.getTaskImageViewUrl(task.id, img.id)} alt="" loading="lazy" />
+                      <span class="thumb-remove" onclick={(e) => { e.stopPropagation(); removeTaskImage(task.id, img.id); }} role="button" aria-label="Eliminar imagen">✕</span>
+                    </button>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+            <button class="task-image-add" onclick={() => triggerImageUpload(task.id)} aria-label="Agregar imagen">
+              {#if uploadingTaskId === task.id}
+                <span class="task-upload-spinner" />
+              {:else}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              {/if}
+            </button>
             <button class="task-remove" onclick={() => removeTask(task.id)} aria-label="Eliminar tarea">✕</button>
           </div>
         {/each}
@@ -538,14 +700,31 @@
           <div class="task-empty">Sin tareas pendientes</div>
         {/if}
       </div>
-      <div class="task-input-row">
-        <input class="task-input" type="text" placeholder="Nueva tarea..." bind:value={newTaskText}
-          onkeydown={(e) => { if (e.key === 'Enter') addTask(); }} />
+    {/if}
+    {#if pastedImageUrl}
+      <div class="pasted-preview">
+        <img src={pastedImageUrl} alt="Imagen pegada" />
+        <button class="pasted-remove" onclick={() => { pastedImage = null; if (pastedImageUrl) { URL.revokeObjectURL(pastedImageUrl); pastedImageUrl = null; } }} aria-label="Quitar imagen">✕</button>
+      </div>
+    {/if}
+    <div class="task-input-row">
+      <input class="task-input" type="text" placeholder="Nueva tarea..." bind:value={newTaskText}
+        onkeydown={(e) => { if (e.key === 'Enter') addTask(); }} onpaste={handleTaskPaste} />
         <button class="task-add-btn" onclick={addTask} aria-label="Agregar tarea">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         </button>
       </div>
     </div>
+
+    <input type="file" accept="image/png,image/jpeg,image/webp" bind:this={imageFileInput}
+      onchange={handleFileSelected} class="task-file-input" />
+
+    {#if selectedImageUrl}
+      <div class="image-preview-overlay" onclick={closeImagePreview} role="dialog" aria-label="Vista previa de imagen">
+        <img src={selectedImageUrl} class="image-preview-full" alt="" />
+        <button class="image-preview-close" onclick={closeImagePreview} aria-label="Cerrar">✕</button>
+      </div>
+    {/if}
 
     <!-- ENTREGAS PENDIENTES -->
     <div class="card card-entregas">
@@ -738,7 +917,7 @@
 
 <!-- Notes Modal -->
 {#if showNotesModal}
-  <div class="modal-overlay" onclick={closeNotes} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal modal-notes" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && closeNotes()}>
       <div class="notes-modal-header">
         <h3>Notas</h3>
@@ -812,7 +991,7 @@
 
 <!-- Kanban Viajes -->
 {#if showKanbanViajes}
-  <div class="kanban-overlay" onclick={() => showKanbanViajes = false} role="presentation">
+  <div class="kanban-overlay" role="presentation">
     <div class="kanban-modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showKanbanViajes = false)}>
       <div class="kanban-modal-header">
         <div class="kanban-modal-title">
@@ -1000,6 +1179,37 @@
     padding: 0.143rem 0.429rem;
     border-radius: 1rem;
   }
+  .card-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.286rem;
+  }
+  .card-trash-btn, .card-back-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted, #9ca3af);
+    cursor: pointer;
+    padding: 0.143rem;
+    border-radius: 0.214rem;
+    display: flex;
+    align-items: center;
+    transition: color 0.12s, background 0.12s;
+  }
+  .card-trash-btn:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
+  .card-back-btn:hover { color: var(--text-primary, #111827); background: var(--bg-hover, #f3f4f6); }
+  .task-restore-btn {
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted, #9ca3af);
+    cursor: pointer;
+    padding: 0.143rem 0.286rem;
+    border-radius: 0.214rem;
+    font-size: 0.714rem;
+    transition: color 0.12s, background 0.12s;
+  }
+  .task-restore-btn:hover { color: #3b82f6; background: rgba(59,130,246,0.08); }
 
   /* ── TAREAS ── */
   .task-list {
@@ -1027,11 +1237,120 @@
     align-items: center;
   }
   .task-text {
-    flex: 1;
     font-size: 0.857rem;
     color: var(--text-primary, #111827);
     min-width: 0;
   }
+  .task-assigned-by {
+    font-size: 0.714rem;
+    color: var(--text-muted, #9ca3af);
+  }
+  .task-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.286rem;
+  }
+  .task-thumbs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.286rem;
+  }
+  .task-thumb {
+    position: relative;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.286rem;
+    overflow: hidden;
+    border: 1px solid var(--border, #e5e7eb);
+    cursor: pointer;
+    padding: 0;
+    background: none;
+    flex-shrink: 0;
+  }
+  .task-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .thumb-remove {
+    position: absolute;
+    top: -0.214rem;
+    right: -0.214rem;
+    width: 0.857rem;
+    height: 0.857rem;
+    border-radius: 50%;
+    background: #ef4444;
+    color: white;
+    border: none;
+    font-size: 0.5rem;
+    line-height: 0.857rem;
+    text-align: center;
+    display: none;
+    cursor: pointer;
+    padding: 0;
+  }
+  .task-thumb:hover .thumb-remove { display: block; }
+  .task-image-add {
+    flex-shrink: 0;
+    background: none;
+    border: 1px dashed var(--border, #e5e7eb);
+    border-radius: 0.286rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted, #9ca3af);
+    opacity: 0;
+    transition: opacity 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .task-item:hover .task-image-add { opacity: 1; }
+  .task-image-add:hover { border-color: #3b82f6; color: #3b82f6; }
+  .task-upload-spinner {
+    width: 0.714rem;
+    height: 0.714rem;
+    border: 1.5px solid var(--border, #e5e7eb);
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: task-spin 0.6s linear infinite;
+  }
+  @keyframes task-spin { to { transform: rotate(360deg); } }
+  .task-file-input { display: none; }
+  .pasted-preview {
+    position: relative;
+    display: flex;
+    padding: 0 0.857rem 0.286rem;
+  }
+  .pasted-preview img {
+    width: 3rem;
+    height: 3rem;
+    object-fit: cover;
+    border-radius: 0.286rem;
+    border: 1px solid var(--border, #e5e7eb);
+  }
+  .pasted-remove {
+    position: absolute;
+    top: -0.286rem;
+    left: 2.714rem;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background: #ef4444;
+    color: white;
+    border: none;
+    font-size: 0.571rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    transition: background 0.12s;
+  }
+  .pasted-remove:hover { background: #dc2626; }
   .task-remove {
     flex-shrink: 0;
     background: none;
@@ -1084,6 +1403,40 @@
     transition: background 0.12s;
   }
   .task-add-btn:hover { background: #16a34a; }
+
+  .image-preview-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .image-preview-full {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border-radius: 0.357rem;
+  }
+  .image-preview-close {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.15);
+    color: white;
+    border: none;
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.12s;
+  }
+  .image-preview-close:hover { background: rgba(255,255,255,0.3); }
 
   /* ── ENTREGAS ── */
   .entregas-header {

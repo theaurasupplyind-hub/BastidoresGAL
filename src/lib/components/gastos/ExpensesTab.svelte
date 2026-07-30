@@ -219,9 +219,12 @@
 </div>
 
 {#if editingExpense}
-  <div class="modal-overlay" onclick={cancelEdit} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal" bind:this={editRef} onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-      <h3>Editar gasto</h3>
+      <div class="modal-header">
+        <h3>Editar gasto</h3>
+        <button class="modal-close" onclick={cancelEdit} aria-label="Cerrar">✕</button>
+      </div>
       <label class="modal-field">
         <span>Descripción</span>
         <input type="text" bind:value={editForm.description} />
@@ -385,11 +388,10 @@
     min-width: 360px;
     box-shadow: 0 8px 30px rgba(0,0,0,0.2);
   }
-  .modal h3 {
-    margin: 0 0 1rem;
-    font-size: 1.1rem;
-    color: var(--text-primary);
-  }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
+  .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .modal-field {
     display: flex;
     flex-direction: column;

@@ -379,8 +379,7 @@
 </div>
 
 {#if showEditor}
-  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-  <div class="modal-overlay" onclick={() => showEditor = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <!-- svelte-ignore a11y_click_events_have_key_events -->
     <div class="modal att-editor" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1">
       <div class="att-editor-header">
@@ -393,6 +392,7 @@
           {/if}
         </div>
         <span class="att-editor-date">{editorDate.slice(8, 10)}/{editorDate.slice(5, 7)}/{editorDate.slice(0, 4)}</span>
+        <button class="modal-close" onclick={() => showEditor = false} aria-label="Cerrar">✕</button>
       </div>
       <div class="att-editor-body">
         <div class="att-editor-statuses">
@@ -506,6 +506,8 @@
   .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.3); display: flex; align-items: center; justify-content: center; z-index: 100; }
   .modal.att-editor { background: var(--bg-card); border-radius: 0.6rem; padding: 1rem 1.2rem; width: 18rem; box-shadow: 0 0.5rem 2rem rgba(0,0,0,0.2); }
   .att-editor-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.8rem; }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; margin-left: 0.3rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .att-editor-emp-info { display: flex; flex-direction: column; gap: 0.15rem; }
   .att-editor-emp { font-size: 1rem; font-weight: 600; }
   .att-editor-sched { font-size: 0.7rem; color: var(--text-muted); }

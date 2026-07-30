@@ -225,8 +225,9 @@
             <label class="mapa-bar-label" for="mapa-fecha-input">Fecha</label>
             <input id="mapa-fecha-input" type="date" bind:value={mapaStore.fecha} class="mapa-bar-fecha" />
             <div class="mapa-bar-filter">
-              <button class="mapa-filter-btn" class:mapa-filter-activo={!mapaStore.filtroPendientes} onclick={() => mapaStore.filtroPendientes = false}>Todos</button>
-              <button class="mapa-filter-btn" class:mapa-filter-activo={mapaStore.filtroPendientes} onclick={() => mapaStore.filtroPendientes = true}>Pendientes</button>
+              <button class="mapa-filter-btn" class:mapa-filter-activo={!mapaStore.filtroPendientes && mapaStore.filtroRecencia === 0} onclick={() => { mapaStore.filtroPendientes = false; mapaStore.filtroRecencia = 0; }}>Todos</button>
+              <button class="mapa-filter-btn" class:mapa-filter-activo={mapaStore.filtroPendientes} onclick={() => { mapaStore.filtroPendientes = true; mapaStore.filtroRecencia = 0; }}>Pendientes</button>
+              <button class="mapa-filter-btn" class:mapa-filter-activo={!mapaStore.filtroPendientes && mapaStore.filtroRecencia === 2} onclick={() => { mapaStore.filtroPendientes = false; mapaStore.filtroRecencia = mapaStore.filtroRecencia === 2 ? 0 : 2; }}>2 meses</button>
             </div>
           </div>
           <div class="mapa-bar-center">
@@ -239,6 +240,90 @@
                 className="mapa-bar-buscar"
                 placeholder="Buscar cliente..."
               />
+            </div>
+            <div class="mapa-bar-actions">
+              <div class="algo-panel" class:algo-abierto={mapaStore.algoMostrarPanel}>
+                <div class="algo-header" onclick={() => mapaStore.algoMostrarPanel = !mapaStore.algoMostrarPanel} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && (mapaStore.algoMostrarPanel = !mapaStore.algoMostrarPanel)}>
+                  <span>🧠 Algoritmo</span>
+                  <div class="algo-header-right">
+                    <button class="algo-regenerar" onclick={(e) => { e.stopPropagation(); mapaRef?.regenerarPlan?.(); }} disabled={!mapaStore.modoProgramar}>
+                      🔄
+                    </button>
+                    <span class="algo-chevron">{mapaStore.algoMostrarPanel ? '▲' : '▼'}</span>
+                  </div>
+                </div>
+                {#if mapaStore.algoMostrarPanel}
+                  <div class="algo-body">
+                    <div class="algo-field">
+                      <label for="algo-min">Mínimo clientes</label>
+                      <input id="algo-min" type="range" bind:value={mapaStore.algoMinPorGrupo} min="1" max="10" step="1" />
+                      <span class="algo-val">{mapaStore.algoMinPorGrupo}</span>
+                    </div>
+                    <div class="algo-field">
+                      <label for="algo-max">Máximo clientes</label>
+                      <input id="algo-max" type="range" bind:value={mapaStore.algoMaxPorGrupo} min="0" max="30" step="1" />
+                      <span class="algo-val">{mapaStore.algoMaxPorGrupo || '∞'}</span>
+                    </div>
+                    <div class="algo-field">
+                      <label for="algo-eps">Radio (km)</label>
+                      <input id="algo-eps" type="range" bind:value={mapaStore.algoEpsKm} min="0.5" max="15" step="0.5" />
+                      <span class="algo-val">{mapaStore.algoEpsKm} km</span>
+                    </div>
+                    <p class="algo-hint">Agrupa por coordenadas reales. Radio: tan lejos como busca vecinos. Mín: fusiona grupos chicos. Máx: parte grupos grandes (0 = sin límite).</p>
+                  </div>
+                {/if}
+              </div>
+
+              <div class="algo-panel" class:algo-abierto={mapaStore.mostrarCercanos}>
+                <div class="algo-header" onclick={() => mapaStore.mostrarCercanos = !mapaStore.mostrarCercanos} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && (mapaStore.mostrarCercanos = !mapaStore.mostrarCercanos)}>
+                  <span>📡 Clientes cercanos</span>
+                  <div class="algo-header-right">
+                    <button class="algo-regenerar" onclick={(e) => { e.stopPropagation(); mapaRef?.generarReporteCercanos?.(); }} disabled={mapaStore.cargandoCercanos}>
+                      {mapaStore.cargandoCercanos ? '⏳' : '🔍'}
+                    </button>
+                    <span class="algo-chevron">{mapaStore.mostrarCercanos ? '▲' : '▼'}</span>
+                  </div>
+                </div>
+                {#if mapaStore.mostrarCercanos}
+                  <div class="algo-body">
+                    {#if mapaStore.reporteCercanos.size === 0}
+                      {#if mapaStore.cargandoCercanos}
+                        <p class="algo-hint">Buscando clientes cercanos...</p>
+                      {:else}
+                        <p class="algo-hint">Presioná 🔍 para buscar clientes sin pedido a menos de 4 km de cada factura.</p>
+                      {/if}
+                    {:else}
+                      <p class="algo-hint">{mapaStore.reporteCercanos.size} factura(s) con clientes cercanos encontrados.</p>
+                      {#each [...mapaStore.reporteCercanos.entries()] as [facturaId, item]}
+                        <details class="cc-factura">
+                          <summary class="cc-summary">
+                            <span class="cc-factura-num">{item.factura.numero_factura}</span>
+                            <span class="cc-factura-cliente">{item.factura.cliente_nombre}</span>
+                            <span class="cc-count">{item.cercanos.length}</span>
+                          </summary>
+                          <div class="cc-cercanos">
+                            {#each item.cercanos as cercano}
+                              <div class="cc-cliente">
+                                <div class="cc-cliente-info">
+                                  <span class="cc-cliente-nombre">{cercano.cliente.nombre}</span>
+                                  <span class="cc-cliente-dist">{cercano.distanciaKm} km</span>
+                                  <span class="cc-cliente-dir">{cercano.cliente.domicilio || ''}</span>
+                                  {#if cercano.cliente.telefono}
+                                    <button class="cc-cliente-tel" onclick={() => { navigator.clipboard.writeText(cercano.cliente.telefono); }} title="Copiar teléfono: {cercano.cliente.telefono}">
+                                      📋 {cercano.cliente.telefono}
+                                    </button>
+                                  {/if}
+                                </div>
+                                <button class="cc-cliente-ver" onclick={() => mapaRef?.centrarEnCoords?.(cercano.coords.lat, cercano.coords.lng)} title="Ver en mapa">👁</button>
+                              </div>
+                            {/each}
+                          </div>
+                        </details>
+                      {/each}
+                    {/if}
+                  </div>
+                {/if}
+              </div>
             </div>
           </div>
           <div class="mapa-bar-right">
@@ -257,12 +342,6 @@
               <span class="mapa-bar-origen-text">{mapaStore.origenDireccion}</span>
               <button class="mapa-bar-btn-edit" onclick={() => mapaStore.editandoOrigen = true}>✏️</button>
               <button class="mapa-bar-btn-wa" onclick={() => mapaRef?.copiarRutaAlPortapapeles()} title="Copiar link de la ruta">📋</button>
-              <button
-                class="mapa-bar-btn-viajes"
-                class:activo={mapaStore.modoProgramar}
-                onclick={() => mapaStore.modoProgramar = !mapaStore.modoProgramar}
-                title="Programar Viajes"
-              >📦 Viajes</button>
             {/if}
           </div>
         </div>
@@ -436,6 +515,8 @@
     flex: 1;
     display: flex;
     justify-content: center;
+    align-items: center;
+    gap: 8px;
   }
   .search-wrap {
     position: relative;
@@ -650,4 +731,158 @@
 
   .tab-contents { display: contents; }
   .tab-oculto { display: none !important; }
+
+  .algo-panel {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    min-width: 140px;
+    position: relative;
+  }
+  .algo-panel:not(.algo-abierto) {
+    overflow: hidden;
+  }
+  .algo-panel.algo-abierto {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    min-width: 260px;
+    z-index: 1000;
+    background: var(--bg-card);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    margin-top: 4px;
+  }
+  .mapa-bar-actions {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    position: relative;
+  }
+  .algo-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    background: var(--bg-card);
+    user-select: none;
+    white-space: nowrap;
+    gap: 4px;
+  }
+  .algo-header:hover { background: var(--bg-hover); }
+  .algo-header-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .algo-chevron { font-size: 10px; color: #9ca3af; }
+  .algo-body {
+    padding: 10px 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .algo-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .algo-field label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    flex: 1;
+  }
+  .algo-field input[type="range"] {
+    flex: 0 0 80px;
+    height: 4px;
+    accent-color: #2563eb;
+  }
+  .algo-val {
+    font-size: 13px;
+    font-weight: 700;
+    color: #2563eb;
+    min-width: 20px;
+    text-align: center;
+  }
+  .algo-hint {
+    font-size: 11px;
+    color: #9ca3af;
+    margin: 0;
+    line-height: 1.4;
+  }
+  .algo-regenerar {
+    padding: 4px 8px;
+    background: #2563eb;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: background 0.15s;
+    line-height: 1;
+  }
+  .algo-regenerar:hover { background: #1d4ed8; }
+  .algo-regenerar:disabled { opacity: 0.4; cursor: not-allowed; background: #93c5fd; }
+
+  /* ── Clientes cercanos ── */
+  .cc-factura {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .cc-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    cursor: pointer;
+    background: var(--bg-card);
+    user-select: none;
+  }
+  .cc-summary:hover { background: var(--bg-hover); }
+  .cc-factura-num { font-weight: 600; color: var(--text-primary); }
+  .cc-factura-cliente { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cc-count { font-size: 10px; background: #2563eb; color: white; padding: 1px 6px; border-radius: 10px; font-weight: 700; flex-shrink: 0; }
+  .cc-cercanos { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
+  .cc-cliente {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    border-bottom: 1px solid #f3f4f6;
+  }
+  .cc-cliente:last-child { border-bottom: none; }
+  .cc-cliente-info { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+  .cc-cliente-nombre { font-weight: 500; color: var(--text-primary); }
+  .cc-cliente-dist { font-size: 10px; color: #2563eb; font-weight: 600; }
+  .cc-cliente-dir { font-size: 10px; color: #9ca3af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cc-cliente-tel {
+    font-size: 10px;
+    background: none;
+    border: none;
+    color: #059669;
+    cursor: pointer;
+    padding: 1px 0;
+    text-align: left;
+    font-family: var(--font);
+  }
+  .cc-cliente-tel:hover { color: #047857; text-decoration: underline; }
+  .cc-cliente-ver {
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: var(--bg-hover);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+  }
+  .cc-cliente-ver:hover { background: #dbeafe; }
 </style>

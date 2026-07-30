@@ -1,15 +1,6 @@
-type Zona = 'norte' | 'centro-norte' | 'centro' | 'oeste' | 'sur' | 'norte-gba' | 'oeste-gba' | 'sur-gba';
+import { dbscan } from '$lib/utils/geo';
 
-const ZONAS_PROXIMAS: Record<Zona, Zona[]> = {
-  'norte': ['centro-norte', 'norte-gba'],
-  'centro-norte': ['norte', 'centro', 'oeste'],
-  'centro': ['centro-norte', 'sur', 'oeste'],
-  'oeste': ['centro-norte', 'centro', 'oeste-gba', 'sur'],
-  'sur': ['centro', 'oeste', 'sur-gba'],
-  'norte-gba': ['norte'],
-  'oeste-gba': ['oeste'],
-  'sur-gba': ['sur'],
-};
+type Zona = 'norte' | 'centro-norte' | 'centro' | 'oeste' | 'sur' | 'norte-gba' | 'oeste-gba' | 'sur-gba';
 
 const BARRIO_ZONA: Record<string, Zona> = {
   // === CABA Norte ===
@@ -161,6 +152,17 @@ const BARRIO_ZONA: Record<string, Zona> = {
   'Cañuelas': 'sur-gba',
 };
 
+const ZONA_NOMBRES: Record<Zona, string> = {
+  'norte': 'Norte',
+  'centro-norte': 'Palermo',
+  'centro': 'Centro',
+  'oeste': 'Oeste',
+  'sur': 'Sur',
+  'norte-gba': 'GBA Norte',
+  'oeste-gba': 'GBA Oeste',
+  'sur-gba': 'GBA Sur',
+};
+
 const BARRIOS_ORDERED = Object.keys(BARRIO_ZONA).sort((a, b) => b.length - a.length);
 
 export function extraerBarrio(domicilio: string): string | null {
@@ -174,73 +176,117 @@ export function extraerBarrio(domicilio: string): string | null {
   return null;
 }
 
-export function estanCerca(barrio1: string, barrio2: string): boolean {
-  const z1 = BARRIO_ZONA[barrio1];
-  const z2 = BARRIO_ZONA[barrio2];
-  if (!z1 || !z2) return false;
-  if (z1 === z2) return true;
-  return ZONAS_PROXIMAS[z1]?.includes(z2) || ZONAS_PROXIMAS[z2]?.includes(z1);
-}
-
 export interface GrupoRuta {
   barrios: string[];
   totalClientes: number;
   clientesIds: number[];
+  nombreZona?: string;
 }
 
-export function recomendarRutas(
-  clientes: { id: number; domicilio: string }[]
-): GrupoRuta[] {
-  const barrioCount: Record<string, number[]> = {};
+type GrupoInterno = { barrios: string[]; clientesIds: number[]; zona: Zona | null };
 
-  for (const c of clientes) {
-    const barrio = extraerBarrio(c.domicilio);
-    if (barrio) {
-      if (!barrioCount[barrio]) barrioCount[barrio] = [];
-      barrioCount[barrio].push(c.id);
+export function recomendarRutas(
+  clientes: { id: number; domicilio?: string; lat?: number; lng?: number }[],
+  minPorGrupo = 2,
+  maxPorGrupo = 0,
+  epsKm = 4
+): GrupoRuta[] {
+  if (clientes.length === 0) return [];
+
+  const conCoord = clientes.filter(c => c.lat != null && c.lng != null);
+  const sinCoord = clientes.filter(c => c.lat == null || c.lng == null);
+
+  const grupos: GrupoInterno[] = [];
+
+  // --- DBSCAN for clients with coordinates ---
+  if (conCoord.length > 0) {
+    const points = conCoord.map(c => ({ lat: c.lat!, lng: c.lng! }));
+    const labels = dbscan(points, epsKm, 2);
+
+    const clusterMap = new Map<number, number[]>();
+    for (let i = 0; i < labels.length; i++) {
+      if (!clusterMap.has(labels[i])) clusterMap.set(labels[i], []);
+      clusterMap.get(labels[i])!.push(i);
+    }
+
+    for (const [label, indices] of clusterMap) {
+      const ids = indices.map(i => conCoord[i].id);
+      if (label === -2) {
+        grupos.push({ barrios: [], clientesIds: ids, zona: null });
+        continue;
+      }
+      const barrioCounts = new Map<string, number>();
+      for (const idx of indices) {
+        const barrio = extraerBarrio(conCoord[idx].domicilio || '');
+        if (barrio) barrioCounts.set(barrio, (barrioCounts.get(barrio) || 0) + 1);
+      }
+      let zona: Zona | null = null;
+      let maxCount = 0;
+      for (const [barrio, count] of barrioCounts) {
+        if (count > maxCount) { maxCount = count; zona = BARRIO_ZONA[barrio] || null; }
+      }
+      grupos.push({ barrios: Array.from(barrioCounts.keys()), clientesIds: ids, zona });
     }
   }
 
-  const barrios = Object.keys(barrioCount);
-  const grupos: { barrios: string[]; clientesIds: number[]; zona: Zona }[] = [];
-  const asignado = new Set<string>();
-
-  for (const barrio of barrios) {
-    if (asignado.has(barrio)) continue;
-    const zona = BARRIO_ZONA[barrio];
-    if (!zona) continue;
-
-    const cercanos = [barrio];
-    const ids = new Set(barrioCount[barrio]);
-    asignado.add(barrio);
-
-    const zonasProximas = new Set([zona, ...(ZONAS_PROXIMAS[zona] || [])]);
-
-    for (const otro of barrios) {
-      if (cercanos.length >= 3) break;
-      if (asignado.has(otro)) continue;
-      if (otro === barrio) continue;
-
-      const otraZona = BARRIO_ZONA[otro];
-      if (otraZona && zonasProximas.has(otraZona)) {
-        cercanos.push(otro);
-        asignado.add(otro);
-        for (const id of barrioCount[otro]) ids.add(id);
+  // --- Fallback: barrio-based for clients w/o coordinates ---
+  if (sinCoord.length > 0) {
+    const zonaClientes: Record<string, { ids: number[]; barrios: Set<string> }> = {};
+    for (const c of sinCoord) {
+      const barrio = extraerBarrio(c.domicilio || '');
+      if (barrio) {
+        const zona = BARRIO_ZONA[barrio];
+        if (zona) {
+          if (!zonaClientes[zona]) zonaClientes[zona] = { ids: [], barrios: new Set() };
+          zonaClientes[zona].ids.push(c.id);
+          zonaClientes[zona].barrios.add(barrio);
+          continue;
+        }
+      }
+      const general = grupos.find(g => g.zona === null && g.barrios.length === 0);
+      if (general) { general.clientesIds.push(c.id); }
+      else { grupos.push({ barrios: [], clientesIds: [c.id], zona: null }); }
+    }
+    const ordenZonas: Zona[] = ['norte', 'centro-norte', 'centro', 'oeste', 'sur', 'norte-gba', 'oeste-gba', 'sur-gba'];
+    for (const zona of ordenZonas) {
+      if (zonaClientes[zona]) {
+        const zc = zonaClientes[zona];
+        grupos.push({ barrios: Array.from(zc.barrios), clientesIds: zc.ids, zona });
       }
     }
-
-    grupos.push({
-      barrios: cercanos,
-      clientesIds: Array.from(ids),
-      zona,
-    });
   }
 
-  grupos.sort((a, b) => b.clientesIds.length - a.clientesIds.length);
+  // --- Split large groups ---
+  let expandidos: GrupoInterno[] = [];
+  for (const g of grupos) {
+    if (maxPorGrupo > 0 && g.clientesIds.length > maxPorGrupo) {
+      for (let i = 0; i < g.clientesIds.length; i += maxPorGrupo) {
+        expandidos.push({ barrios: g.barrios, clientesIds: g.clientesIds.slice(i, i + maxPorGrupo), zona: g.zona });
+      }
+    } else {
+      expandidos.push(g);
+    }
+  }
 
-  return grupos.map(g => ({
+  // --- Merge small groups ---
+  const finales: GrupoInterno[] = [];
+  for (const g of expandidos) {
+    if (g.clientesIds.length >= minPorGrupo) {
+      finales.push(g);
+    } else if (finales.length > 0) {
+      const prev = finales[finales.length - 1];
+      prev.barrios = [...new Set([...prev.barrios, ...g.barrios])];
+      prev.clientesIds = [...prev.clientesIds, ...g.clientesIds];
+      if (prev.zona === null) prev.zona = g.zona;
+    } else {
+      finales.push(g);
+    }
+  }
+
+  return finales.map(g => ({
     barrios: g.barrios,
     totalClientes: g.clientesIds.length,
     clientesIds: g.clientesIds,
+    nombreZona: g.zona ? ZONA_NOMBRES[g.zona] : (g.barrios.length > 0 ? g.barrios[0] : 'General'),
   }));
 }

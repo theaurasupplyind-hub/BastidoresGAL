@@ -1,8 +1,12 @@
 <script lang="ts">
+  import { formatearDireccionNominatim } from '$lib/utils/geocoding';
+
   interface Suggestion {
     label: string;
     lat: number;
     lng: number;
+    display_name: string;
+    address?: Record<string, string>;
   }
 
   let { value = '', placeholder = '', className = '', onchange, onselect }: {
@@ -39,14 +43,16 @@
     loading = true;
     try {
       const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ', Buenos Aires, Argentina')}&format=json&limit=5&countrycodes=ar`,
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ', Buenos Aires, Argentina')}&format=json&limit=5&countrycodes=ar&addressdetails=1`,
         { headers: { 'User-Agent': 'BastidoresGal/1.0' } }
       );
       const data = await res.json();
       suggestions = (data || []).map((r: any) => ({
-        label: r.display_name,
+        label: formatearDireccionNominatim(r),
         lat: parseFloat(r.lat),
         lng: parseFloat(r.lon),
+        display_name: r.display_name,
+        address: r.address,
       }));
       open = suggestions.length > 0 && value.length >= 2;
       selectedIndex = -1;

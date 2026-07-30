@@ -206,7 +206,7 @@
 {/snippet}
 
 {#if show}
-  <div class="modal-overlay" onclick={onClose} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal modal-reorder" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={handleKeydown}>
       <div class="reorder-header">
         <h3>Vista previa — {cards.length} moldura(s)</h3>

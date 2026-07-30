@@ -97,12 +97,19 @@ fn get_css(style: InvoiceStyle) -> String {
     filter: grayscale(100%);
     -webkit-filter: grayscale(100%);
 }
+.invoice-half.full-page { flex: none; height: auto; overflow: visible; }
 "#;
 
-    format!("{}{}{}", css, page_css, grayscale_css)
+    let totals_css = r#"
+.totals-stack { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
+.subtotal-line { font-size:13px; color:#888; font-weight:600; white-space:nowrap; }
+.grandtotal-line { font-size:22px; font-weight:900; color:#222; white-space:nowrap; }
+"#;
+
+    format!("{}{}{}{}", css, page_css, grayscale_css, totals_css)
 }
 
-fn build_one_half(data: &InvoiceData, style: InvoiceStyle) -> String {
+fn build_one_half(data: &InvoiceData, style: InvoiceStyle, items_subset: &[InvoiceItem], page_subtotal: f64) -> String {
     let title = if data.is_presupuesto { "PRESUPUESTO" } else { "FACTURA" };
 
     let parts: Vec<&str> = data.fecha.split('/').collect();
@@ -120,22 +127,46 @@ fn build_one_half(data: &InvoiceData, style: InvoiceStyle) -> String {
         format!("{:.0}", data.envio)
     };
 
-    let total_text = format!("{:.0}", data.total);
+    let grand_total = format!("{:.0}", data.total);
+    let page_total = format!("{:.0}", page_subtotal);
     let is_pagado = data.saldo <= 0.01;
     let sin_pago = !is_pagado && data.saldo >= data.total - 0.01;
 
-    let saldo_display = if is_pagado {
-        r#"<span class="saldo-value pagado">✓ Pagado</span>"#.to_string()
-    } else if sin_pago {
-        format!(r#"<span class="total-large">Total: {}</span>"#, total_text)
+    let show_detailed = data.is_presupuesto && items_subset.len() < data.items.len();
+
+    let saldo_display = if show_detailed {
+        // Formato detallado para presupuestos multi-página
+        if is_pagado {
+            format!(
+                r#"<div class="totals-stack"><span class="subtotal-line">Subtotal hoja: ${}</span><span class="grandtotal-line">Total gral: ${}</span><span class="saldo-value pagado">✓ Pagado</span></div>"#,
+                page_total, grand_total
+            )
+        } else if sin_pago {
+            format!(
+                r#"<div class="totals-stack"><span class="subtotal-line">Subtotal hoja: ${}</span><span class="grandtotal-line">Total gral: ${}</span></div>"#,
+                page_total, grand_total
+            )
+        } else {
+            format!(
+                r#"<div class="totals-stack"><span class="subtotal-line">Subtotal hoja: ${}</span><span class="grandtotal-line">Total gral: ${}</span><span class="saldo-value debe">Saldo: {:.0}</span></div>"#,
+                page_total, grand_total, data.saldo
+            )
+        }
     } else {
-        format!(
-            r#"<span class="total-small">Total: {}</span>        <span class="saldo-value debe">{:.0}</span>"#,
-            total_text, data.saldo
-        )
+        // Formato original para facturas y presupuestos de 1 página
+        if is_pagado {
+            r#"<span class="saldo-value pagado">✓ Pagado</span>"#.to_string()
+        } else if sin_pago {
+            format!(r#"<span class="total-large">Total: ${}</span>"#, grand_total)
+        } else {
+            format!(
+                r#"<span class="total-small">Total: ${}</span>        <span class="saldo-value debe">{:.0}</span>"#,
+                grand_total, data.saldo
+            )
+        }
     };
 
-    let items_rows = build_items_rows(&data.items);
+    let items_rows = build_items_rows(items_subset);
 
     match style {
         InvoiceStyle::Original => build_original_half(
@@ -470,7 +501,63 @@ pub fn generate_invoice(
     _header_path: Option<&str>,
 ) -> Result<(), String> {
     let css = get_css(data.style);
-    let half = build_one_half(data, data.style);
+
+    let mut pages_html = String::new();
+
+    if data.is_presupuesto {
+        // Presupuesto: chunkear items en grupos de 7, siempre media hoja
+        let max_rows = 7;
+        let chunks: Vec<_> = data.items.chunks(max_rows).collect();
+        let chunks = if chunks.is_empty() { vec![&[] as &[InvoiceItem]] } else { chunks };
+
+        for (i, chunk) in chunks.iter().enumerate() {
+            let page_subtotal: f64 = chunk.iter().map(|i| i.total).sum();
+            let half = build_one_half(data, data.style, chunk, page_subtotal);
+
+            if i > 0 {
+                pages_html.push_str(r#"<div class="page-a4" style="page-break-before:always">"#);
+            } else {
+                pages_html.push_str(r#"<div class="page-a4">"#);
+            }
+            pages_html.push_str(&format!(
+                r#"
+<div class="invoice-half">{half}</div>
+<div class="cut-indicator"></div>
+<div class="invoice-half grayscale">{half}</div>
+</div>
+"#,
+                half = half,
+            ));
+        }
+    } else {
+        // Factura: comportamiento original
+        let half = build_one_half(data, data.style, &data.items, data.total);
+
+        if data.items.len() > 7 {
+            // Más de 7 items: cada copia ocupa una página completa
+            pages_html.push_str(&format!(
+                r#"<div class="page-a4">
+<div class="invoice-half full-page">{half}</div>
+</div>
+<div class="page-a4" style="page-break-before:always">
+<div class="invoice-half grayscale full-page">{half}</div>
+</div>
+"#,
+                half = half,
+            ));
+        } else {
+            // 7 o menos items: dos copias en media hoja
+            pages_html.push_str(&format!(
+                r#"<div class="page-a4">
+<div class="invoice-half">{half}</div>
+<div class="cut-indicator"></div>
+<div class="invoice-half grayscale">{half}</div>
+</div>
+"#,
+                half = half,
+            ));
+        }
+    }
 
     let full_html = format!(
         r#"<!DOCTYPE html>
@@ -480,15 +567,10 @@ pub fn generate_invoice(
 <style>{css}</style>
 </head>
 <body>
-<div class="page-a4">
-<div class="invoice-half">{half}</div>
-<div class="cut-indicator"></div>
-<div class="invoice-half grayscale">{half}</div>
-</div>
-</body>
+{pages}</body>
 </html>"#,
         css = css,
-        half = half,
+        pages = pages_html,
     );
 
     html_to_pdf(&full_html, output_path)
@@ -506,17 +588,84 @@ pub fn generate_invoices_batch(
     let css = get_css(style);
 
     let mut pages_html = String::new();
+    let mut is_first = true;
+
     for data in invoices {
-        let half = build_one_half(data, style);
-        pages_html.push_str(&format!(
-            r#"<div class="page-a4" style="page-break-after:always">
+        if data.is_presupuesto {
+            // Presupuesto: chunkear items en grupos de 7
+            let max_rows = 7;
+            let chunks: Vec<_> = data.items.chunks(max_rows).collect();
+            let chunks = if chunks.is_empty() { vec![&[] as &[InvoiceItem]] } else { chunks };
+
+            for chunk in chunks {
+                let page_subtotal: f64 = chunk.iter().map(|i| i.total).sum();
+                let half = build_one_half(data, style, chunk, page_subtotal);
+
+                if is_first {
+                    is_first = false;
+                    pages_html.push_str(r#"<div class="page-a4">"#);
+                } else {
+                    pages_html.push_str(r#"<div class="page-a4" style="page-break-before:always">"#);
+                }
+                pages_html.push_str(&format!(
+                    r#"
 <div class="invoice-half">{half}</div>
 <div class="cut-indicator"></div>
 <div class="invoice-half grayscale">{half}</div>
 </div>
 "#,
-            half = half,
-        ));
+                    half = half,
+                ));
+            }
+        } else {
+            // Factura: comportamiento original
+            let half = build_one_half(data, style, &data.items, data.total);
+
+            if data.items.len() > 7 {
+                if is_first {
+                    is_first = false;
+                    pages_html.push_str(&format!(
+                        r#"<div class="page-a4">
+<div class="invoice-half full-page">{half}</div>
+</div>
+"#,
+                        half = half,
+                    ));
+                } else {
+                    pages_html.push_str(&format!(
+                        r#"<div class="page-a4" style="page-break-before:always">
+<div class="invoice-half full-page">{half}</div>
+</div>
+"#,
+                        half = half,
+                    ));
+                }
+                // Segunda página: copia gris
+                pages_html.push_str(&format!(
+                    r#"<div class="page-a4" style="page-break-before:always">
+<div class="invoice-half grayscale full-page">{half}</div>
+</div>
+"#,
+                    half = half,
+                ));
+            } else {
+                if is_first {
+                    is_first = false;
+                    pages_html.push_str(r#"<div class="page-a4">"#);
+                } else {
+                    pages_html.push_str(r#"<div class="page-a4" style="page-break-before:always">"#);
+                }
+                pages_html.push_str(&format!(
+                    r#"
+<div class="invoice-half">{half}</div>
+<div class="cut-indicator"></div>
+<div class="invoice-half grayscale">{half}</div>
+</div>
+"#,
+                    half = half,
+                ));
+            }
+        }
     }
 
     let full_html = format!(

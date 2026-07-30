@@ -8,12 +8,23 @@ let _editandoOrigen = $state(false);
 let _geocodificandoOrigen = $state(false);
 let _pendientesCount = $state(0);
 let _filtroPendientes = $state(false);
+let _filtroRecencia = $state(0);
+let _planAutoGenerado = $state(false);
 let _busquedaCoords = $state<{ lat: number; lng: number } | null>(null);
 
 let _modoProgramar = $state(false);
 let _grupos = $state<Map<string, GrupoCliente>>(new Map());
 let _grupoActivoId = $state<string | null>(null);
 let _planViajeId = $state<string | null>(null);
+
+let _algoMinPorGrupo = $state(2);
+let _algoMaxPorGrupo = $state(0);
+let _algoEpsKm = $state(4);
+let _algoMostrarPanel = $state(false);
+
+let _mostrarCercanos = $state(false);
+let _cargandoCercanos = $state(false);
+let _reporteCercanos = $state<Map<number, { factura: any; cercanos: { cliente: any; distanciaKm: number; coords: { lat: number; lng: number } }[] }>>(new Map());
 
 let _geocodificarFn: (() => Promise<void>) | null = null;
 let _guardarFn: (() => Promise<void>) | null = null;
@@ -46,6 +57,12 @@ export const mapaStore = {
 	get filtroPendientes() { return _filtroPendientes; },
 	set filtroPendientes(v: boolean) { _filtroPendientes = v; },
 
+	get filtroRecencia() { return _filtroRecencia; },
+	set filtroRecencia(v: number) { _filtroRecencia = v; },
+
+	get planAutoGenerado() { return _planAutoGenerado; },
+	set planAutoGenerado(v: boolean) { _planAutoGenerado = v; },
+
 	get modoProgramar() { return _modoProgramar; },
 	set modoProgramar(v: boolean) { _modoProgramar = v; },
 
@@ -57,6 +74,27 @@ export const mapaStore = {
 
 	get planViajeId() { return _planViajeId; },
 	set planViajeId(v: string | null) { _planViajeId = v; },
+
+	get algoMinPorGrupo() { return _algoMinPorGrupo; },
+	set algoMinPorGrupo(v: number) { _algoMinPorGrupo = v; },
+
+	get algoMaxPorGrupo() { return _algoMaxPorGrupo; },
+	set algoMaxPorGrupo(v: number) { _algoMaxPorGrupo = v; },
+
+	get algoEpsKm() { return _algoEpsKm; },
+	set algoEpsKm(v: number) { _algoEpsKm = v; },
+
+	get algoMostrarPanel() { return _algoMostrarPanel; },
+	set algoMostrarPanel(v: boolean) { _algoMostrarPanel = v; },
+
+	get mostrarCercanos() { return _mostrarCercanos; },
+	set mostrarCercanos(v: boolean) { _mostrarCercanos = v; },
+
+	get cargandoCercanos() { return _cargandoCercanos; },
+	set cargandoCercanos(v: boolean) { _cargandoCercanos = v; },
+
+	get reporteCercanos() { return _reporteCercanos; },
+	set reporteCercanos(v: Map<number, { factura: any; cercanos: { cliente: any; distanciaKm: number; coords: { lat: number; lng: number } }[] }>) { _reporteCercanos = v; },
 
 	get geocodificarOrigen() { return _geocodificarFn; },
 	set geocodificarOrigen(fn: (() => Promise<void>) | null) { _geocodificarFn = fn; },

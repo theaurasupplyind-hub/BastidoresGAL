@@ -88,7 +88,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="overlay" onclick={() => appStore.showSettings = false} role="dialog">
+<div class="overlay" role="dialog">
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
     <div class="modal-header">

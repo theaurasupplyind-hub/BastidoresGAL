@@ -162,6 +162,9 @@
       }
       if (patches.length > 0) {
         await Promise.all(patches);
+        if ((card.tipo_entrega || '') !== editTipo && card.cliente_id) {
+          api.saveClientPreference(card.cliente_id, editTipo).catch(() => {});
+        }
         appStore.showToast('Cambios guardados', 'success');
         cacheStore.invalidate('facturas');
         cancelEdit();
@@ -1102,9 +1105,12 @@
 
   <!-- Items Modal -->
   {#if showItemsModal}
-    <div class="legend-overlay" onclick={closeItemsModal} role="presentation">
+    <div class="legend-overlay" role="presentation">
       <div class="legend-popover items-modal" onclick={(e) => e.stopPropagation()} role="dialog">
-        <h3>📦 {modalTitle}</h3>
+        <div class="modal-header">
+          <h3>📦 {modalTitle}</h3>
+          <button class="modal-close" onclick={closeItemsModal} aria-label="Cerrar">✕</button>
+        </div>
         <div class="items-list">
           {#each modalItems as item, i}
             <div class="items-row" class:checked={checkedItems.has(i)}>
@@ -1648,7 +1654,10 @@
     flex-direction: column;
     gap: 0.714rem;
   }
-  .legend-popover h3 { margin: 0; font-size: 1rem; color: var(--text-primary); }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; }
+  .modal-header h3 { margin: 0; font-size: 1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .items-modal { min-width: 25rem; max-height: 70vh; overflow-y: auto; }
   .items-list { display: flex; flex-direction: column; gap: 0.286rem; max-height: 18rem; overflow-y: auto; }
   .items-row { display: flex; gap: 0.571rem; padding: 0.286rem 0; border-bottom: 0.071rem solid var(--border-light); font-size: 0.85rem; align-items: center; }

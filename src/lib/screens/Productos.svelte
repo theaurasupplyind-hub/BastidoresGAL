@@ -164,9 +164,12 @@
 </div>
 
 {#if showForm}
-  <div class="overlay" onclick={() => showForm = false}>
+  <div class="overlay">
     <div class="modal" onclick={(e) => e.stopPropagation()}>
-      <h3>{editing ? 'Editar Producto' : 'Nuevo Producto'}</h3>
+      <div class="modal-header">
+        <h3>{editing ? 'Editar Producto' : 'Nuevo Producto'}</h3>
+        <button class="modal-close" onclick={() => showForm = false} aria-label="Cerrar">✕</button>
+      </div>
       <form onsubmit={(e) => { e.preventDefault(); save(); }}>
         <div class="form-row">
           <div>
@@ -245,7 +248,10 @@
     background: var(--bg-card); border-radius: 0.857rem; padding: 1.714rem; width: 34.286rem;
     box-shadow: 0 0.571rem 2.286rem rgba(0,0,0,0.2);
   }
-  .modal h3 { margin: 0 0 1.143rem; }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.143rem; }
+  .modal-header h3 { margin: 0; }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .modal label { display: block; font-size: 0.929rem; color: var(--text-secondary); margin: 0.571rem 0 0.286rem; }
   .modal input, .modal select {
     width: 100%; padding: 0.571rem 0.714rem; border: 1px solid var(--border); border-radius: 0.429rem;

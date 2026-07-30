@@ -144,7 +144,7 @@
 </script>
 
 {#if show}
-  <div class="modal-overlay" onclick={onClose} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog">
       <div class="modal-header">
         <h3>Facturas ({cards.length})</h3>

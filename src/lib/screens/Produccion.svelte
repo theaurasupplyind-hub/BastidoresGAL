@@ -216,9 +216,12 @@
 
 <!-- Add Manual Dialog -->
 {#if showAddDialog}
-  <div class="modal-overlay" onclick={() => showAddDialog = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal modal-add" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showAddDialog = false)}>
-      <h3>Agregar Facturas a Producción</h3>
+      <div class="modal-header">
+        <h3>Agregar Facturas a Producción</h3>
+        <button class="modal-close" onclick={() => showAddDialog = false} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         <input type="text" bind:value={addSearch} placeholder="Buscar por número o cliente..." class="add-search" />
         <div class="add-list">
@@ -341,6 +344,10 @@
     gap: 0.857rem;
   }
 
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.857rem; }
+  .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .modal-add { min-width: 35.714rem; max-height: 70vh; }
   .add-search {
     padding: 0.571rem 0.857rem;

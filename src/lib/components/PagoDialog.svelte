@@ -91,9 +91,12 @@
 </script>
 
 {#if show && invoiceId}
-  <div class="modal-overlay" onclick={close} onkeydown={(e) => e.key === 'Escape' && close()} role="presentation" tabindex="-1">
+  <div class="modal-overlay" onkeydown={(e) => e.key === 'Escape' && close()} role="presentation" tabindex="-1">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1">
-      <h3>Nuevo Pago</h3>
+      <div class="modal-header">
+        <h3>Nuevo Pago</h3>
+        <button class="modal-close" onclick={close} aria-label="Cerrar">✕</button>
+      </div>
       <div class="modal-body">
         {#if invoiceCliente}
           <div class="pago-dialog-header">
@@ -191,7 +194,10 @@
     flex-direction: column;
     gap: 0.714rem;
   }
-  .modal h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; }
+  .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .modal-body { display: flex; flex-direction: column; gap: 0.714rem; }
   .pago-dialog-header {
     display: flex;

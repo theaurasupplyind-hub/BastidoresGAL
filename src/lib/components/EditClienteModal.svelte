@@ -152,9 +152,12 @@
 </script>
 
 {#if show}
-  <div class="modal-overlay" onclick={onclose} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal modal-cliente" onclick={(e) => e.stopPropagation()} role="dialog">
-      <h3>{isNew ? 'Nuevo Cliente' : 'Editar Cliente'}</h3>
+      <div class="modal-header">
+        <h3>{isNew ? 'Nuevo Cliente' : 'Editar Cliente'}</h3>
+        <button class="modal-close" onclick={onclose} aria-label="Cerrar">✕</button>
+      </div>
       <form onsubmit={(e) => { e.preventDefault(); saveCliente(); }}>
         <label class="emlbl" for="em-nombre">Nombre *</label>
         <input id="em-nombre" type="text" bind:value={form.nombre} required />
@@ -212,9 +215,12 @@
 {/if}
 
 {#if showAddrForm}
-  <div class="modal-overlay" onclick={() => showAddrForm = false} role="presentation">
+  <div class="modal-overlay" role="presentation">
     <div class="modal em-addr-modal" onclick={(e) => e.stopPropagation()} role="dialog">
-      <h3>{editingAddr ? 'Editar dirección' : 'Nueva dirección'}</h3>
+      <div class="modal-header">
+        <h3>{editingAddr ? 'Editar dirección' : 'Nueva dirección'}</h3>
+        <button class="modal-close" onclick={() => showAddrForm = false} aria-label="Cerrar">✕</button>
+      </div>
       <form onsubmit={(e) => { e.preventDefault(); saveAddress(); }}>
         <label class="emlbl" for="em-addr">Dirección *</label>
         <input id="em-addr" type="text" bind:value={addrForm.address} required />
@@ -256,6 +262,10 @@
     width: auto;
     cursor: pointer;
   }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.857rem; }
+  .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
+  .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
+  .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .emlbl { display: block; font-size: 0.929rem; color: var(--text-secondary); margin: 0.571rem 0 0.286rem; }
   .emlbl-cb { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; cursor: pointer; }
   .em-actions { display: flex; gap: 0.571rem; justify-content: flex-end; margin-top: 1.143rem; }
