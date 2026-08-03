@@ -121,7 +121,8 @@
         employee_id: selectedEmployee.id,
         date: empPayForm.date,
         amount: empPayForm.amount,
-        concept: empPayForm.concept || 'Pago',
+        mode: 'Variable',
+        detail: empPayForm.concept || 'Pago',
       });
       showEmployeePayForm = false;
       invalidateCache();
@@ -215,7 +216,7 @@
         {#each [...employeePayments].reverse() as p}
           <div class="g-pay-item">
             <span class="g-pay-date">{formatDate(p.date)}</span>
-            <span class="g-pay-concept">{p.concept || 'Pago'}</span>
+            <span class="g-pay-concept">{p.detail || p.concept || 'Pago'}</span>
             <span class="g-pay-amount">{formatCurrency(p.amount)}</span>
             <button class="btn btn-xs btn-danger" onclick={() => deleteEmployeePay(p.id)}>✕</button>
           </div>

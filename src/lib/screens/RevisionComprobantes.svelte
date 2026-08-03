@@ -27,8 +27,8 @@
     return '$' + value.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
-  function mediaUrl(id: number): string {
-    return api.getVoucherReviewMediaUrl(id);
+  function mediaUrl(row: VoucherReview): string {
+    return row.media_url ?? api.getVoucherReviewMediaUrl(row.id);
   }
 
   async function deleteRow(id: number) {
@@ -129,9 +129,9 @@
         <article class="card">
           <div class="media">
             {#if row.media_mime_type.startsWith('image/')}
-              <img src={mediaUrl(row.id)} alt={`Comprobante ${row.id}`} loading="lazy" />
+              <img src={mediaUrl(row)} alt={`Comprobante ${row.id}`} loading="lazy" />
             {:else}
-              <a href={mediaUrl(row.id)} target="_blank" rel="noreferrer">Abrir archivo</a>
+              <a href={mediaUrl(row)} target="_blank" rel="noreferrer">Abrir archivo</a>
             {/if}
           </div>
           <div class="body">

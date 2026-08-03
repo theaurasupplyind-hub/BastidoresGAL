@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
   import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, LineController, LineElement, PointElement } from 'chart.js';
   import ChartDataLabels from 'chartjs-plugin-datalabels';
@@ -124,10 +125,14 @@
   let metaPorcentaje = $derived(metaMensual > 0 ? Math.min((forecastVentasActuales / metaMensual) * 100, 100) : 0);
   let metaRestante = $derived(Math.max(metaMensual - forecastVentasActuales, 0));
 
+  function toLocalDateStr(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+
   function getDefaultDates(): { start: string; end: string } {
     const now = new Date();
-    const end = now.toISOString().slice(0, 10);
-    const start = new Date(now.getFullYear() - 1, now.getMonth(), 1).toISOString().slice(0, 10);
+    const end = toLocalDateStr(now);
+    const start = toLocalDateStr(new Date(now.getFullYear() - 1, now.getMonth(), 1));
     return { start, end };
   }
 
@@ -139,6 +144,11 @@
         const d = new Date(+p[2], +p[1] - 1, +p[0]);
         if (!isNaN(d.getTime())) return d;
       }
+    }
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) {
+      const p = s.split('-');
+      const d = new Date(+p[0], +p[1] - 1, +p[2]);
+      if (!isNaN(d.getTime())) return d;
     }
     const d = new Date(s);
     return isNaN(d.getTime()) ? new Date() : d;
@@ -174,17 +184,17 @@
   }
 
   function groupSortKey(d: Date): string {
-    return d.toISOString().slice(0, 7);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   }
 
   function setPreset(p: string) {
     const now = new Date();
-    const end = now.toISOString().slice(0, 10);
+    const end = toLocalDateStr(now);
     let start: string;
-    if (p === '7days') start = new Date(now.getTime() - 7 * 864e5).toISOString().slice(0, 10);
-    else if (p === 'month') start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-    else if (p === '3months') start = new Date(now.getFullYear(), now.getMonth() - 2, 1).toISOString().slice(0, 10);
-    else start = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
+    if (p === '7days') start = toLocalDateStr(new Date(now.getTime() - 7 * 864e5));
+    else if (p === 'month') start = toLocalDateStr(new Date(now.getFullYear(), now.getMonth(), 1));
+    else if (p === '3months') start = toLocalDateStr(new Date(now.getFullYear(), now.getMonth() - 2, 1));
+    else start = toLocalDateStr(new Date(now.getFullYear(), 0, 1));
     startDate = start; endDate = end; applyFilters();
   }
 
@@ -195,8 +205,8 @@
   async function loadData() {
     loading = true;
     try {
-      cacheStore.invalidate('facturas:estadisticas');
-      facturas = await cacheStore.fetch('facturas:estadisticas', () => api.listFacturas({ limit: 2000 }), 60000);
+      cacheStore.invalidate('facturas');
+      facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       globalVentasTotal = facturas.reduce((s, f) => s + (f.total || 0), 0);
       globalUnidadesTotal = facturas.reduce((s, f) => s + (f.items || []).reduce((si, it) => si + (it.cantidad || 0), 0), 0);
       computeMonthlyTable();
@@ -388,7 +398,7 @@
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
-    const monthKey = now.toISOString().slice(0, 7);
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
     forecastDiasTranscurridos = now.getDate();
     forecastDiasTotales = new Date(year, month + 1, 0).getDate();

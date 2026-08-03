@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { Cliente } from '$lib/types';
-  import { appStore } from '$lib/stores/appStore.svelte';
   import { animate, spring } from 'animejs';
 
   let {
@@ -8,13 +7,10 @@
     grupoActivoId,
     todosLosClientes,
     clientesDelDia,
-    fecha,
     modoProgramar,
-    onclose,
     oncreategrupo,
     ondeletergrupo,
     onsetactivo,
-    onsave,
     onremovecliente,
     onreorder,
     onrename,
@@ -23,13 +19,10 @@
     grupoActivoId: string | null;
     todosLosClientes: any[];
     clientesDelDia: any[];
-    fecha: string;
     modoProgramar: boolean;
-    onclose: () => void;
     oncreategrupo: () => void;
     ondeletergrupo: (id: string) => void;
     onsetactivo: (id: string | null) => void;
-    onsave: () => void;
     onremovecliente: (groupId: string, clienteId: number) => void;
     onreorder: (groupId: string, nuevoOrden: number[]) => void;
     onrename?: (groupId: string, newName: string) => void;
@@ -38,6 +31,7 @@
   let dragIndex = $state<number | null>(null);
   let grupoNombreEditando = $state<string | null>(null);
   let grupoNombreValue = $state('');
+  let cerrado = $state(false);
 
   const CONSOLA_COLORS = [
     { name: 'Rojo', hex: '#ef4444' },
@@ -47,6 +41,17 @@
     { name: 'Verde', hex: '#10b981' },
     { name: 'Rosa', hex: '#ec4899' },
   ];
+
+  const KANBAN_COLORS: Record<string, string> = {
+    PEDIDO: '#ef4444',
+    EN_PROCESO: '#3b82f6',
+    LISTO: '#22c55e',
+    EN_ESPERA: '#22c55e',
+    ENTREGADO: '#6b7280',
+    ARCHIVADO: '#6b7280',
+    NO_CONFIRMADO: '#f59e0b',
+  };
+  function kanbanColor(estado: string) { return KANBAN_COLORS[estado] || '#6b7280'; }
 
   let grupoArray = $derived([...grupos.values()]);
 
@@ -137,27 +142,13 @@
     if (d.includes('/')) return d;
     return d;
   }
-
-  function formatDate(iso: string): string {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return d.toLocaleDateString('es-AR');
-  }
 </script>
 
-{#if modoProgramar}
+{#if modoProgramar && !cerrado}
   <div class="programar-panel visible">
     <div class="pp-header">
       <span class="pp-title">📦 Programar Viajes</span>
-      <button class="pp-close" onclick={onclose}>✕</button>
-    </div>
-
-    <div class="pp-date-row">
-      <span class="pp-label">Plan del {formatDate(fecha)}</span>
-      <div class="pp-btn-row">
-        <button class="pp-panel-btn" onclick={() => { onsave(); appStore.currentTab = 'panel-control'; }}>📋 Enviar a panel</button>
-        <button class="pp-save-btn" onclick={onsave}>💾 Guardar</button>
-      </div>
+      <button class="pp-close" onclick={() => cerrado = true}>✕</button>
     </div>
 
     <div class="pp-grupos">
@@ -226,7 +217,8 @@
                 {#if cliente.facturas && cliente.facturas.length > 0}
                   <div class="pp-cliente-facturas">
                     {#each cliente.facturas as f}
-                      <span class="pp-factura-chip">
+                      <span class="pp-factura-chip" title={f.estado_kanban || 'PEDIDO'}>
+                        <span class="pp-factura-dot" style="background:{kanbanColor(f.estado_kanban)}"></span>
                         <span class="pp-factura-num">{f.numero_factura}</span>
                         <span class="pp-factura-date">{facturaDate(f)}</span>
                       </span>
@@ -255,6 +247,8 @@
       </div>
     {/if}
   </div>
+{:else if cerrado}
+  <button class="pp-reopen" onclick={() => cerrado = false} title="Abrir programación">📦</button>
 {/if}
 
 <style>
@@ -282,6 +276,24 @@
     transform: translateY(0);
     opacity: 1;
   }
+
+  .pp-reopen {
+    position: fixed;
+    top: 52px;
+    right: 8px;
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 50%;
+    background: #2563eb;
+    color: white;
+    font-size: 18px;
+    cursor: pointer;
+    z-index: 500;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    font-family: var(--font);
+  }
+  .pp-reopen:hover { background: #1d4ed8; }
 
   .pp-header {
     display: flex;
@@ -312,53 +324,6 @@
     color: var(--text-secondary);
   }
   .pp-close:hover { background: var(--bg-hover); }
-
-  .pp-date-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 12px;
-    flex-shrink: 0;
-  }
-
-  .pp-label {
-    font-size: 12px;
-    color: var(--text-secondary);
-  }
-
-  .pp-btn-row {
-    display: flex;
-    gap: 4px;
-  }
-
-  .pp-panel-btn {
-    padding: 4px 8px;
-    border: none;
-    border-radius: 6px;
-    background: #059669;
-    color: white;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.12s;
-    font-family: var(--font);
-    white-space: nowrap;
-  }
-  .pp-panel-btn:hover { background: #047857; }
-
-  .pp-save-btn {
-    padding: 4px 10px;
-    border: none;
-    border-radius: 6px;
-    background: #2563eb;
-    color: white;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.12s;
-    font-family: var(--font);
-  }
-  .pp-save-btn:hover { background: #1d4ed8; }
 
   .pp-grupos {
     border-bottom: 1px solid var(--border);
@@ -574,6 +539,14 @@
     background: #f3f4f6;
     border-radius: 4px;
     font-size: 10px;
+  }
+  .pp-factura-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.8);
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.08);
   }
   .pp-factura-num {
     font-weight: 600;

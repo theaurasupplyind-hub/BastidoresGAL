@@ -138,17 +138,17 @@ fn build_one_half(data: &InvoiceData, style: InvoiceStyle, items_subset: &[Invoi
         // Formato detallado para presupuestos multi-página
         if is_pagado {
             format!(
-                r#"<div class="totals-stack"><span class="subtotal-line">Subtotal hoja: ${}</span><span class="grandtotal-line">Total gral: ${}</span><span class="saldo-value pagado">✓ Pagado</span></div>"#,
+                r#"<div class="totals-stack"><span class="subtotal-line">Subtotal hoja: ${}</span><span class="grandtotal-line">Total gral: {}</span><span class="saldo-value pagado">✓ Pagado</span></div>"#,
                 page_total, grand_total
             )
         } else if sin_pago {
             format!(
-                r#"<div class="totals-stack"><span class="subtotal-line">Subtotal hoja: ${}</span><span class="grandtotal-line">Total gral: ${}</span></div>"#,
+                r#"<div class="totals-stack"><span class="subtotal-line">Subtotal hoja: ${}</span><span class="grandtotal-line">Total gral: {}</span></div>"#,
                 page_total, grand_total
             )
         } else {
             format!(
-                r#"<div class="totals-stack"><span class="subtotal-line">Subtotal hoja: ${}</span><span class="grandtotal-line">Total gral: ${}</span><span class="saldo-value debe">Saldo: {:.0}</span></div>"#,
+                r#"<div class="totals-stack"><span class="subtotal-line">Subtotal hoja: ${}</span><span class="grandtotal-line">Total gral: {}</span><span class="saldo-value debe">Saldo: {:.0}</span></div>"#,
                 page_total, grand_total, data.saldo
             )
         }
@@ -157,10 +157,10 @@ fn build_one_half(data: &InvoiceData, style: InvoiceStyle, items_subset: &[Invoi
         if is_pagado {
             r#"<span class="saldo-value pagado">✓ Pagado</span>"#.to_string()
         } else if sin_pago {
-            format!(r#"<span class="total-large">Total: ${}</span>"#, grand_total)
+            format!(r#"<span class="total-large">Total: {}</span>"#, grand_total)
         } else {
             format!(
-                r#"<span class="total-small">Total: ${}</span>        <span class="saldo-value debe">{:.0}</span>"#,
+                r#"<span class="total-small">Total: {}</span>        <span class="saldo-value debe">{:.0}</span>"#,
                 grand_total, data.saldo
             )
         }
@@ -493,19 +493,12 @@ fn html_to_pdf(html_content: &str, output_pdf: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn generate_invoice(
-    data: &InvoiceData,
-    output_path: &str,
-    _logo_path: Option<&str>,
-    _ign_path: Option<&str>,
-    _header_path: Option<&str>,
-) -> Result<(), String> {
+pub fn render_invoice_html(data: &InvoiceData) -> String {
     let css = get_css(data.style);
 
     let mut pages_html = String::new();
 
     if data.is_presupuesto {
-        // Presupuesto: chunkear items en grupos de 7, siempre media hoja
         let max_rows = 7;
         let chunks: Vec<_> = data.items.chunks(max_rows).collect();
         let chunks = if chunks.is_empty() { vec![&[] as &[InvoiceItem]] } else { chunks };
@@ -530,11 +523,9 @@ pub fn generate_invoice(
             ));
         }
     } else {
-        // Factura: comportamiento original
         let half = build_one_half(data, data.style, &data.items, data.total);
 
         if data.items.len() > 7 {
-            // Más de 7 items: cada copia ocupa una página completa
             pages_html.push_str(&format!(
                 r#"<div class="page-a4">
 <div class="invoice-half full-page">{half}</div>
@@ -546,7 +537,6 @@ pub fn generate_invoice(
                 half = half,
             ));
         } else {
-            // 7 o menos items: dos copias en media hoja
             pages_html.push_str(&format!(
                 r#"<div class="page-a4">
 <div class="invoice-half">{half}</div>
@@ -559,7 +549,7 @@ pub fn generate_invoice(
         }
     }
 
-    let full_html = format!(
+    format!(
         r#"<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -571,17 +561,12 @@ pub fn generate_invoice(
 </html>"#,
         css = css,
         pages = pages_html,
-    );
-
-    html_to_pdf(&full_html, output_path)
+    )
 }
 
-pub fn generate_invoices_batch(
-    invoices: &[InvoiceData],
-    output_path: &str,
-) -> Result<(), String> {
+pub fn render_invoices_batch_html(invoices: &[InvoiceData]) -> String {
     if invoices.is_empty() {
-        return Err("No hay facturas para generar".to_string());
+        return String::new();
     }
 
     let style = invoices[0].style;
@@ -592,7 +577,6 @@ pub fn generate_invoices_batch(
 
     for data in invoices {
         if data.is_presupuesto {
-            // Presupuesto: chunkear items en grupos de 7
             let max_rows = 7;
             let chunks: Vec<_> = data.items.chunks(max_rows).collect();
             let chunks = if chunks.is_empty() { vec![&[] as &[InvoiceItem]] } else { chunks };
@@ -618,7 +602,6 @@ pub fn generate_invoices_batch(
                 ));
             }
         } else {
-            // Factura: comportamiento original
             let half = build_one_half(data, style, &data.items, data.total);
 
             if data.items.len() > 7 {
@@ -640,7 +623,6 @@ pub fn generate_invoices_batch(
                         half = half,
                     ));
                 }
-                // Segunda página: copia gris
                 pages_html.push_str(&format!(
                     r#"<div class="page-a4" style="page-break-before:always">
 <div class="invoice-half grayscale full-page">{half}</div>
@@ -668,7 +650,7 @@ pub fn generate_invoices_batch(
         }
     }
 
-    let full_html = format!(
+    format!(
         r#"<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -680,8 +662,29 @@ pub fn generate_invoices_batch(
 </html>"#,
         css = css,
         pages = pages_html,
-    );
+    )
+}
 
+pub fn generate_invoice(
+    data: &InvoiceData,
+    output_path: &str,
+    _logo_path: Option<&str>,
+    _ign_path: Option<&str>,
+    _header_path: Option<&str>,
+) -> Result<(), String> {
+    let full_html = render_invoice_html(data);
+    html_to_pdf(&full_html, output_path)
+}
+
+pub fn generate_invoices_batch(
+    invoices: &[InvoiceData],
+    output_path: &str,
+) -> Result<(), String> {
+    if invoices.is_empty() {
+        return Err("No hay facturas para generar".to_string());
+    }
+
+    let full_html = render_invoices_batch_html(invoices);
     html_to_pdf(&full_html, output_path)
 }
 

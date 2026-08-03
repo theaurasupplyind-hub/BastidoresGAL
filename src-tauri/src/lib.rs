@@ -1,10 +1,13 @@
 mod config;
 mod pdf;
+#[cfg(target_os = "windows")]
+mod pdf_webview2;
 mod print_agent;
 
 use config::{AppConfig, AppState};
 use pdf::InvoiceStyle;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 #[tauri::command]
 fn get_config(state: tauri::State<AppState>) -> Result<AppConfig, String> {
@@ -14,6 +17,55 @@ fn get_config(state: tauri::State<AppState>) -> Result<AppConfig, String> {
 #[tauri::command]
 fn save_config(state: tauri::State<AppState>, config: AppConfig) -> Result<(), String> {
     state.save_config(&config)
+}
+
+/// Motor de generacion PDF forzado para pruebas (comparar tiempos Chrome vs WebView2).
+/// Lee la variable de entorno GAL_PDF_ENGINE: "chrome", "webview2" o auto (default).
+#[derive(PartialEq, Clone, Copy)]
+enum EngineMode {
+    Auto,
+    Chrome,
+    WebView2,
+}
+
+fn engine_mode() -> EngineMode {
+    match std::env::var("GAL_PDF_ENGINE").ok().as_deref() {
+        Some("chrome") => EngineMode::Chrome,
+        Some("webview2") => EngineMode::WebView2,
+        _ => EngineMode::Auto,
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+struct PdfEngineInfo {
+    engine: String,
+    fallback: bool,
+}
+
+/// Notifica al widget de pruebas que motor se uso realmente (webview2 o
+/// fallback a chrome) y si se cayo al fallback.
+fn emit_pdf_engine(app: &tauri::AppHandle, engine: &str, fallback: bool) {
+    let _ = app.emit(
+        "pdf-engine",
+        PdfEngineInfo {
+            engine: engine.to_string(),
+            fallback,
+        },
+    );
+}
+
+/// Decodifica un PNG (RGBA) y lo escribe al portapapeles reutilizando el
+/// estado del plugin clipboard-manager. Evita enviar RGBA sin comprimir por IPC.
+#[tauri::command]
+fn set_clipboard_png(app: tauri::AppHandle, png: Vec<u8>) -> Result<(), String> {
+    let decoder = png::Decoder::new(png.as_slice());
+    let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
+    let mut buf = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
+    let rgba = &buf[..info.buffer_size()];
+    let (w, h) = reader.info().size();
+    let img = tauri::image::Image::new_owned(rgba.to_vec(), w, h);
+    app.clipboard().write_image(&img).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -74,8 +126,8 @@ fn wake_server() -> Result<String, String> {
 }
 
 #[tauri::command]
-fn generate_pdf(
-    state: tauri::State<AppState>,
+async fn generate_pdf(
+    state: tauri::State<'_, AppState>,
     num_presupuesto: String,
     num_factura: String,
     fecha: String,
@@ -88,6 +140,7 @@ fn generate_pdf(
     saldo: f64,
     is_presupuesto: bool,
     style_name: String,
+    use_webview2: Option<bool>,
 ) -> Result<String, String> {
     let style = InvoiceStyle::from_name(&style_name);
     let pdf_items: Vec<pdf::InvoiceItem> = items
@@ -115,13 +168,11 @@ fn generate_pdf(
         style,
     };
 
-    // Output path in app data dir
     let output_dir = state.data_dir.join("generated_invoices");
     std::fs::create_dir_all(&output_dir).map_err(|e| e.to_string())?;
     let output_path = output_dir.join(format!("factura_{}.pdf", data.num_factura));
     let output_str = output_path.to_string_lossy().to_string();
 
-    // Asset paths from resource
     let asset = |name: &str| -> Option<String> {
         std::env::current_dir().ok().and_then(|cwd| {
             let p = cwd.join("assets").join(name);
@@ -133,13 +184,49 @@ fn generate_pdf(
     let ign_path = asset("ign.png");
     let header_path = asset("headercompleto.png");
 
+    let use_webview2 = use_webview2.unwrap_or(false);
+
+    #[cfg(target_os = "windows")]
+    if use_webview2 {
+        let html = pdf::render_invoice_html(&data);
+        let out = output_str.clone();
+        match tokio::task::spawn_blocking(move || {
+            pdf_webview2::generate_pdf_webview2_sync(html, out)
+        })
+        .await
+        {
+            Ok(Ok(())) => return Ok(output_str),
+            Ok(Err(e)) => {
+                eprintln!("[pdf] WebView2 fallo, fallback a Chrome: {}", e);
+            }
+            Err(e) => {
+                eprintln!("[pdf] WebView2 task error, fallback a Chrome: {}", e);
+            }
+        }
+    }
+
     pdf::generate_invoice(&data, &output_str, logo_path.as_deref(), ign_path.as_deref(), header_path.as_deref())?;
     Ok(output_str)
 }
 
+/// Precalienta el worker de WebView2 (solo Windows) para que el primer
+/// PDF WebView2 no pague el arranque del proceso de browser.
 #[tauri::command]
-fn generate_molduras_pdf(
-    state: tauri::State<AppState>,
+fn warm_webview2() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        pdf_webview2::warm()
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        Ok(())
+    }
+}
+
+#[tauri::command]
+async fn generate_molduras_pdf(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
     html: String,
 ) -> Result<String, String> {
     let output_dir = state.data_dir.join("generated_invoices");
@@ -149,13 +236,47 @@ fn generate_molduras_pdf(
         .as_secs();
     let output_path = output_dir.join(format!("molduras_{}.pdf", timestamp));
     let output_str = output_path.to_string_lossy().to_string();
+
+    #[cfg(target_os = "windows")]
+    if engine_mode() != EngineMode::Chrome {
+        let out = output_str.clone();
+        let html_wv2 = html.clone();
+        let opts = pdf_webview2::Webview2PdfOptions {
+            margin_in: Some(5.0 / 96.0), // respeta @page margin:5px de molduras
+            timeout: std::time::Duration::from_secs(60),
+        };
+        match tokio::task::spawn_blocking(move || {
+            pdf_webview2::generate_pdf_webview2_opts(html_wv2, out, opts)
+        })
+        .await
+        {
+            Ok(Ok(())) => {
+                emit_pdf_engine(&app, "webview2", false);
+                return Ok(output_str);
+            }
+            Ok(Err(e)) if engine_mode() == EngineMode::WebView2 => {
+                return Err(format!("WebView2 (forzado): {}", e));
+            }
+            Ok(Err(e)) => {
+                eprintln!("[pdf] WebView2 fallo, fallback a Chrome: {}", e);
+            }
+            Err(e) => {
+                eprintln!("[pdf] WebView2 task error, fallback a Chrome: {}", e);
+            }
+        }
+    }
+
+    let t = std::time::Instant::now();
     pdf::generate_molduras_pdf(&html, &output_str)?;
+    eprintln!("[pdf-chrome] molduras: {:.0}ms", t.elapsed().as_millis());
+    emit_pdf_engine(&app, "chrome", cfg!(target_os = "windows") && engine_mode() == EngineMode::Auto);
     Ok(output_str)
 }
 
 #[tauri::command]
-fn generate_invoices_pdf(
-    state: tauri::State<AppState>,
+async fn generate_invoices_pdf(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
     invoices: Vec<BatchInvoiceParam>,
 ) -> Result<String, String> {
     if invoices.is_empty() {
@@ -202,7 +323,39 @@ fn generate_invoices_pdf(
     let output_path = output_dir.join(format!("facturas_batch_{}.pdf", timestamp));
     let output_str = output_path.to_string_lossy().to_string();
 
+    #[cfg(target_os = "windows")]
+    if engine_mode() != EngineMode::Chrome {
+        let html_wv2 = pdf::render_invoices_batch_html(&pdf_invoices);
+        let out = output_str.clone();
+        let opts = pdf_webview2::Webview2PdfOptions {
+            margin_in: None,
+            timeout: std::time::Duration::from_secs(120),
+        };
+        match tokio::task::spawn_blocking(move || {
+            pdf_webview2::generate_pdf_webview2_opts(html_wv2, out, opts)
+        })
+        .await
+        {
+            Ok(Ok(())) => {
+                emit_pdf_engine(&app, "webview2", false);
+                return Ok(output_str);
+            }
+            Ok(Err(e)) if engine_mode() == EngineMode::WebView2 => {
+                return Err(format!("WebView2 (forzado): {}", e));
+            }
+            Ok(Err(e)) => {
+                eprintln!("[pdf] WebView2 fallo, fallback a Chrome: {}", e);
+            }
+            Err(e) => {
+                eprintln!("[pdf] WebView2 task error, fallback a Chrome: {}", e);
+            }
+        }
+    }
+
+    let t = std::time::Instant::now();
     pdf::generate_invoices_batch(&pdf_invoices, &output_str)?;
+    eprintln!("[pdf-chrome] batch: {:.0}ms", t.elapsed().as_millis());
+    emit_pdf_engine(&app, "chrome", cfg!(target_os = "windows") && engine_mode() == EngineMode::Auto);
     Ok(output_str)
 }
 
@@ -528,6 +681,7 @@ struct BatchInvoiceParam {
     items: Vec<InvoiceItemParam>,
     total: f64,
     envio: f64,
+    #[serde(default)]
     saldo: f64,
     is_presupuesto: bool,
     style_name: String,
@@ -559,7 +713,7 @@ fn get_print_agent_status(agent_state: tauri::State<print_agent::PrintAgentHandl
 
 #[tauri::command]
 fn register_station(
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     name: String,
 ) -> Result<serde_json::Value, String> {
     {
@@ -647,7 +801,7 @@ fn list_print_stations() -> Result<Vec<serde_json::Value>, String> {
 
 #[tauri::command]
 fn submit_print_job(
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     pdf_path: String,
     created_by: String,
     api_key: Option<String>,
@@ -699,7 +853,7 @@ fn submit_print_job(
 
 #[tauri::command]
 fn check_print_job_status(
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     job_id: u32,
 ) -> Result<serde_json::Value, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
@@ -733,7 +887,7 @@ fn check_print_job_status(
 
 #[tauri::command]
 fn delete_station(
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     station_id: u32,
 ) -> Result<serde_json::Value, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
@@ -763,7 +917,7 @@ fn delete_station(
 
 #[tauri::command]
 fn get_print_job_history(
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     station_key: Option<String>,
 ) -> Result<Vec<serde_json::Value>, String> {
     let config = state.config.lock().map_err(|e| e.to_string())?;
@@ -795,7 +949,7 @@ fn get_print_job_history(
 
 #[tauri::command]
 fn cancel_print_job(
-    state: tauri::State<AppState>,
+    state: tauri::State<'_, AppState>,
     job_id: u32,
     station_key: Option<String>,
 ) -> Result<serde_json::Value, String> {
@@ -857,7 +1011,9 @@ pub fn run() {
             get_data_dir,
             get_log_path,
             wake_server,
+            set_clipboard_png,
             generate_pdf,
+            warm_webview2,
             generate_molduras_pdf,
             generate_invoices_pdf,
             open_pdf,

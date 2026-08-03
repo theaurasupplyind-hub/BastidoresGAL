@@ -122,7 +122,8 @@
           employee_id: parsed.entityId,
           date: today,
           amount: parsed.amount,
-          concept: parsed.description,
+          mode: 'Variable',
+          detail: parsed.description,
         });
       } else if (parsed.type === 'PURCHASE' && parsed.entityId) {
         await api.addProviderMovement({

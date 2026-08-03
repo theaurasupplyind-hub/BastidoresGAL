@@ -225,6 +225,9 @@ export interface Pago {
   entity_id?: number;
   created_at?: string;
   updated_at?: string;
+  extra_client_name?: string;
+  extra_invoice_num?: string;
+  extra_invoice_total?: number;
 }
 
 export interface VoucherReviewCandidate {
@@ -257,6 +260,7 @@ export interface VoucherReview {
   candidatas: VoucherReviewCandidate[];
   media_mime_type: string;
   media_size_bytes: number;
+  media_url?: string | null;
   review_status: string;
   entity_type?: string | null;
   entity_id?: number | null;
@@ -361,6 +365,15 @@ export interface GrupoCliente {
   clienteIds: number[];
   ordenRuta: number[];
   color: string;
+}
+
+export interface RecomendacionCliente {
+  id?: number;
+  grupo_id: string;
+  cliente_id: number;
+  distancia_km: number;
+  cerca_de_cliente_id?: number | null;
+  creado_en?: string;
 }
 
 export interface PlanDeViaje {

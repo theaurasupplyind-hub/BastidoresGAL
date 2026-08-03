@@ -1,7 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
+  import { startPdfTimer, endPdfTimer } from '$lib/stores/pdfTimerStore.svelte';
   import type { Factura } from '$lib/types';
 
   let { show, cards = [] as Factura[], onClose }: {
@@ -13,6 +15,18 @@
   let config = $state<any>({});
   let selectedIds = $state<Set<number>>(new Set());
   let generating = $state(false);
+  let pagoMap = $state<Map<number, number>>(new Map());
+
+  async function refreshPagos() {
+    try {
+      const pagos = await api.listPagos();
+      const map = new Map<number, number>();
+      for (const p of pagos) {
+        map.set(p.invoice_id, (map.get(p.invoice_id) ?? 0) + (p.amount ?? 0));
+      }
+      pagoMap = map;
+    } catch {}
+  }
 
   onMount(async () => {
     try { config = await invoke('get_config'); } catch {}
@@ -21,6 +35,7 @@
   $effect(() => {
     if (show) {
       selectedIds = new Set(cards.map(c => c.id));
+      refreshPagos();
     }
   });
 
@@ -68,13 +83,17 @@
       })),
       total: c.total,
       envio: c.envio ?? 0,
+      saldo: c.total - (pagoMap.get(c.id) ?? 0),
       isPresupuesto: c.tipo === 'PRESUPUESTO',
       styleName: appStore.pdfStyle,
     }));
 
     generating = true;
+    startPdfTimer('Batch');
+    let genOk = false;
     try {
       const pdfPath = await invoke<string>('generate_invoices_pdf', { invoices });
+      genOk = true;
 
       if (shouldPrint) {
         try {
@@ -97,6 +116,7 @@
     } catch (e: any) {
       appStore.showToast('Error: ' + (e?.message || e), 'error');
     } finally {
+      endPdfTimer(genOk);
       generating = false;
     }
   }
@@ -120,13 +140,17 @@
       })),
       total: c.total,
       envio: c.envio ?? 0,
+      saldo: c.total - (pagoMap.get(c.id) ?? 0),
       isPresupuesto: c.tipo === 'PRESUPUESTO',
       styleName: appStore.pdfStyle,
     }));
 
     generating = true;
+    startPdfTimer('Batch remoto');
+    let genOk = false;
     try {
       const pdfPath = await invoke<string>('generate_invoices_pdf', { invoices });
+      genOk = true;
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;
       await invoke('submit_print_job', {
@@ -138,6 +162,7 @@
     } catch (e: any) {
       appStore.showToast('Error: ' + (e?.message || e), 'error');
     } finally {
+      endPdfTimer(genOk);
       generating = false;
     }
   }
@@ -179,14 +204,14 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-pdf" onclick={() => handleGenerate(false)} disabled={selectedIds.size === 0 || generating}>
+        <button class="btn btn-pdf" onclick={() => { handleGenerate(false); onClose(); }} disabled={selectedIds.size === 0 || generating}>
           {generating ? 'Generando...' : '📄 Ver PDF'}
         </button>
-        <button class="btn btn-print" onclick={() => handleGenerate(true)} disabled={selectedIds.size === 0 || generating}>
+        <button class="btn btn-print" onclick={() => { handleGenerate(true); onClose(); }} disabled={selectedIds.size === 0 || generating}>
           {generating ? 'Generando...' : '🖨 Imprimir'}
         </button>
         {#if appStore.activeStations.length > 0}
-          <button class="btn btn-remote" onclick={() => handleSendToRemote()} disabled={selectedIds.size === 0 || generating}>
+          <button class="btn btn-remote" onclick={() => { handleSendToRemote(); onClose(); }} disabled={selectedIds.size === 0 || generating}>
             {generating ? 'Generando...' : '📤 Enviar a sucursal'}
           </button>
         {/if}

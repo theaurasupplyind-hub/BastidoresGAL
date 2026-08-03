@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fade } from 'svelte/transition';
+  import { animate } from 'animejs';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import type { Provider, ProviderMovement } from '$lib/types';
+  import ProviderFolderCard from './ProviderFolderCard.svelte';
 
   // ── Grid state ──
   let providers = $state<Provider[]>([]);
@@ -139,6 +142,29 @@
   }
 
   // ── Detail ──
+  let detailEl: HTMLElement | undefined = $state();
+  let detailClosing = $state(false);
+
+  function panelEnter(node: HTMLElement) {
+    animate(node, {
+      translateY: [30, 0],
+      opacity: [0, 1],
+      duration: 420,
+      ease: 'outBack',
+    });
+    const cols = node.querySelector<HTMLElement>('.pp-detail-cols');
+    if (cols) {
+      animate(Array.from(cols.children) as HTMLElement[], {
+        translateY: [16, 0],
+        opacity: [0, 1],
+        duration: 340,
+        ease: 'outBack',
+        delay: (_el, i = 0) => i * 90 + 120,
+      });
+    }
+    return {};
+  }
+
   function openDetail(p: Provider) {
     selectedProvider = p;
     const moves = providerMovesMap.get(p.id) || [];
@@ -148,6 +174,20 @@
   }
 
   function closeDetail() {
+    if (detailClosing) return;
+    if (!detailEl) { resetDetail(); return; }
+    detailClosing = true;
+    animate(detailEl, {
+      translateY: [0, 24],
+      opacity: [1, 0],
+      duration: 220,
+      ease: 'inQuad',
+      complete: resetDetail,
+    });
+  }
+
+  function resetDetail() {
+    detailClosing = false;
     viewMode = 'grid';
     selectedProvider = null;
     providerMoves = [];
@@ -243,7 +283,7 @@
 
 <!-- ============ GRID VIEW ============ -->
 {#if viewMode === 'grid'}
-  <div class="pp-grid">
+  <div class="pp-grid" transition:fade={{ duration: 120 }}>
     <div class="pp-grid-header">
       <h3>📂 Carpetas de Proveedores</h3>
       <div class="pp-grid-toolbar">
@@ -254,40 +294,15 @@
       </div>
     </div>
     <div class="pp-cards-grid">
-      {#each filteredProviders as p}
-        {@const info = cardsInfo.get(p.id)}
-        {@const debt = info?.debt ?? 0}
-        <div class="pp-card">
-          <div class="pp-card-header">
-            <span class="pp-card-title">{p.name}</span>
-            <button class="pp-act-del" onclick={() => deleteProvider(p.id)} title="Eliminar">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-            </button>
-          </div>
-          <div class="pp-card-body">
-            <div class="pp-card-row">
-              <span class="pp-debt">{formatCurrency(debt)}</span>
-              <span class="pp-stock">{info?.stockQty ?? 0} u.</span>
-            </div>
-            <div class="pp-card-chips">
-              {#if p.cuit}<span class="pp-chip"><span class="pp-chip-label">CUIT</span> {p.cuit}</span>{/if}
-              {#if p.alias_mp}<span class="pp-chip"><span class="pp-chip-label">MP</span> {p.alias_mp}</span>{/if}
-              {#if p.alias_cbu}<span class="pp-chip"><span class="pp-chip-label">CBU</span> {p.alias_cbu}</span>{/if}
-              {#if p.address}<span class="pp-chip"><span class="pp-chip-label">Dir</span> {p.address}</span>{/if}
-            </div>
-            <div class="pp-lastmove"><span class="pp-lastmove-label">Ultimo</span> {info?.lastMoveDesc ?? 'Sin movimientos'}</div>
-          </div>
-          <div class="pp-card-actions">
-            <button class="pp-act-btn pp-act-folder" onclick={() => openDetail(p)}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-              Abrir
-            </button>
-            <button class="pp-act-btn pp-act-pay" onclick={() => { selectedProvider = p; openNewMove('PAYMENT'); }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-              Pago
-            </button>
-          </div>
-        </div>
+      {#each filteredProviders as p (p.id)}
+        <ProviderFolderCard
+          provider={p}
+          info={cardsInfo.get(p.id)}
+          colorIndex={p.id}
+          onOpenDetail={() => openDetail(p)}
+          onPay={() => { selectedProvider = p; openNewMove('PAYMENT'); }}
+          onPurchase={() => { selectedProvider = p; openNewMove('PURCHASE'); }}
+        />
       {:else}
         <div class="pp-empty">Sin proveedores registrados</div>
       {/each}
@@ -296,7 +311,7 @@
 
 <!-- ============ DETAIL VIEW ============ -->
 {:else if viewMode === 'detail' && selectedProvider}
-  <div class="pp-detail">
+  <div class="pp-detail" bind:this={detailEl} use:panelEnter>
     <div class="pp-detail-nav">
       <button class="btn btn-sm btn-secondary" onclick={closeDetail}>⬅ Volver</button>
       <h3>🏢 {selectedProvider.name}</h3>
@@ -484,115 +499,13 @@
 
   .pp-cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
-    gap: 0.714rem;
+    grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+    gap: 0.5rem 0.75rem;
     overflow: auto;
     flex: 1;
     align-content: start;
+    padding-top: 0.5rem;
   }
-
-  .pp-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 0.571rem;
-    display: flex;
-    flex-direction: column;
-  }
-
-  .pp-card-header {
-    display: flex;
-    align-items: center;
-    gap: 0.429rem;
-    padding: 0.857rem 1rem 0.286rem;
-  }
-  .pp-card-title { font-weight: 600; font-size: 1.05rem; color: var(--text-primary); flex: 1; }
-
-  .pp-card-body { padding: 0.286rem 1rem 0.714rem; flex: 1; }
-
-  .pp-card-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: center;
-    gap: 0.571rem;
-    margin-bottom: 0.357rem;
-  }
-  .pp-debt { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); }
-  .pp-stock { font-size: 0.8rem; color: var(--text-muted); }
-
-  .pp-card-chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.143rem 0.571rem;
-    margin: 0.429rem 0;
-  }
-  .pp-chip {
-    font-size: 0.72rem;
-    color: var(--text-secondary);
-  }
-  .pp-chip-label {
-    color: var(--text-muted);
-    margin-right: 0.286rem;
-    font-weight: 500;
-  }
-
-  .pp-lastmove {
-    font-size: 0.72rem;
-    color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-top: 0.286rem;
-  }
-  .pp-lastmove-label {
-    color: var(--text-muted);
-    margin-right: 0.214rem;
-  }
-
-  .pp-card-actions {
-    display: flex;
-    align-items: center;
-    gap: 0.357rem;
-    padding: 0.571rem 1rem;
-    border-top: 1px solid var(--border-light);
-  }
-
-  .pp-act-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.286rem;
-    flex: 1;
-    padding: 0.429rem 0.571rem;
-    border: 1px solid var(--border);
-    border-radius: 0.286rem;
-    background: var(--bg-card);
-    font-size: 0.78rem;
-    font-weight: 500;
-    cursor: pointer;
-    color: var(--text-secondary);
-    font-family: inherit;
-    transition: background 0.1s, border-color 0.1s;
-  }
-  .pp-act-btn:hover { background: var(--bg-page); border-color: var(--text-muted); }
-  .pp-act-btn svg { flex-shrink: 0; }
-
-  .pp-act-del {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.6rem;
-    height: 1.6rem;
-    padding: 0;
-    border: none;
-    border-radius: 0.286rem;
-    background: none;
-    cursor: pointer;
-    color: var(--text-muted);
-    flex-shrink: 0;
-    transition: color 0.1s, background 0.1s;
-  }
-  .pp-card:hover .pp-act-del { color: #e74c3c; }
-  .pp-act-del:hover { background: #fff5f5; color: #e74c3c !important; }
 
   .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.857rem; }
   .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }

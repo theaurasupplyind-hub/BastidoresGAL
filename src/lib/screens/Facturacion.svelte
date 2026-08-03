@@ -7,8 +7,6 @@
   import type { Factura, InvoiceItem, Cliente, Producto, PrecioReferencia, PricingRule, FechasEntrega } from '$lib/types';
 import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/types';
   import { invoke } from '@tauri-apps/api/core';
-  import { Image } from '@tauri-apps/api/image';
-  import { writeImage } from '@tauri-apps/plugin-clipboard-manager';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
   import html2canvas from 'html2canvas';
   import { renderReceiptHtml } from '$lib/utils/receipt';
@@ -128,6 +126,7 @@ import 'flatpickr/dist/flatpickr.min.css';
   let addressDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let selectedNominatimLat = $state<number | null>(null);
   let selectedNominatimLng = $state<number | null>(null);
+  let domicilioOriginal = $state('');
   let envio = $state(0);
   let tipo_entrega = $state('Retira');
   let fechasEntrega = $state<FechasEntrega>({ desde: '', hasta: '', extras: [] });
@@ -468,6 +467,7 @@ import 'flatpickr/dist/flatpickr.min.css';
     cacheStore.invalidate('clientes');
     cacheStore.invalidate('productos');
     cacheStore.invalidate('preciosReferencia');
+    cacheStore.invalidate('mapa-base');
   }
 
   function selectCliente(c: Cliente) {
@@ -719,6 +719,7 @@ import 'flatpickr/dist/flatpickr.min.css';
     fecha = f.fecha;
     cliente_nombre = f.cliente_nombre;
     cliente_domicilio = f.cliente_domicilio;
+    domicilioOriginal = f.cliente_domicilio || '';
     cliente_telefono = f.cliente_telefono;
     cliente_piso_depto = f.cliente_piso_depto || '';
     cliente_taller = f.cliente_taller || '';
@@ -750,6 +751,7 @@ import 'flatpickr/dist/flatpickr.min.css';
     fecha = new Date().toLocaleDateString('es-AR');
     cliente_nombre = '';
     cliente_domicilio = '';
+    domicilioOriginal = '';
     cliente_piso_depto = '';
     cliente_telefono = '';
     cliente_taller = '';
@@ -937,6 +939,7 @@ import 'flatpickr/dist/flatpickr.min.css';
         fecha_entrega: serializeFechasEntrega(fechasEntrega),
         ...(!id ? { estado_kanban: 'PEDIDO' } : {}),
       };
+      const esEdicion = id != null;
 
       if (id) {
         await api.updateFactura(id, payload);
@@ -945,6 +948,20 @@ import 'flatpickr/dist/flatpickr.min.css';
         const result = await api.saveFactura(payload);
         id = result.id;
         appStore.showToast('Factura guardada', 'success');
+      }
+      // Geocodificar solo cuando se fija/cambia la dirección de entrega (al crear o al
+      // editar con dirección distinta). No se regeocodifica en masa al abrir el mapa.
+      const domNuevo = (cliente_domicilio || '').trim();
+      const defAddr = clienteAddresses.find(a => a.is_default) || clienteAddresses[0];
+      const domicilioCliente = (defAddr?.address || clienteDomicilioPrincipal()).trim();
+      const cambioDireccion = esEdicion
+        ? normDireccion(domicilioOriginal) !== normDireccion(domNuevo)
+        : normDireccion(domNuevo) !== normDireccion(domicilioCliente);
+      if (domNuevo && domNuevo.toLowerCase() !== 'retira' && cambioDireccion) {
+        try {
+          await api.geocodificarFactura(id);
+        } catch {}
+        if (esEdicion) domicilioOriginal = domNuevo;
       }
       invalidateCache();
       await refreshHistory();
@@ -1009,6 +1026,10 @@ import 'flatpickr/dist/flatpickr.min.css';
     if (!cliente_id) return '';
     const c = clientes.find(c => c.id === cliente_id);
     return c?.domicilio?.trim() || '';
+  }
+
+  function normDireccion(s: string): string {
+    return (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
   }
 
   function buildAddressSugerencias() {
@@ -1157,12 +1178,12 @@ import 'flatpickr/dist/flatpickr.min.css';
 
   async function refreshHistory() {
     try {
-      facturas = await api.listFacturas({ limit: 2000 });
+      facturas = await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000);
     } catch {
       facturas = [];
     }
     try {
-      const pagos = await api.listPagos();
+      const pagos = await cacheStore.fetch('pagos', () => api.listPagos(), 120000);
       const map: Record<number, number> = {};
       for (const p of pagos) {
         map[p.invoice_id] = (map[p.invoice_id] || 0) + p.amount;
@@ -1171,6 +1192,12 @@ import 'flatpickr/dist/flatpickr.min.css';
     } catch {
       pagoMap = {};
     }
+  }
+
+  async function forceRefreshHistory() {
+    cacheStore.invalidate('facturas');
+    cacheStore.invalidate('pagos');
+    await refreshHistory();
   }
 
   function prevInvoice() {
@@ -1189,18 +1216,21 @@ import 'flatpickr/dist/flatpickr.min.css';
     }
   }
 
-  export async function generatePDF(shouldPrint = false) {
+  export async function generatePDF(shouldPrint = false, useWebview2 = false, onDone?: (ok: boolean, secs: number) => void) {
     if (tipo === 'PRESUPUESTO' && (id === null || !numero_factura)) {
       appStore.showToast('Guarde la factura primero', 'error');
+      onDone?.(false, 0);
       return;
     }
+    const started = performance.now();
+    let ok = false;
     try {
       const pdfPath = await invoke('generate_pdf', {
         numPresupuesto: numero_presupuesto,
         numFactura: numero_factura,
         fecha,
         clienteNombre: cliente_nombre,
-        clienteDomicilio: cliente_domicilio,
+        clienteDomicilio: cliente_domicilio + (cliente_piso_depto ? ` - ${cliente_piso_depto}` : ''),
         clienteTelefono: cliente_telefono,
         items: items.filter(i => i.descripcion.trim()).map(i => ({
           cantidad: i.cantidad,
@@ -1213,7 +1243,9 @@ import 'flatpickr/dist/flatpickr.min.css';
         saldo: currentSaldo,
         isPresupuesto: true,
         styleName: appStore.pdfStyle,
+        useWebview2,
       });
+      ok = true;
       if (shouldPrint) {
         try {
           await invoke('print_pdf', { path: pdfPath });
@@ -1243,6 +1275,8 @@ import 'flatpickr/dist/flatpickr.min.css';
       const errMsg = e?.message ?? (typeof e === 'string' ? e : 'Error desconocido');
       console.error('Error al generar PDF:', e);
       appStore.showToast('Error al generar PDF: ' + errMsg, 'error');
+    } finally {
+      onDone?.(ok, (performance.now() - started) / 1000);
     }
   }
 
@@ -1257,7 +1291,7 @@ import 'flatpickr/dist/flatpickr.min.css';
         numFactura: numero_factura,
         fecha,
         clienteNombre: cliente_nombre,
-        clienteDomicilio: cliente_domicilio,
+        clienteDomicilio: cliente_domicilio + (cliente_piso_depto ? ` - ${cliente_piso_depto}` : ''),
         clienteTelefono: cliente_telefono,
         items: items.filter(i => i.descripcion.trim()).map(i => ({
           cantidad: i.cantidad,
@@ -1296,6 +1330,7 @@ import 'flatpickr/dist/flatpickr.min.css';
       return;
     }
     sharingWhatsApp = true;
+    const started = performance.now();
     try {
       const contacto = [cliente_telefono, cliente_domicilio].filter(Boolean).join(' ');
       const validItems = items.filter(i => i.descripcion.trim());
@@ -1337,16 +1372,10 @@ import 'flatpickr/dist/flatpickr.min.css';
         logging: false,
       });
 
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('No se pudo obtener el contexto del canvas');
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob>(res => canvas.toBlob(b => res(b!), 'image/png'));
+      const pngBytes = new Uint8Array(await blob.arrayBuffer());
 
-      const img = await Image.new(
-        new Uint8Array(imageData.data.buffer),
-        canvas.width,
-        canvas.height,
-      );
-      await writeImage(img);
+      await invoke('set_clipboard_png', { png: pngBytes });
 
       // Open WhatsApp via Rust (Desktop if installed, otherwise tell JS to open Web)
       const telefono = (cliente_telefono || '').replace(/\D/g, '');
@@ -1358,7 +1387,7 @@ import 'flatpickr/dist/flatpickr.min.css';
 
       await invoke('show_whatsapp_helper');
 
-      appStore.showToast('Imagen copiada al portapapeles', 'success');
+      appStore.showToast(`Compartido en ${((performance.now() - started) / 1000).toFixed(1)}s`, 'success');
     } catch (e: any) {
       appStore.showToast('Error al compartir: ' + getErrorMessage(e), 'error');
     } finally {
@@ -1717,9 +1746,14 @@ import 'flatpickr/dist/flatpickr.min.css';
               </button>
             </div>
             <div class="delivery-whatsapp">
-              <button class="top-btn top-btn-wa" onclick={shareWhatsApp}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                WhatsApp
+              <button class="top-btn top-btn-wa" onclick={shareWhatsApp} disabled={sharingWhatsApp}>
+                {#if sharingWhatsApp}
+                  <span class="wa-spinner"></span>
+                  Compartiendo…
+                {:else}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                  WhatsApp
+                {/if}
               </button>
             </div>
           </div>
@@ -1775,7 +1809,7 @@ import 'flatpickr/dist/flatpickr.min.css';
       <div class="history-header">
         <h3>Historial</h3>
         <div class="history-header-actions">
-          <button class="refresh-btn" onclick={refreshHistory} title="Actualizar historial">
+          <button class="refresh-btn" onclick={forceRefreshHistory} title="Recargar historial desde el servidor">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
           </button>
           <button class="duplicate-btn" onclick={duplicateInvoice} title="Duplicar factura actual">
@@ -2693,6 +2727,21 @@ import 'flatpickr/dist/flatpickr.min.css';
     background: #f0fdf4;
     border-color: #86efac;
   }
+  .delivery-whatsapp .top-btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+  .wa-spinner {
+    width: 0.86rem;
+    height: 0.86rem;
+    border: 0.143rem solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    display: inline-block;
+    animation: wa-spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes wa-spin { to { transform: rotate(360deg); } }
   .delivery-discount {
     flex-shrink: 0;
   }

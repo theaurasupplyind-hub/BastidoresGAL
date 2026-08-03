@@ -4,7 +4,6 @@
   import { getVersion } from '@tauri-apps/api/app';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
-  import { mapaStore } from '$lib/stores/mapaStore.svelte';
   import type { TabId } from '$lib/types';
   import Clientes from './Clientes.svelte';
   import Productos from './Productos.svelte';
@@ -18,8 +17,6 @@
   import Kanban from './Kanban.svelte';
   import Papelera from './Papelera.svelte';
   import MapaClientes from './MapaClientes.svelte';
-  import AddressAutocomplete from '$lib/components/AddressAutocomplete.svelte';
-  let mapaRef: any = null;
   import AnalisisUSD from './AnalisisUSD.svelte';
   import GastoRapido from './GastoRapido.svelte';
   import Caja from './Caja.svelte';
@@ -32,6 +29,24 @@
 
   let facturacionRef: any = null;
 
+  let pdfGenActive = $state(false);
+  let pdfGenSeconds = $state(0);
+  let pdfGenTimer: ReturnType<typeof setInterval> | undefined;
+
+  function startPdfGen() {
+    pdfGenActive = true;
+    pdfGenSeconds = 0;
+    clearInterval(pdfGenTimer);
+    pdfGenTimer = setInterval(() => { pdfGenSeconds += 1; }, 1000);
+  }
+
+  function endPdfGen(_ok: boolean, _secs: number) {
+    clearInterval(pdfGenTimer);
+    pdfGenTimer = undefined;
+    pdfGenActive = false;
+    pdfGenSeconds = 0;
+  }
+
   let heartbeatId: ReturnType<typeof setInterval> | undefined;
   let stationsPollId: ReturnType<typeof setInterval> | undefined;
   let config = $state<any>({});
@@ -42,6 +57,7 @@
   onMount(async () => {
     api.wakeServer();
     try { config = await invoke('get_config'); } catch {}
+    invoke('warm_webview2').catch(() => {});
     try {
       const currentVersion = await getVersion();
       const lastSeen = localStorage.getItem('app_last_version');
@@ -68,6 +84,7 @@
   onDestroy(() => {
     if (heartbeatId) clearInterval(heartbeatId);
     if (stationsPollId) clearInterval(stationsPollId);
+    if (pdfGenTimer) clearInterval(pdfGenTimer);
   });
 
   async function runHeartbeat() {
@@ -148,13 +165,23 @@
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
               {appStore.facturacionSaving ? 'Guardando...' : 'Guardar'}
             </button>
-            <button class="top-btn" onclick={() => facturacionRef?.generatePDF()}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-              Ver PDF
+            <button class="top-btn" onclick={() => { startPdfGen(); facturacionRef?.generatePDF(false, true, (ok: boolean, secs: number) => endPdfGen(ok, secs)); }} disabled={pdfGenActive}>
+              {#if pdfGenActive}
+                <span class="pdf-spinner"></span>
+                Generando… {pdfGenSeconds}s
+              {:else}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                Ver PDF
+              {/if}
             </button>
-            <button class="top-btn" onclick={() => facturacionRef?.generatePDF(true)}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-              Imprimir
+            <button class="top-btn" onclick={() => { startPdfGen(); facturacionRef?.generatePDF(true, true, (ok: boolean, secs: number) => endPdfGen(ok, secs)); }} disabled={pdfGenActive}>
+              {#if pdfGenActive}
+                <span class="pdf-spinner"></span>
+                Generando… {pdfGenSeconds}s
+              {:else}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                Imprimir
+              {/if}
             </button>
             {#if appStore.activeStations.length > 0}
               <button class="top-btn top-btn-remote" onclick={() => facturacionRef?.sendToRemotePrint()}>
@@ -219,133 +246,6 @@
           <button class="g-top-btn" class:active={appStore.gastosTab === 'categorias'} onclick={() => appStore.gastosTab = 'categorias'}>🏷️ Categorías</button>
         </div>
       {/if}
-      {#if appStore.currentTab === 'mapa'}
-        <div class="mapa-bar">
-          <div class="mapa-bar-left">
-            <label class="mapa-bar-label" for="mapa-fecha-input">Fecha</label>
-            <input id="mapa-fecha-input" type="date" bind:value={mapaStore.fecha} class="mapa-bar-fecha" />
-            <div class="mapa-bar-filter">
-              <button class="mapa-filter-btn" class:mapa-filter-activo={!mapaStore.filtroPendientes && mapaStore.filtroRecencia === 0} onclick={() => { mapaStore.filtroPendientes = false; mapaStore.filtroRecencia = 0; }}>Todos</button>
-              <button class="mapa-filter-btn" class:mapa-filter-activo={mapaStore.filtroPendientes} onclick={() => { mapaStore.filtroPendientes = true; mapaStore.filtroRecencia = 0; }}>Pendientes</button>
-              <button class="mapa-filter-btn" class:mapa-filter-activo={!mapaStore.filtroPendientes && mapaStore.filtroRecencia === 2} onclick={() => { mapaStore.filtroPendientes = false; mapaStore.filtroRecencia = mapaStore.filtroRecencia === 2 ? 0 : 2; }}>2 meses</button>
-            </div>
-          </div>
-          <div class="mapa-bar-center">
-            <div class="search-wrap">
-              <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              <AddressAutocomplete
-                value={mapaStore.busqueda}
-                onchange={(v: string) => { mapaStore.busqueda = v; if (!v) mapaStore.busquedaCoords = null; }}
-                onselect={(data: { label: string; lat: number; lng: number }) => { mapaStore.busqueda = data.label; mapaStore.busquedaCoords = { lat: data.lat, lng: data.lng }; }}
-                className="mapa-bar-buscar"
-                placeholder="Buscar cliente..."
-              />
-            </div>
-            <div class="mapa-bar-actions">
-              <div class="algo-panel" class:algo-abierto={mapaStore.algoMostrarPanel}>
-                <div class="algo-header" onclick={() => mapaStore.algoMostrarPanel = !mapaStore.algoMostrarPanel} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && (mapaStore.algoMostrarPanel = !mapaStore.algoMostrarPanel)}>
-                  <span>🧠 Algoritmo</span>
-                  <div class="algo-header-right">
-                    <button class="algo-regenerar" onclick={(e) => { e.stopPropagation(); mapaRef?.regenerarPlan?.(); }} disabled={!mapaStore.modoProgramar}>
-                      🔄
-                    </button>
-                    <span class="algo-chevron">{mapaStore.algoMostrarPanel ? '▲' : '▼'}</span>
-                  </div>
-                </div>
-                {#if mapaStore.algoMostrarPanel}
-                  <div class="algo-body">
-                    <div class="algo-field">
-                      <label for="algo-min">Mínimo clientes</label>
-                      <input id="algo-min" type="range" bind:value={mapaStore.algoMinPorGrupo} min="1" max="10" step="1" />
-                      <span class="algo-val">{mapaStore.algoMinPorGrupo}</span>
-                    </div>
-                    <div class="algo-field">
-                      <label for="algo-max">Máximo clientes</label>
-                      <input id="algo-max" type="range" bind:value={mapaStore.algoMaxPorGrupo} min="0" max="30" step="1" />
-                      <span class="algo-val">{mapaStore.algoMaxPorGrupo || '∞'}</span>
-                    </div>
-                    <div class="algo-field">
-                      <label for="algo-eps">Radio (km)</label>
-                      <input id="algo-eps" type="range" bind:value={mapaStore.algoEpsKm} min="0.5" max="15" step="0.5" />
-                      <span class="algo-val">{mapaStore.algoEpsKm} km</span>
-                    </div>
-                    <p class="algo-hint">Agrupa por coordenadas reales. Radio: tan lejos como busca vecinos. Mín: fusiona grupos chicos. Máx: parte grupos grandes (0 = sin límite).</p>
-                  </div>
-                {/if}
-              </div>
-
-              <div class="algo-panel" class:algo-abierto={mapaStore.mostrarCercanos}>
-                <div class="algo-header" onclick={() => mapaStore.mostrarCercanos = !mapaStore.mostrarCercanos} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && (mapaStore.mostrarCercanos = !mapaStore.mostrarCercanos)}>
-                  <span>📡 Clientes cercanos</span>
-                  <div class="algo-header-right">
-                    <button class="algo-regenerar" onclick={(e) => { e.stopPropagation(); mapaRef?.generarReporteCercanos?.(); }} disabled={mapaStore.cargandoCercanos}>
-                      {mapaStore.cargandoCercanos ? '⏳' : '🔍'}
-                    </button>
-                    <span class="algo-chevron">{mapaStore.mostrarCercanos ? '▲' : '▼'}</span>
-                  </div>
-                </div>
-                {#if mapaStore.mostrarCercanos}
-                  <div class="algo-body">
-                    {#if mapaStore.reporteCercanos.size === 0}
-                      {#if mapaStore.cargandoCercanos}
-                        <p class="algo-hint">Buscando clientes cercanos...</p>
-                      {:else}
-                        <p class="algo-hint">Presioná 🔍 para buscar clientes sin pedido a menos de 4 km de cada factura.</p>
-                      {/if}
-                    {:else}
-                      <p class="algo-hint">{mapaStore.reporteCercanos.size} factura(s) con clientes cercanos encontrados.</p>
-                      {#each [...mapaStore.reporteCercanos.entries()] as [facturaId, item]}
-                        <details class="cc-factura">
-                          <summary class="cc-summary">
-                            <span class="cc-factura-num">{item.factura.numero_factura}</span>
-                            <span class="cc-factura-cliente">{item.factura.cliente_nombre}</span>
-                            <span class="cc-count">{item.cercanos.length}</span>
-                          </summary>
-                          <div class="cc-cercanos">
-                            {#each item.cercanos as cercano}
-                              <div class="cc-cliente">
-                                <div class="cc-cliente-info">
-                                  <span class="cc-cliente-nombre">{cercano.cliente.nombre}</span>
-                                  <span class="cc-cliente-dist">{cercano.distanciaKm} km</span>
-                                  <span class="cc-cliente-dir">{cercano.cliente.domicilio || ''}</span>
-                                  {#if cercano.cliente.telefono}
-                                    <button class="cc-cliente-tel" onclick={() => { navigator.clipboard.writeText(cercano.cliente.telefono); }} title="Copiar teléfono: {cercano.cliente.telefono}">
-                                      📋 {cercano.cliente.telefono}
-                                    </button>
-                                  {/if}
-                                </div>
-                                <button class="cc-cliente-ver" onclick={() => mapaRef?.centrarEnCoords?.(cercano.coords.lat, cercano.coords.lng)} title="Ver en mapa">👁</button>
-                              </div>
-                            {/each}
-                          </div>
-                        </details>
-                      {/each}
-                    {/if}
-                  </div>
-                {/if}
-              </div>
-            </div>
-          </div>
-          <div class="mapa-bar-right">
-            {#if mapaStore.editandoOrigen}
-              <AddressAutocomplete
-                value={mapaStore.origenDireccion}
-                onchange={(v: string) => { mapaStore.origenDireccion = v; }}
-                onselect={(data: { label: string; lat: number; lng: number }) => { mapaStore.origenDireccion = data.label; mapaStore.origenCoords = { lat: data.lat, lng: data.lng }; }}
-                className="mapa-bar-origen-input"
-                placeholder="Dirección..."
-              />
-              <button class="mapa-bar-btn-geo" onclick={() => mapaStore.geocodificarOrigen?.()} disabled={mapaStore.geocodificandoOrigen || !mapaStore.origenDireccion.trim()}>🌍</button>
-              <button class="mapa-bar-btn-save" onclick={() => mapaStore.guardarOrigen?.()}>💾</button>
-            {:else}
-              <span class="mapa-bar-origen-label">📍 Salida:</span>
-              <span class="mapa-bar-origen-text">{mapaStore.origenDireccion}</span>
-              <button class="mapa-bar-btn-edit" onclick={() => mapaStore.editandoOrigen = true}>✏️</button>
-              <button class="mapa-bar-btn-wa" onclick={() => mapaRef?.copiarRutaAlPortapapeles()} title="Copiar link de la ruta">📋</button>
-            {/if}
-          </div>
-        </div>
-      {/if}
     </header>
 
     <main class="content">
@@ -370,7 +270,7 @@
       {:else if appStore.currentTab === 'clientes'}
         <Clientes />
       {:else if appStore.currentTab === 'mapa'}
-        <MapaClientes bind:this={mapaRef} />
+        <MapaClientes />
       {:else if appStore.currentTab === 'estadisticas'}
         <Estadisticas />
       {:else if appStore.currentTab === 'gastos'}
@@ -460,182 +360,6 @@
     background: var(--accent);
     color: #fff;
   }
-  .mapa-bar {
-    display: flex;
-    align-items: center;
-    gap: 0.571rem;
-    flex: 1;
-  }
-  .mapa-bar-left {
-    display: flex;
-    align-items: center;
-    gap: 0.357rem;
-    flex: 1;
-  }
-  .mapa-bar-filter {
-    display: flex;
-    border: 1px solid #d1d5db;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-  .mapa-filter-btn {
-    padding: 2px 8px;
-    border: none;
-    background: #fff;
-    font-size: 11px;
-    font-weight: 500;
-    cursor: pointer;
-    font-family: var(--font);
-    color: #6b7280;
-    transition: all 0.15s;
-  }
-  .mapa-filter-btn:not(:last-child) { border-right: 1px solid #d1d5db; }
-  .mapa-filter-btn:hover { background: #f3f4f6; }
-  .mapa-filter-activo {
-    background: #2563eb;
-    color: white;
-    font-weight: 600;
-  }
-  .mapa-filter-activo:hover { background: #1d4ed8; }
-  .mapa-bar-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    white-space: nowrap;
-  }
-  .mapa-bar-fecha {
-    padding: 0.214rem 0.357rem;
-    border: 0.071rem solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: 0.82rem;
-    font-family: var(--font);
-    background: #fff;
-  }
-  .mapa-bar-center {
-    flex: 1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 8px;
-  }
-  .search-wrap {
-    position: relative;
-    display: flex;
-    align-items: center;
-    width: 260px;
-  }
-  .search-icon {
-    position: absolute;
-    left: 8px;
-    pointer-events: none;
-    color: #9ca3af;
-    z-index: 1;
-  }
-  :global(.mapa-bar-buscar) {
-    width: 100%;
-    padding: 0.286rem 0.5rem 0.286rem 28px;
-    border: 0.071rem solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: 0.82rem;
-    font-family: var(--font);
-    background: #fff;
-    transition: border-color 0.15s, box-shadow 0.15s;
-    outline: none;
-  }
-  :global(.mapa-bar-buscar:focus) {
-    border-color: var(--border-focus, #2563eb);
-    box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
-  }
-  .mapa-bar-right {
-    display: flex;
-    align-items: center;
-    gap: 0.286rem;
-    flex: 1;
-    justify-content: flex-end;
-  }
-  .mapa-bar-origen-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #2563eb;
-    white-space: nowrap;
-  }
-  .mapa-bar-origen-text {
-    font-size: 0.78rem;
-    color: var(--text-secondary);
-    max-width: 140px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .mapa-bar-origen-input {
-    width: 120px;
-    padding: 0.214rem 0.357rem;
-    border: 0.071rem solid var(--border);
-    border-radius: var(--radius-sm);
-    font-size: 0.78rem;
-    font-family: var(--font);
-  }
-  .mapa-bar-right :global(.ac-wrapper) {
-    width: auto;
-  }
-  .mapa-bar-btn-edit {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 0.82rem;
-    padding: 0.071rem 0.286rem;
-    color: var(--text-muted);
-  }
-  .mapa-bar-btn-edit:hover { color: var(--text); }
-  .mapa-bar-btn-wa {
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 0.9rem;
-    padding: 0.071rem 0.286rem;
-    color: #25D366;
-  }
-  .mapa-bar-btn-wa:hover { color: #1ebe5b; }
-  .mapa-bar-btn-viajes {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 0.78rem;
-    padding: 0.143rem 0.429rem;
-    color: var(--text-secondary);
-    font-family: var(--font);
-    transition: all 0.12s;
-    white-space: nowrap;
-  }
-  .mapa-bar-btn-viajes:hover { background: var(--bg-hover); color: var(--text-primary); }
-  .mapa-bar-btn-viajes.activo {
-    background: #eff6ff;
-    border-color: #2563eb;
-    color: #2563eb;
-    font-weight: 600;
-  }
-  .mapa-bar-btn-geo {
-    padding: 0.214rem 0.357rem;
-    font-size: 0.78rem;
-    border: 0.071rem solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg-hover);
-    cursor: pointer;
-  }
-  .mapa-bar-btn-geo:hover:not(:disabled) { background: var(--border); }
-  .mapa-bar-btn-geo:disabled { opacity: 0.5; cursor: not-allowed; }
-  .mapa-bar-btn-save {
-    padding: 0.214rem 0.357rem;
-    font-size: 0.78rem;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: #2563eb;
-    color: white;
-    cursor: pointer;
-  }
-  .mapa-bar-btn-save:hover { background: #1d4ed8; }
-
   .filter-bar {
     display: flex;
     align-items: center;
@@ -713,6 +437,17 @@
   .top-btn-imgs:hover { background: #f5f3ff; border-color: #c4b5fd; }
   .top-btn-remote { color: #0369a1; border-color: #bae6fd; }
   .top-btn-remote:hover { background: #f0f9ff; border-color: #7dd3fc; }
+  .pdf-spinner {
+    width: 0.86rem;
+    height: 0.86rem;
+    border: 0.143rem solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    display: inline-block;
+    animation: pdf-spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes pdf-spin { to { transform: rotate(360deg); } }
   .station-switch {
     padding: 0.286rem 0.5rem;
     border: 1px solid #bae6fd;
@@ -731,158 +466,4 @@
 
   .tab-contents { display: contents; }
   .tab-oculto { display: none !important; }
-
-  .algo-panel {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    min-width: 140px;
-    position: relative;
-  }
-  .algo-panel:not(.algo-abierto) {
-    overflow: hidden;
-  }
-  .algo-panel.algo-abierto {
-    position: absolute;
-    top: 100%;
-    right: 0;
-    min-width: 260px;
-    z-index: 1000;
-    background: var(--bg-card);
-    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
-    margin-top: 4px;
-  }
-  .mapa-bar-actions {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    position: relative;
-  }
-  .algo-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 4px 10px;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    background: var(--bg-card);
-    user-select: none;
-    white-space: nowrap;
-    gap: 4px;
-  }
-  .algo-header:hover { background: var(--bg-hover); }
-  .algo-header-right {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .algo-chevron { font-size: 10px; color: #9ca3af; }
-  .algo-body {
-    padding: 10px 12px;
-    border-top: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-  .algo-field {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-  .algo-field label {
-    font-size: 11px;
-    color: var(--text-secondary);
-    flex: 1;
-  }
-  .algo-field input[type="range"] {
-    flex: 0 0 80px;
-    height: 4px;
-    accent-color: #2563eb;
-  }
-  .algo-val {
-    font-size: 13px;
-    font-weight: 700;
-    color: #2563eb;
-    min-width: 20px;
-    text-align: center;
-  }
-  .algo-hint {
-    font-size: 11px;
-    color: #9ca3af;
-    margin: 0;
-    line-height: 1.4;
-  }
-  .algo-regenerar {
-    padding: 4px 8px;
-    background: #2563eb;
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background 0.15s;
-    line-height: 1;
-  }
-  .algo-regenerar:hover { background: #1d4ed8; }
-  .algo-regenerar:disabled { opacity: 0.4; cursor: not-allowed; background: #93c5fd; }
-
-  /* ── Clientes cercanos ── */
-  .cc-factura {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    overflow: hidden;
-  }
-  .cc-summary {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    font-size: 12px;
-    cursor: pointer;
-    background: var(--bg-card);
-    user-select: none;
-  }
-  .cc-summary:hover { background: var(--bg-hover); }
-  .cc-factura-num { font-weight: 600; color: var(--text-primary); }
-  .cc-factura-cliente { flex: 1; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cc-count { font-size: 10px; background: #2563eb; color: white; padding: 1px 6px; border-radius: 10px; font-weight: 700; flex-shrink: 0; }
-  .cc-cercanos { display: flex; flex-direction: column; border-top: 1px solid var(--border); }
-  .cc-cliente {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 8px;
-    font-size: 12px;
-    border-bottom: 1px solid #f3f4f6;
-  }
-  .cc-cliente:last-child { border-bottom: none; }
-  .cc-cliente-info { flex: 1; display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-  .cc-cliente-nombre { font-weight: 500; color: var(--text-primary); }
-  .cc-cliente-dist { font-size: 10px; color: #2563eb; font-weight: 600; }
-  .cc-cliente-dir { font-size: 10px; color: #9ca3af; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .cc-cliente-tel {
-    font-size: 10px;
-    background: none;
-    border: none;
-    color: #059669;
-    cursor: pointer;
-    padding: 1px 0;
-    text-align: left;
-    font-family: var(--font);
-  }
-  .cc-cliente-tel:hover { color: #047857; text-decoration: underline; }
-  .cc-cliente-ver {
-    width: 24px;
-    height: 24px;
-    border: none;
-    background: var(--bg-hover);
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-  }
-  .cc-cliente-ver:hover { background: #dbeafe; }
 </style>

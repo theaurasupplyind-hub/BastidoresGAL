@@ -251,7 +251,7 @@
           onmouseleave={endDrag}
         >
           <img
-            src={api.getPriceListViewUrl(currentImage.id)}
+            src={currentImage.view_url ?? api.getPriceListViewUrl(currentImage.id)}
             alt={currentImage.name}
             bind:this={imgRef}
             crossorigin="anonymous"

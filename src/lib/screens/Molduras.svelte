@@ -3,6 +3,7 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
   import { parseCard, typeLabel, groupMaterials, buildMoldurasHtmlByTemplate, calcMaterials, applyCorrection, parse2DItem, calcFilas, calcLargueros, consolidateMaterials } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
@@ -83,7 +84,7 @@
     loading = true;
     selectedIds = new Set();
     try {
-      const facturas = await cacheStore.fetch('facturas:molduras', () => api.listFacturas({ limit: 2000 }), 60000);
+      const facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       const pending = facturas.filter(f => f.estado_moldura === 'PENDING' && f.estado_entrega !== 'ENTREGADO');
       const correctionMap = new Map<number, MolduraCorrectionData>();
       await Promise.all(pending.map(async f => {
@@ -175,7 +176,7 @@
     addSearch = '';
     addSelected = new Set();
     try {
-      allFacturas = await cacheStore.fetch('facturas:all_add', () => api.listFacturas({ limit: 2000 }), 60000);
+      allFacturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       showAddDialog = true;
     } catch (e) {
       appStore.alert('Error al cargar facturas: ' + (e as Error).message);

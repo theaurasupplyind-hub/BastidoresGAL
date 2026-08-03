@@ -1,4 +1,4 @@
-import type { GrupoCliente, PlanDeViaje } from '$lib/types';
+import type { GrupoCliente, PlanDeViaje, RecomendacionCliente } from '$lib/types';
 
 let _fecha = $state(new Date().toISOString().split('T')[0]);
 let _busqueda = $state('');
@@ -9,22 +9,37 @@ let _geocodificandoOrigen = $state(false);
 let _pendientesCount = $state(0);
 let _filtroPendientes = $state(false);
 let _filtroRecencia = $state(0);
+let _filtroKanban = $state<string[]>([]);
+let _cargando = $state(false);
 let _planAutoGenerado = $state(false);
 let _busquedaCoords = $state<{ lat: number; lng: number } | null>(null);
 
-let _modoProgramar = $state(false);
+let _modoProgramar = $state(true);
 let _grupos = $state<Map<string, GrupoCliente>>(new Map());
 let _grupoActivoId = $state<string | null>(null);
 let _planViajeId = $state<string | null>(null);
 
-let _algoMinPorGrupo = $state(2);
-let _algoMaxPorGrupo = $state(0);
-let _algoEpsKm = $state(4);
-let _algoMostrarPanel = $state(false);
+let _algoMinPorGrupo = $state(3);
+let _algoMaxPorGrupo = $state(6);
+let _algoEpsKm = $state(8);
+let _algoRadioCercanosM = $state(500);
 
-let _mostrarCercanos = $state(false);
-let _cargandoCercanos = $state(false);
-let _reporteCercanos = $state<Map<number, { factura: any; cercanos: { cliente: any; distanciaKm: number; coords: { lat: number; lng: number } }[] }>>(new Map());
+let _recomendaciones = $state<RecomendacionCliente[]>([]);
+let _recomendando = $state(false);
+let _mostrarRecomendados = $state(false);
+
+let _regenerandoPlan = $state(false);
+
+let _geoAlertReadOculto = $state(false);
+let _geoAlertReadColapsado = $state(false);
+
+let _estiloMapa = $state<string>(() => {
+  try {
+    return localStorage.getItem('mapa-estilo') || 'osm';
+  } catch {
+    return 'osm';
+  }
+});
 
 let _geocodificarFn: (() => Promise<void>) | null = null;
 let _guardarFn: (() => Promise<void>) | null = null;
@@ -60,6 +75,12 @@ export const mapaStore = {
 	get filtroRecencia() { return _filtroRecencia; },
 	set filtroRecencia(v: number) { _filtroRecencia = v; },
 
+	get filtroKanban() { return _filtroKanban; },
+	set filtroKanban(v: string[]) { _filtroKanban = v; },
+
+	get cargando() { return _cargando; },
+	set cargando(v: boolean) { _cargando = v; },
+
 	get planAutoGenerado() { return _planAutoGenerado; },
 	set planAutoGenerado(v: boolean) { _planAutoGenerado = v; },
 
@@ -84,17 +105,32 @@ export const mapaStore = {
 	get algoEpsKm() { return _algoEpsKm; },
 	set algoEpsKm(v: number) { _algoEpsKm = v; },
 
-	get algoMostrarPanel() { return _algoMostrarPanel; },
-	set algoMostrarPanel(v: boolean) { _algoMostrarPanel = v; },
+	get algoRadioCercanosM() { return _algoRadioCercanosM; },
+	set algoRadioCercanosM(v: number) { _algoRadioCercanosM = v; },
 
-	get mostrarCercanos() { return _mostrarCercanos; },
-	set mostrarCercanos(v: boolean) { _mostrarCercanos = v; },
+	get recomendaciones() { return _recomendaciones; },
+	set recomendaciones(v: RecomendacionCliente[]) { _recomendaciones = v; },
 
-	get cargandoCercanos() { return _cargandoCercanos; },
-	set cargandoCercanos(v: boolean) { _cargandoCercanos = v; },
+	get recomendando() { return _recomendando; },
+	set recomendando(v: boolean) { _recomendando = v; },
 
-	get reporteCercanos() { return _reporteCercanos; },
-	set reporteCercanos(v: Map<number, { factura: any; cercanos: { cliente: any; distanciaKm: number; coords: { lat: number; lng: number } }[] }>) { _reporteCercanos = v; },
+	get mostrarRecomendados() { return _mostrarRecomendados; },
+	set mostrarRecomendados(v: boolean) { _mostrarRecomendados = v; },
+
+	get regenerandoPlan() { return _regenerandoPlan; },
+	set regenerandoPlan(v: boolean) { _regenerandoPlan = v; },
+
+	get geoAlertReadOculto() { return _geoAlertReadOculto; },
+	set geoAlertReadOculto(v: boolean) { _geoAlertReadOculto = v; },
+
+	get geoAlertReadColapsado() { return _geoAlertReadColapsado; },
+	set geoAlertReadColapsado(v: boolean) { _geoAlertReadColapsado = v; },
+
+	get estiloMapa() { return _estiloMapa; },
+	set estiloMapa(v: string) {
+		_estiloMapa = v;
+		try { localStorage.setItem('mapa-estilo', v); } catch {}
+	},
 
 	get geocodificarOrigen() { return _geocodificarFn; },
 	set geocodificarOrigen(fn: (() => Promise<void>) | null) { _geocodificarFn = fn; },

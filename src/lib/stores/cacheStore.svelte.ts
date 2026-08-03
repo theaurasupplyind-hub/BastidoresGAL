@@ -5,6 +5,7 @@ interface CacheEntry {
 }
 
 let _cache = $state<Map<string, CacheEntry>>(new Map());
+let _pending = new Map<string, Promise<unknown>>();
 
 function now(): number {
   return Date.now();
@@ -28,9 +29,19 @@ export const cacheStore = {
   async fetch<T>(key: string, fetcher: () => Promise<T>, ttl: number): Promise<T> {
     const cached = this.get<T>(key);
     if (cached !== null) return cached;
-    const data = await fetcher();
-    this.set(key, data, ttl);
-    return data;
+    const inflight = _pending.get(key);
+    if (inflight) return inflight as Promise<T>;
+    const p = (async () => {
+      try {
+        const data = await fetcher();
+        this.set(key, data, ttl);
+        return data;
+      } finally {
+        _pending.delete(key);
+      }
+    })();
+    _pending.set(key, p);
+    return p;
   },
 
   invalidate(prefix: string) {
@@ -39,9 +50,15 @@ export const cacheStore = {
         _cache.delete(key);
       }
     }
+    for (const key of _pending.keys()) {
+      if (key.startsWith(prefix)) {
+        _pending.delete(key);
+      }
+    }
   },
 
   invalidateAll() {
     _cache = new Map();
+    _pending = new Map();
   },
 };

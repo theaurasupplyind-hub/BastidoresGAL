@@ -1,23 +1,48 @@
 <script lang="ts">
-  import { recomendarRutas, type GrupoRuta } from '$lib/utils/barrios';
+  import { mapaStore } from '$lib/stores/mapaStore.svelte';
+  import { api } from '$lib/api/client';
 
-  let { show, clientes, onclose, onseleccionar }: {
+  let {
+    show, onclose, onsave
+  }: {
     show: boolean;
-    clientes: { id: number; domicilio?: string; lat?: number; lng?: number }[];
     onclose: () => void;
-    onseleccionar: (ids: number[]) => void;
+    onsave: () => Promise<void>;
   } = $props();
 
-  let grupos = $derived(recomendarRutas(clientes));
-  let cerrando = $state(false);
+  let min = $state(mapaStore.algoMinPorGrupo);
+  let max = $state(mapaStore.algoMaxPorGrupo);
+  let eps = $state(mapaStore.algoEpsKm);
+  let guardando = $state(false);
 
-  function seleccionar(grupo: GrupoRuta) {
-    cerrando = true;
-    setTimeout(() => {
-      onseleccionar(grupo.clientesIds);
+  $effect(() => {
+    if (show) {
+      min = mapaStore.algoMinPorGrupo;
+      max = mapaStore.algoMaxPorGrupo;
+      eps = mapaStore.algoEpsKm;
+    }
+  });
+
+  $effect(() => { mapaStore.algoMinPorGrupo = min; });
+  $effect(() => { mapaStore.algoMaxPorGrupo = max; });
+  $effect(() => { mapaStore.algoEpsKm = eps; });
+
+  async function persistirConfig() {
+    try {
+      await api.updateMapaConfig({ cluster_min: min, cluster_max: max, cluster_eps_km: eps });
+    } catch {}
+  }
+
+  async function guardar() {
+    if (guardando) return;
+    guardando = true;
+    try {
+      await persistirConfig();
+      await onsave();
+    } finally {
+      guardando = false;
       onclose();
-      cerrando = false;
-    }, 150);
+    }
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -26,47 +51,54 @@
 </script>
 
 {#if show}
-  <div class="modal-overlay" class:cerrando role="presentation">
+  <div class="modal-overlay role-presentation" role="presentation">
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" onkeydown={handleKeydown} tabindex="-1">
       <div class="modal-header">
-        <h2>🗺 Rutas recomendadas</h2>
-        <button class="close-btn" onclick={onclose}>✕</button>
+        <h2>⚙️ Configuración de Agrupamiento</h2>
+        <button class="close-btn" onclick={onclose} disabled={guardando}>✕</button>
       </div>
 
       <div class="modal-body">
-        {#if grupos.length === 0}
-          <p class="empty-text">No se encontraron grupos para recomendar. Revisá que los clientes tengan el barrio o localidad en el domicilio.</p>
-        {:else}
-          <p class="info-text">Agrupados por barrios y localidades cercanas (máx. 3 por grupo)</p>
-          <div class="grupos-list">
-            {#each grupos as grupo, i}
-              <div class="grupo-card">
-                <div class="grupo-header">
-                  <span class="grupo-num">📍 Grupo {i + 1}</span>
-                  <span class="grupo-count">{grupo.totalClientes} cliente{grupo.totalClientes !== 1 ? 's' : ''}</span>
-                </div>
-                <div class="grupo-barrios">
-                  {#each grupo.barrios as barrio, bi}
-                    <span class="barrio-chip">{barrio}</span>
-                    {#if bi < grupo.barrios.length - 1}
-                      <span class="barrio-sep">·</span>
-                    {/if}
-                  {/each}
-                </div>
-                <button class="select-btn" onclick={() => seleccionar(grupo)} disabled={cerrando}>
-                  ✓ Seleccionar y trazar ruta
-                </button>
-              </div>
-            {/each}
+        <div class="config-panel">
+          <div class="config-field">
+            <label for="rec-min">Mínimo clientes por viaje</label>
+            <div class="config-row">
+              <input id="rec-min" type="range" bind:value={min} min="1" max="10" step="1" disabled={guardando} />
+              <span class="config-val">{min}</span>
+            </div>
           </div>
-        {/if}
+          <div class="config-field">
+            <label for="rec-max">Máximo clientes por viaje</label>
+            <div class="config-row">
+              <input id="rec-max" type="range" bind:value={max} min="0" max="30" step="1" disabled={guardando} />
+              <span class="config-val">{max === 0 ? '∞' : max}</span>
+            </div>
+          </div>
+          <div class="config-field">
+            <label for="rec-eps">Radio de agrupación (km)</label>
+            <div class="config-row">
+              <input id="rec-eps" type="range" bind:value={eps} min="0.5" max="15" step="0.5" disabled={guardando} />
+              <span class="config-val">{eps} km</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="modal-footer">
-        <button class="btn-secondary" onclick={onclose}>Cerrar</button>
+        <button class="btn-secondary" onclick={onclose} disabled={guardando}>Cancelar</button>
+        <button class="btn-apply" onclick={guardar} disabled={guardando}>
+          {guardando ? '⏳ Reagrupando...' : '✓ Guardar y reagrupar'}
+        </button>
       </div>
     </div>
   </div>
+
+  {#if guardando}
+    <div class="reagrupar-screen">
+      <div class="reagrupar-spinner"></div>
+      <span class="reagrupar-text">Reagrupando viajes...</span>
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -80,18 +112,14 @@
     z-index: 10000;
     animation: fadeIn 0.15s ease-out;
   }
-  .modal-overlay.cerrando {
-    opacity: 0;
-    transition: opacity 0.15s;
-  }
 
   .modal {
     background: var(--bg-card);
     border-radius: 12px;
     box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-    width: 480px;
+    width: 520px;
     max-width: 90vw;
-    max-height: 80vh;
+    max-height: 85vh;
     display: flex;
     flex-direction: column;
     animation: slideUp 0.2s ease-out;
@@ -125,6 +153,8 @@
     transition: background 0.12s;
   }
   .close-btn:hover { background: var(--bg-hover); }
+  .close-btn:disabled { opacity: 0.5; cursor: default; }
+  .close-btn:disabled:hover { background: var(--bg-page); }
 
   .modal-body {
     padding: 16px 20px;
@@ -132,95 +162,55 @@
     flex: 1;
   }
 
-  .empty-text {
-    text-align: center;
-    color: var(--text-muted);
-    font-size: 14px;
-    padding: 32px 0;
-  }
-
-  .info-text {
-    font-size: 13px;
-    color: var(--text-secondary);
-    margin: 0 0 12px;
-  }
-
-  .grupos-list {
+  .config-panel {
     display: flex;
     flex-direction: column;
-    gap: 10px;
-  }
-
-  .grupo-card {
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    padding: 14px 16px;
-    transition: box-shadow 0.12s;
-  }
-  .grupo-card:hover {
-    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
-  }
-
-  .grupo-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 8px;
-  }
-
-  .grupo-num {
-    font-size: 15px;
-    font-weight: 700;
-    color: var(--text-primary);
-  }
-
-  .grupo-count {
-    font-size: 13px;
-    font-weight: 600;
-    color: #2563eb;
-    background: #eff6ff;
-    padding: 2px 10px;
-    border-radius: 12px;
-  }
-
-  .grupo-barrios {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 4px;
+    gap: 8px;
+    background: var(--bg-page);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
     margin-bottom: 12px;
   }
 
-  .barrio-chip {
-    font-size: 13px;
-    color: var(--text-primary);
-    font-weight: 500;
+  .config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
 
-  .barrio-sep {
-    color: var(--text-muted);
-    font-weight: 700;
-  }
-
-  .select-btn {
-    width: 100%;
-    padding: 9px;
-    border: none;
-    border-radius: 8px;
-    background: #2563eb;
-    color: white;
-    font-size: 13px;
+  .config-field label {
+    font-size: 11px;
     font-weight: 600;
-    cursor: pointer;
-    transition: background 0.12s;
+    color: var(--text-secondary);
   }
-  .select-btn:hover:not(:disabled) { background: #1d4ed8; }
-  .select-btn:disabled { opacity: 0.5; cursor: default; }
+
+  .config-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .config-row input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: #2563eb;
+  }
+
+  .config-val {
+    font-size: 12px;
+    font-weight: 700;
+    color: #2563eb;
+    min-width: 42px;
+    text-align: right;
+  }
 
   .modal-footer {
     padding: 12px 20px 16px;
     display: flex;
+    gap: 8px;
     justify-content: flex-end;
+    border-top: 1px solid var(--border);
   }
 
   .btn-secondary {
@@ -234,7 +224,50 @@
     cursor: pointer;
     transition: background 0.12s;
   }
-  .btn-secondary:hover { background: #f9fafb; }
+  .btn-secondary:hover:not(:disabled) { background: #f9fafb; }
+  .btn-secondary:disabled { opacity: 0.5; cursor: default; }
+
+  .btn-apply {
+    padding: 8px 20px;
+    border: none;
+    border-radius: 8px;
+    background: #059669;
+    color: white;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .btn-apply:hover:not(:disabled) { background: #047857; }
+  .btn-apply:disabled { opacity: 0.5; cursor: default; }
+
+  .reagrupar-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 100000;
+    background: rgba(15, 23, 42, 0.6);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    font-family: var(--font);
+    animation: fadeIn 0.15s ease-out;
+  }
+  .reagrupar-spinner {
+    width: 48px;
+    height: 48px;
+    border: 5px solid rgba(255, 255, 255, 0.3);
+    border-top-color: #ffffff;
+    border-radius: 50%;
+    animation: reagrupar-spin 0.8s linear infinite;
+  }
+  .reagrupar-text {
+    color: #ffffff;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  @keyframes reagrupar-spin { to { transform: rotate(360deg); } }
 
   @keyframes fadeIn {
     from { opacity: 0; }

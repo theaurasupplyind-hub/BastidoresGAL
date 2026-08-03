@@ -3,6 +3,7 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { startPdfTimer, endPdfTimer } from '$lib/stores/pdfTimerStore.svelte';
   import type { Factura, InvoiceItem, FechasEntrega } from '$lib/types';
   import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
   import { hasMolduraItems, parseCard, buildMoldurasHtmlByTemplate } from '$lib/utils/molduras';
@@ -402,9 +403,11 @@
     loading = true;
     selectedIds = new Set();
     try {
-      const all = await cacheStore.fetch('facturas:kanban', () => api.listFacturas({ limit: 2000 }), 30000);
+      const all = await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
+
+      let archivedAny = false;
 
       // Filter last 30 days + assign kanban state
       const filtered: Factura[] = [];
@@ -423,6 +426,7 @@
               kanban = 'ARCHIVADO';
               try {
                 await api.patchInvoiceField(f.id, 'estado_kanban', 'ARCHIVADO');
+                archivedAny = true;
               } catch {}
               continue;
             }
@@ -437,6 +441,8 @@
           filtered.push({ ...f, estado_kanban: kanban });
         }
       }
+
+      if (archivedAny) cacheStore.invalidate('facturas');
 
       filtered.sort((a, b) => parseFecha(a.fecha).getTime() - parseFecha(b.fecha).getTime());
       facturas = filtered;
@@ -581,6 +587,8 @@
       return;
     }
     generatingPdfCol = colIdx;
+    startPdfTimer('Molduras');
+    let genOk = false;
     try {
       const parsed = cards.map(f => {
         const p = parseCard(f);
@@ -588,6 +596,7 @@
       });
       const html = buildMoldurasHtmlByTemplate(parsed, appStore.molduraTemplate);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
+      genOk = true;
       if (shouldPrint) {
         try {
           await invoke('print_pdf', { path: pdfPath });
@@ -609,6 +618,7 @@
     } catch (e: any) {
       appStore.showToast('Error al generar PDF: ' + (e?.message || e), 'error');
     } finally {
+      endPdfTimer(genOk);
       generatingPdfCol = null;
     }
   }
@@ -620,6 +630,8 @@
       return;
     }
     generatingPdfCol = colIdx;
+    startPdfTimer('Molduras remoto');
+    let genOk = false;
     try {
       const parsed = cards.map(f => {
         const p = parseCard(f);
@@ -627,6 +639,7 @@
       });
       const html = buildMoldurasHtmlByTemplate(parsed, appStore.molduraTemplate);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
+      genOk = true;
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;
       await invoke('submit_print_job', {
@@ -638,6 +651,7 @@
     } catch (e: any) {
       appStore.showToast('Error: ' + (e?.message || e), 'error');
     } finally {
+      endPdfTimer(genOk);
       generatingPdfCol = null;
     }
   }
@@ -749,7 +763,7 @@
   }
 
   async function reloadKanban() {
-    cacheStore.invalidate('facturas:kanban');
+    cacheStore.invalidate('facturas');
     await loadData();
   }
 
@@ -758,7 +772,7 @@
   });
 
   $effect(() => {
-    if (appStore.currentTab === 'kanban' && cacheStore.get('facturas:kanban') === null) {
+    if (appStore.currentTab === 'kanban' && cacheStore.get('facturas') === null) {
       loadData();
     }
   });

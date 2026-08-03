@@ -3,6 +3,7 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
   import { hasMolduraItems, parseCard, buildMoldurasHtmlByTemplate } from '$lib/utils/molduras';
   import { invoke } from '@tauri-apps/api/core';
@@ -46,14 +47,14 @@
   async function loadFacturas() {
     loading = true;
     try {
-      const all = await cacheStore.fetch('facturas:modal', () => api.listFacturas({ limit: 2000 }), 60000);
+      const all = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       facturas = all;
       // Load preselected ones first
       for (const id of preselectedIds) {
         if (!facturas.find(f => f.id === id)) {
           try {
             const { factura } = await api.getFactura(id);
-            if (factura) facturas = [factura, ...facturas];
+            if (factura && factura.estado_kanban !== 'NO_CONFIRMADO') facturas = [factura, ...facturas];
           } catch { }
         }
       }
@@ -88,7 +89,7 @@
     }
     searchTimeout = setTimeout(async () => {
       try {
-        const results = await api.listFacturas({ search: q, limit: 20 });
+        const results = facturasActivas(await api.listFacturas({ search: q, limit: 20 }));
         searchResults = results.filter(r => !selectedIds.has(r.id));
       } catch { searchResults = []; }
     }, 300);

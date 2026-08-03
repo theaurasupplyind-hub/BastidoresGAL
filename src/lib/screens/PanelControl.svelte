@@ -6,7 +6,8 @@
   import { animate, spring } from 'animejs';
 
   // ── Task List (API) ──
-  let tasks = $state<Array<{ id: number; text: string; done: boolean; position: number; assigned_by: string | null; images: Array<{ id: number }> }>>([]);
+  type TaskImageRef = { id: number; created_at?: string | null; url?: string | null };
+  let tasks = $state<Array<{ id: number; text: string; done: boolean; position: number; assigned_by: string | null; images: TaskImageRef[] }>>([]);
   let loadingTasks = $state(false);
   let newTaskText = $state('');
   let imageFileInput = $state<HTMLInputElement>();
@@ -16,7 +17,7 @@
   let pastedImage = $state<Uint8Array | null>(null);
   let pastedImageUrl = $state<string | null>(null);
   let showTaskTrash = $state(false);
-  let trashTasks = $state<Array<{ id: number; text: string; done: boolean; assigned_by: string | null; images: Array<{ id: number }> }>>([]);
+  let trashTasks = $state<Array<{ id: number; text: string; done: boolean; position: number; assigned_by: string | null; images: TaskImageRef[] }>>([]);
   let loadingTrash = $state(false);
 
   async function loadTasks() {
@@ -78,8 +79,8 @@
     }
   }
 
-  function openImagePreview(taskId: number, imageId: number) {
-    selectedImageUrl = api.getTaskImageViewUrl(taskId, imageId);
+  function openImagePreview(taskId: number, imageId: number, url?: string | null) {
+    selectedImageUrl = url ?? api.getTaskImageViewUrl(taskId, imageId);
   }
 
   function closeImagePreview() {
@@ -147,31 +148,26 @@
   async function loadDashboardPanel() {
     loadingData = true;
     try {
-      const data = await api.getMapaDashboard(PLAN_FECHA, true);
-      entregas = data.entregas;
-      todosLosClientes = data.clientes;
-      cacheStore.set('mapa-clientes', data.clientes, 120000);
-      const clientesConPendientes = new Set(entregas.map((e: any) => e.id));
-      if (data.plan && data.plan.grupos && data.plan.grupos.length > 0) {
-        let grupos = data.plan.grupos;
-        let dirty = false;
-        grupos = grupos
-          .map((g: any) => {
-            const ids = g.clienteIds.filter((id: number) => clientesConPendientes.has(id));
-            const orden = (g.ordenRuta || []).filter((id: number) => clientesConPendientes.has(id));
-            if (ids.length !== g.clienteIds.length) dirty = true;
-            return { ...g, clienteIds: ids, ordenRuta: orden };
-          })
-          .filter((g: any) => g.clienteIds.length > 0);
-        if (dirty) {
-          api.savePlanViaje({ fecha: PLAN_FECHA, grupos }).catch(() => {});
-        }
-        planGrupos = grupos;
-        planViajeId = data.plan.id;
+      // Caché compartida con MapaClientes (clientes + entregas). El plan es el
+      // permanente ('plan_permanente'), se trae aparte porque es específico del panel.
+      const base = await cacheStore.fetch('mapa-base:0', async () => {
+        const data = await api.getMapaDashboard(PLAN_FECHA, true);
+        return { clientes: data.clientes, entregas: data.entregas };
+      }, 60000);
+      entregas = base.entregas;
+      todosLosClientes = base.clientes;
+      const plan = await api.getPlanViaje(PLAN_FECHA);
+      if (plan && plan.grupos && plan.grupos.length > 0) {
+        planGrupos = plan.grupos.filter((g: any) => (g.clienteIds || []).length > 0);
+        planViajeId = plan.id;
       } else {
         planGrupos = [];
         planViajeId = null;
       }
+      try {
+        const cfg = await api.getMapaConfig();
+        clusterMin = cfg.cluster_min || 0;
+      } catch {}
     } catch {
       entregas = []; todosLosClientes = []; planGrupos = []; planViajeId = null;
     }
@@ -182,6 +178,18 @@
     return todosLosClientes.find(c => c.id === id) ?? entregas.find(e => e.id === id) ?? null;
   }
 
+  function idsOrdenadosGrupo(g: any): number[] {
+    const visto = new Set<number>();
+    const out: number[] = [];
+    for (const id of g.ordenRuta || []) {
+      if (!visto.has(id)) { visto.add(id); out.push(id); }
+    }
+    for (const id of g.clienteIds || []) {
+      if (!visto.has(id)) { visto.add(id); out.push(id); }
+    }
+    return out;
+  }
+
   function facturasDelCliente(id: number): any[] {
     return entregas.find(e => e.id === id)?.facturas?.filter((f: any) => f.estado_kanban !== 'NO_CONFIRMADO') ?? [];
   }
@@ -190,6 +198,7 @@
   let planGrupos = $state<any[]>([]);
   let planViajeId = $state<string | null>(null);
   let planDirty = $state(false);
+  let clusterMin = $state(0);
   let dragCliente = $state<{ clienteId: number; grupoOrigen: string | null } | null>(null);
   let dragEl = $state<HTMLElement | null>(null);
   let dragOverGrupo = $state<string | null>(null);
@@ -384,7 +393,7 @@
       const [facturas, facturasEntregadas, pagos, usuarios] = await Promise.all([
         api.listFacturas({ limit: 30 }),
         api.listFacturas({ estado_entrega: 'ENTREGADO', limit: 20 }),
-        api.listPagos(),
+        cacheStore.fetch('pagos', () => api.listPagos(), 60000),
         api.getUsers(),
       ]);
       usersMap = new Map((usuarios || []).map((u: any) => [u.id, u.full_name]));
@@ -406,7 +415,7 @@
         }
       }
 
-      for (const f of (facturasEntregadas || [])) {
+      for (const f of (facturasEntregadas || []).filter((x: any) => x.estado_kanban !== 'NO_CONFIRMADO')) {
         items.push({
           id: f.id,
           type: 'entrega',
@@ -436,6 +445,11 @@
       items.sort((a, b) => (b.time || '').localeCompare(a.time || ''));
       activity = items.slice(0, 20);
     } catch { activity = []; }
+  }
+
+  async function refreshActivity() {
+    cacheStore.invalidate('pagos');
+    await loadActivity();
   }
 
   // ── Notas (API global) ──
@@ -598,10 +612,8 @@
     loadDashboardPanel();
     loadActivity();
     loadDismissed();
-    activityInterval = setInterval(loadActivity, 15000);
-  });
-
-  onDestroy(() => {
+    activityInterval = setInterval(loadActivity, 60000);
+  });  onDestroy(() => {
     if (activityInterval) clearInterval(activityInterval);
   });
 </script>
@@ -645,8 +657,8 @@
                   {#if task.images?.length}
                     <div class="task-thumbs">
                       {#each task.images as img}
-                        <button class="task-thumb" onclick={() => openImagePreview(task.id, img.id)} aria-label="Ver imagen">
-                          <img src={api.getTaskImageViewUrl(task.id, img.id)} alt="" loading="lazy" />
+                        <button class="task-thumb" onclick={() => openImagePreview(task.id, img.id, img.url)} aria-label="Ver imagen">
+                          <img src={img.url ?? api.getTaskImageViewUrl(task.id, img.id)} alt="" loading="lazy" />
                         </button>
                       {/each}
                     </div>
@@ -678,8 +690,8 @@
               {#if task.images?.length}
                 <div class="task-thumbs">
                   {#each task.images as img}
-                    <button class="task-thumb" onclick={() => openImagePreview(task.id, img.id)} aria-label="Ver imagen">
-                      <img src={api.getTaskImageViewUrl(task.id, img.id)} alt="" loading="lazy" />
+                    <button class="task-thumb" onclick={() => openImagePreview(task.id, img.id, img.url)} aria-label="Ver imagen">
+                      <img src={img.url ?? api.getTaskImageViewUrl(task.id, img.id)} alt="" loading="lazy" />
                       <span class="thumb-remove" onclick={(e) => { e.stopPropagation(); removeTaskImage(task.id, img.id); }} role="button" aria-label="Eliminar imagen">✕</span>
                     </button>
                   {/each}
@@ -749,6 +761,9 @@
           <span class="stat-label">viajes</span>
         </div>
       </div>
+      {#if clusterMin > 0 && planGrupos.some((g: any) => g.clienteIds.length < clusterMin)}
+        <div class="grupo-alert-bajo-sutil" title="Ajustá el máximo/mínimo en el mapa">⚠️ {planGrupos.filter((g: any) => g.clienteIds.length < clusterMin).length} viaje(s) bajo el mínimo ({clusterMin})</div>
+      {/if}
       <div class="entregas-list">
         {#if loadingData}
           <div class="entregas-empty">Cargando...</div>
@@ -780,7 +795,7 @@
                   <button class="grupo-rename-btn" onclick={(e) => { e.stopPropagation(); iniciarRenombrarGrupo(grupo.id, grupo.nombre); }} title="Renombrar">✏️</button>
                 </div>
                 <div class="grupo-clientes">
-                  {#each grupo.ordenRuta.length > 0 ? grupo.ordenRuta : grupo.clienteIds as clienteId, i}
+                  {#each idsOrdenadosGrupo(grupo) as clienteId, i}
                     {@const ec = buscarCliente(clienteId)}
                     {@const facts = facturasDelCliente(clienteId)}
                     {#if ec}
@@ -879,6 +894,9 @@
           <span class="card-title">ACTIVIDAD</span>
         </div>
         <span class="card-badge">HOY</span>
+        <button class="refresh-btn" onclick={refreshActivity} title="Recargar actividad" style="margin-left:auto;background:none;border:none;color:#9ca3af;cursor:pointer;padding:2px 6px;border-radius:4px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+        </button>
       </div>
       <div class="activity-list">
         {#each activity.filter(a => !dismissed.has(`${a.type}-${a.id}`)) as item, i (i)}
@@ -1519,6 +1537,15 @@
     font-size: 12px;
     color: rgba(255,255,255,0.5);
     font-weight: 500;
+  }
+  .grupo-alert-bajo-sutil {
+    margin: 0 12px 4px;
+    padding: 5px 10px;
+    font-size: 11px;
+    color: #fbbf24;
+    background: rgba(251,191,36,0.1);
+    border: 1px solid rgba(251,191,36,0.3);
+    border-radius: 6px;
   }
 
   .grupo-clientes {

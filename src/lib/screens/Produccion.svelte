@@ -3,6 +3,7 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura, InvoiceItem } from '$lib/types';
 
   let loading = $state(false);
@@ -71,7 +72,7 @@
   async function loadCards() {
     loading = true;
     try {
-      const facturas = await cacheStore.fetch('facturas:produccion', () => api.listFacturas({ limit: 2000 }), 60000);
+      const facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       const pending = facturas.filter(f => f.estado_orden_tela === 'PENDING');
       cards = pending.map(f => ({
         id: f.id,
@@ -133,7 +134,7 @@
     addSearch = '';
     addSelected = new Set();
     try {
-      allFacturas = await cacheStore.fetch('facturas:produccion', () => api.listFacturas({ limit: 2000 }), 60000);
+      allFacturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       showAddDialog = true;
     } catch (e) {
       appStore.alert('Error al cargar facturas: ' + (e as Error).message);

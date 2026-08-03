@@ -143,6 +143,24 @@
   .ac-input {
     flex: 1;
     min-width: 0;
+    width: 100%;
+    padding: 0.571rem 0.714rem;
+    border: 1px solid var(--border);
+    border-radius: 0.429rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 0.929rem;
+    font-family: var(--font);
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .ac-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+  }
+  .ac-input::placeholder {
+    color: var(--text-secondary);
   }
   .ac-loading {
     position: absolute;

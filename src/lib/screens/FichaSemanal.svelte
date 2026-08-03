@@ -3,13 +3,15 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { facturasActivas } from '$lib/utils/facturas';
+  import PagoDialog from '$lib/components/PagoDialog.svelte';
   import type { Factura, Pago, FichaSemanalRow, Kpis, Cliente } from '$lib/types';
   import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
 
   let loading = $state(false);
   let rows = $state<FichaSemanalRow[]>([]);
   let facturas = $state<Factura[]>([]);
-  let allFacturas = $state<Factura[]>([]);
+  let resumen = $state<{ count: number; facturado: number; deuda: number; cobrado: number }>({ count: 0, facturado: 0, deuda: 0, cobrado: 0 });
   let pagos = $state<Pago[]>([]);
   let clientes = $state<Cliente[]>([]);
   let kpis = $state<Kpis>({ v_p:0, v_g:0, c_p:0, c_g:0, n_p:0, n_g:0, d_p:0, d_g:0 });
@@ -31,21 +33,31 @@
 
   // Payment dialog
   let showPagoDialog = $state(false);
-  let pagoEditando = $state(false);
-  let pagoId = $state<number | null>(null);
-  let pagoInvId = $state<number | null>(null);
-  let pagoInvNumero = $state('');
-  let pagoInvCliente = $state('');
-  let pagoDate = $state('');
-  let pagoAmount = $state(0);
-  let pagoMethod = $state('Efectivo');
-  let pagoBalance = $state(0);
-
-  // Entity linking (Destino de Fondos)
-  let providers = $state<import('$lib/types').Provider[]>([]);
-  let employees = $state<import('$lib/types').Employee[]>([]);
-  let pagoEntityType = $state<string>('Ninguno');
-  let pagoEntityId = $state<number | null>(null);
+  let pagoDlg = $state<{
+    editing: boolean;
+    pagoId: number | null;
+    invoiceId: number | null;
+    invoiceNumero: string;
+    invoiceCliente: string;
+    invoiceTotal: number;
+    initialAmount: number;
+    initialDate: string;
+    initialMethod: string;
+    initialEntityType: string;
+    initialEntityId: number | null;
+  }>({
+    editing: false,
+    pagoId: null,
+    invoiceId: null,
+    invoiceNumero: '',
+    invoiceCliente: '',
+    invoiceTotal: 0,
+    initialAmount: 0,
+    initialDate: '',
+    initialMethod: 'Efectivo',
+    initialEntityType: 'PROVIDER',
+    initialEntityId: null,
+  });
 
   // Audit dialog
   let showAudit = $state(false);
@@ -119,20 +131,19 @@
   async function loadData() {
     loading = true;
     try {
-      const f = await cacheStore.fetch(`facturas:semanal:${startDate}:${endDate}`, () => api.listFacturas({ start: startDate, end: endDate, limit: 2000 }), 60000);
-      const p = await cacheStore.fetch('pagos', () => api.listPagos(), 120000);
-      const c = await cacheStore.fetch('clientes', () => api.listClientes(), 1800000);
-      const [provs, emps] = await Promise.all([
-        cacheStore.fetch('providers', () => api.listProviders(), 1800000),
-        cacheStore.fetch('employees', () => api.listEmployees(true), 1800000),
+      const [f, p, c] = await Promise.all([
+        cacheStore.fetch(`facturas:semanal:${startDate}:${endDate}`, () => api.listFacturas({ start: startDate, end: endDate, limit: 2000, with_items: false }), 300000),
+        cacheStore.fetch('pagos', () => api.listPagos(), 120000),
+        cacheStore.fetch('clientes', () => api.listClientes(), 1800000),
       ]);
-      facturas = f;
-      const allF = await cacheStore.fetch('facturas:todas', () => api.listFacturas({ limit: 2000 }), 60000);
-      allFacturas = allF;
+      facturas = facturasActivas(f);
       pagos = p;
       clientes = c;
-      providers = provs;
-      employees = emps;
+      try {
+        resumen = await api.getInvoicesResumen();
+      } catch {
+        resumen = { count: 0, facturado: 0, deuda: 0, cobrado: 0 };
+      }
       computeRows();
       computeKpis();
       computeRecentPagos();
@@ -174,29 +185,29 @@
     const periodF = rows;
 
     const v_p = periodF.reduce((s, r) => s + r.total, 0);
-    const v_g = allFacturas.reduce((s, f) => s + (f.total || 0), 0);
     const c_p = rows.reduce((s, r) => s + r.pagado, 0);
-    const c_g = pagos.reduce((s, p) => s + (p.amount || 0), 0);
     const n_p = periodF.length;
-    const n_g = allFacturas.length;
     const d_p = periodF.reduce((s, r) => s + r.saldo, 0);
-    const pagoMap = new Map<number, number>();
-    for (const p of pagos) {
-      pagoMap.set(p.invoice_id, (pagoMap.get(p.invoice_id) || 0) + (p.amount || 0));
-    }
-    const d_g = allFacturas.reduce((s, f) => s + (f.total || 0) - (pagoMap.get(f.id) || 0), 0);
 
-    kpis = { v_p, v_g, c_p, c_g, n_p, n_g, d_p, d_g };
+    kpis = {
+      v_p,
+      v_g: resumen.facturado,
+      c_p,
+      c_g: resumen.cobrado,
+      n_p,
+      n_g: resumen.count,
+      d_p,
+      d_g: resumen.deuda,
+    };
   }
 
   function computeRecentPagos() {
-    const facturaMap = new Map(allFacturas.map(f => [f.id, f.cliente_nombre || '']));
     recentPagos = [...pagos]
       .sort((a, b) => ((b.created_at || b.date || '') > (a.created_at || a.date || '') ? 1 : -1))
       .slice(0, 50)
       .map(p => ({
         ...p,
-        cliente_nombre: facturaMap.get(p.invoice_id) || 'Desconocido',
+        cliente_nombre: p.extra_client_name || 'Desconocido',
       }));
     pagoPage = 0;
   }
@@ -215,35 +226,45 @@
   }
 
    function openNewPago(invId?: number) {
-    pagoEditando = false;
-    pagoId = null;
-    pagoEntityType = 'Ninguno';
-    pagoEntityId = null;
     if (invId) {
       const f = facturas.find(x => x.id === invId);
       if (f) {
-        pagoInvId = f.id;
-        pagoInvNumero = f.numero_factura || f.numero_presupuesto || '';
-        pagoInvCliente = f.cliente_nombre || '';
         const invPagos = pagos.filter(p => p.invoice_id === f.id);
         const pagado = invPagos.reduce((s, p) => s + (p.amount || 0), 0);
-        pagoBalance = (f.total || 0) - pagado;
-        if (pagoBalance <= 0) {
+        const saldo = (f.total || 0) - pagado;
+        if (saldo <= 0) {
           appStore.alert('Esta factura ya está pagada completamente.');
           return;
         }
-        pagoAmount = pagoBalance;
+        pagoDlg = {
+          editing: false,
+          pagoId: null,
+          invoiceId: f.id,
+          invoiceNumero: f.numero_factura || f.numero_presupuesto || '',
+          invoiceCliente: f.cliente_nombre || '',
+          invoiceTotal: f.total || 0,
+          initialAmount: saldo,
+          initialDate: new Date().toISOString().slice(0, 10),
+          initialMethod: 'Efectivo',
+          initialEntityType: 'PROVIDER',
+          initialEntityId: null,
+        };
       }
     } else {
-      pagoInvId = null;
-      pagoInvNumero = '';
-      pagoInvCliente = '';
-      pagoBalance = 0;
-      pagoAmount = 0;
+      pagoDlg = {
+        editing: false,
+        pagoId: null,
+        invoiceId: null,
+        invoiceNumero: '',
+        invoiceCliente: '',
+        invoiceTotal: 0,
+        initialAmount: 0,
+        initialDate: new Date().toISOString().slice(0, 10),
+        initialMethod: 'Efectivo',
+        initialEntityType: 'PROVIDER',
+        initialEntityId: null,
+      };
     }
-    const now = new Date().toISOString().slice(0, 10);
-    pagoDate = now;
-    pagoMethod = 'Efectivo';
     showPagoDialog = true;
   }
 
@@ -260,59 +281,31 @@
   }
 
   function openEditPago(pago: Pago & { cliente_nombre: string }) {
-    pagoEditando = true;
-    pagoId = pago.id;
-    pagoInvId = pago.invoice_id;
-    pagoDate = dateToInput(pago.date);
-    pagoAmount = pago.amount;
-    pagoMethod = pago.method;
-    pagoEntityType = pago.entity_type || 'Ninguno';
-    pagoEntityId = pago.entity_id ?? null;
-    const f = facturas.find(x => x.id === pago.invoice_id);
-    pagoInvNumero = f ? (f.numero_factura || f.numero_presupuesto || '') : '';
-    pagoInvCliente = pago.cliente_nombre;
-    const invPagos = pagos.filter(p2 => p2.invoice_id === pago.invoice_id);
-    const pagado = invPagos.reduce((s, p2) => s + (p2.amount || 0), 0);
-    pagoBalance = f ? (f.total || 0) - pagado + pago.amount : 0;
+    pagoDlg = {
+      editing: true,
+      pagoId: pago.id,
+      invoiceId: pago.invoice_id,
+      invoiceNumero: pago.extra_invoice_num || '',
+      invoiceCliente: pago.cliente_nombre,
+      invoiceTotal: pago.extra_invoice_total ?? 0,
+      initialAmount: pago.amount,
+      initialDate: dateToInput(pago.date),
+      initialMethod: pago.method,
+      initialEntityType: pago.entity_type || 'PROVIDER',
+      initialEntityId: pago.entity_id ?? null,
+    };
     showPagoDialog = true;
   }
 
-  async function savePago() {
-    if (!pagoInvId || !pagoDate) return;
-    try {
-      const entityType = pagoMethod === 'Transferencia' && pagoEntityType !== 'Ninguno' ? pagoEntityType : null;
-      const entityId = entityType ? pagoEntityId : null;
-      const payload: Record<string, unknown> = {
-        invoice_id: pagoInvId,
-        date: pagoDate,
-        amount: pagoAmount,
-        method: pagoMethod,
-      };
-      if (entityType && entityId) {
-        payload.entity_type = entityType;
-        payload.entity_id = entityId;
-      }
-      if (pagoEditando && pagoId) {
-        await api.updatePago(pagoId, payload);
-      } else {
-        await api.addPago({
-          ...payload,
-          user_id: appStore.user?.user_id || 0,
-        });
-      }
-      showPagoDialog = false;
-      cacheStore.invalidate('pagos');
-      await loadData();
-    } catch (e) {
-      appStore.alert('Error al guardar pago: ' + (e as Error).message);
-    }
+  function handlePagoSaved() {
+    loadData();
   }
 
-  async function deletePago() {
-    if (!pagoId) return;
+  async function handleDeletePago() {
+    if (!pagoDlg.pagoId) return;
     if (!confirm('¿Eliminar este pago definitivamente?')) return;
     try {
-      await api.deletePago(pagoId);
+      await api.deletePago(pagoDlg.pagoId);
       showPagoDialog = false;
       cacheStore.invalidate('pagos');
       await loadData();
@@ -564,87 +557,23 @@
 
 <!-- Payment Dialog -->
 {#if showPagoDialog}
-  <div class="modal-overlay" role="presentation">
-    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showPagoDialog = false)}>
-      <div class="modal-header">
-        <h3>{pagoEditando ? 'Editar Pago' : 'Nuevo Pago'}</h3>
-        <button class="modal-close" onclick={() => showPagoDialog = false} aria-label="Cerrar">✕</button>
-      </div>
-      <div class="modal-body">
-        {#if pagoInvCliente}
-          <div class="pago-dialog-header">
-            <span class="pago-dialog-cliente">{pagoInvCliente}</span>
-            <span class="pago-dialog-balance">Saldo: {formatCurrency(pagoBalance)}</span>
-          </div>
-        {/if}
-        <div class="form-group">
-          <label>Factura / Presupuesto</label>
-          <input type="text" value={pagoInvNumero} disabled class="input-readonly" />
-        </div>
-        <div class="form-group">
-          <label>Fecha</label>
-          <input type="date" bind:value={pagoDate} />
-        </div>
-        <div class="form-group">
-          <label>Monto</label>
-          <input type="number" bind:value={pagoAmount} step="0.01" min="0" />
-        </div>
-        <div class="form-group">
-          <label>Método</label>
-          <select bind:value={pagoMethod}>
-            <option value="Efectivo">Efectivo</option>
-            <option value="Transferencia">Transferencia</option>
-            <option value="Cheque">Cheque</option>
-          </select>
-        </div>
-        {#if pagoMethod === 'Transferencia'}
-          <div class="vincular-section">
-            <label class="vincular-title">Destino de Fondos</label>
-            <div class="form-group">
-              <label>Vincular con</label>
-              <select bind:value={pagoEntityType}>
-                <option value="Ninguno">Ninguno</option>
-                <option value="PROVIDER">Proveedor</option>
-                <option value="EMPLOYEE">Empleado</option>
-              </select>
-            </div>
-            {#if pagoEntityType !== 'Ninguno'}
-              <div class="form-group">
-                <label>Seleccionar</label>
-                <select
-                  value={pagoEntityId ?? ''}
-                  onchange={(e) => {
-                    const val = parseInt((e.target as HTMLSelectElement).value);
-                    pagoEntityId = isNaN(val) ? null : val;
-                  }}
-                >
-                  <option value="">Seleccione...</option>
-                  {#if pagoEntityType === 'PROVIDER'}
-                    {#each providers as prov}
-                      <option value={prov.id}>{prov.name}</option>
-                    {/each}
-                  {:else if pagoEntityType === 'EMPLOYEE'}
-                    {#each employees.filter(e => e.active) as emp}
-                      <option value={emp.id}>{emp.name}</option>
-                    {/each}
-                  {/if}
-                </select>
-              </div>
-            {/if}
-          </div>
-        {/if}
-      </div>
-      <div class="modal-footer">
-        {#if pagoEditando}
-          <button class="btn btn-danger" onclick={deletePago}>🗑 Eliminar Pago</button>
-        {/if}
-        <button class="btn btn-secondary" onclick={() => showPagoDialog = false}>Cancelar</button>
-        <button class="btn btn-primary" onclick={savePago} disabled={!pagoInvId || !pagoDate || pagoAmount <= 0}>
-          {pagoEditando ? 'Guardar Cambios' : 'Registrar Pago'}
-        </button>
-      </div>
-    </div>
-  </div>
+  <PagoDialog
+    bind:show={showPagoDialog}
+    editing={pagoDlg.editing}
+    pagoId={pagoDlg.pagoId ?? 0}
+    invoiceId={pagoDlg.invoiceId ?? 0}
+    invoiceNumero={pagoDlg.invoiceNumero}
+    invoiceCliente={pagoDlg.invoiceCliente}
+    invoiceTotal={pagoDlg.invoiceTotal}
+    initialAmount={pagoDlg.initialAmount}
+    initialDate={pagoDlg.initialDate}
+    initialMethod={pagoDlg.initialMethod}
+    initialEntityType={pagoDlg.initialEntityType}
+    initialEntityId={pagoDlg.initialEntityId ?? 0}
+    onclose={() => { showPagoDialog = false; }}
+    onsaved={handlePagoSaved}
+    onDelete={handleDeletePago}
+  />
 {/if}
 
 <!-- Audit Dialog -->
@@ -916,47 +845,6 @@
   }
 
   .btn-full { width: 100%; }
-
-  .input-readonly {
-    background: #f5f5f5;
-    color: var(--text-secondary);
-  }
-  .input-bold { font-weight: 700; font-size: 1rem; }
-
-  .pago-dialog-header {
-    background: var(--accent-light);
-    border: 1px solid var(--border);
-    border-radius: 0.571rem;
-    padding: 0.714rem 1rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .pago-dialog-cliente {
-    font-weight: 700;
-    font-size: 1.1rem;
-    color: var(--text-primary);
-  }
-  .pago-dialog-balance {
-    font-weight: 700;
-    font-size: 1.2rem;
-    color: #e74c3c;
-  }
-
-  .vincular-section {
-    background: #fef9e7;
-    border: 1px solid #f9e79f;
-    border-radius: 0.571rem;
-    padding: 0.714rem 1rem;
-    margin-top: 0.429rem;
-  }
-  .vincular-title {
-    font-size: 0.92rem;
-    font-weight: 700;
-    color: #7d6608;
-    display: block;
-    margin-bottom: 0.571rem;
-  }
 
   /* Modal styles (same as other screens) */
   :global(.modal-overlay) {

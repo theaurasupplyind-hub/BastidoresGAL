@@ -2,6 +2,8 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { appStore } from '$lib/stores/appStore.svelte';
+  import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { api } from '$lib/api/client';
   import type { AppConfig } from '$lib/types';
   import Login from '$lib/screens/Login.svelte';
   import Splash from '$lib/screens/Splash.svelte';
@@ -11,6 +13,7 @@
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import PreciosReferenciaModal from '$lib/components/PreciosReferenciaModal.svelte';
   import PricingRulesModal from '$lib/components/PricingRulesModal.svelte';
+  import PdfTimerWidget from '$lib/components/PdfTimerWidget.svelte';
 
   let view = $state<'login' | 'splash' | 'dashboard'>('login');
 
@@ -31,6 +34,7 @@
       if (user) {
         appStore.user = user;
         view = 'splash';
+        warmCache();
       }
     } catch { }
 
@@ -41,9 +45,21 @@
     } catch { }
   });
 
+  // Precarga al iniciar: UNA llamada para cada lista compartida, que todas las
+  // pantallas reutilizan desde la caché (clave única `facturas` para el listado
+  // completo de facturas). Fire-and-forget: no bloquea el login.
+  function warmCache() {
+    cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000).catch(() => {});
+    cacheStore.fetch('clientes', () => api.listClientes(), 1800000).catch(() => {});
+    cacheStore.fetch('productos', () => api.listProductos(), 1800000).catch(() => {});
+    cacheStore.fetch('pagos', () => api.listPagos(), 120000).catch(() => {});
+    cacheStore.fetch('preciosReferencia', () => api.getPreciosReferencia(), 1800000).catch(() => {});
+  }
+
   function handleLogin(user: { user_id: number; user_name: string }) {
     appStore.user = user;
     view = 'splash';
+    warmCache();
   }
 
   function handleSplashDone() {
@@ -68,6 +84,7 @@
 </div>
 
 <Toast />
+<PdfTimerWidget />
 {#if appStore.showSettings}
   <SettingsModal />
 {/if}

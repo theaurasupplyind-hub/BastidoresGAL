@@ -3,6 +3,8 @@ import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 
 const API_URL = 'https://api-bastidores.onrender.com';
 
+type TaskImageRef = { id: number; created_at?: string | null; url?: string | null };
+
 async function request<T>(
   method: string,
   path: string,
@@ -38,8 +40,8 @@ async function request<T>(
   }
 }
 
-function handleResponse<T>(data: T, fallback: T): T {
-  return data ?? fallback;
+function handleResponse<T>(data: Promise<T>, fallback: T): Promise<T> {
+  return data.then(d => (d === undefined ? fallback : d));
 }
 
 export const api = {
@@ -157,6 +159,16 @@ export const api = {
   updateMapaOrigen: (data: { direccion: string; lat?: number | null; lng?: number | null }) =>
     request<{ status: string; direccion: string; lat: number | null; lng: number | null }>('PUT', '/mapa/origen', data, 15),
 
+  getMapaConfig: () =>
+    handleResponse(request<{ cluster_min: number; cluster_max: number; cluster_eps_km: number }>('GET', '/mapa/config', undefined, 15),
+      { cluster_min: 3, cluster_max: 6, cluster_eps_km: 8.0 }),
+
+  updateMapaConfig: (data: { cluster_min?: number; cluster_max?: number; cluster_eps_km?: number }) =>
+    request<{ status: string; cluster_min: number; cluster_max: number; cluster_eps_km: number }>('PUT', '/mapa/config', data, 15),
+
+  getClusterPending: (fecha = 'plan_permanente') =>
+    handleResponse(request<{ factura_id: number; numero_factura: string; cliente_id: number; cliente_nombre: string; cliente_domicilio: string; cliente_piso_depto: string; lat: number; lng: number; ya_en_plan: boolean; cambio_direccion: boolean }[]>('GET', `/mapa/cluster-pending?fecha=${fecha}`, undefined, 15), []),
+
   getMapaDashboard: (fecha: string, todas = false, recencia_meses = 0) =>
     request<{ clientes: any[]; entregas: any[]; plan: import('$lib/types').PlanDeViaje | null }>('GET', `/mapa/dashboard?fecha=${fecha}&todas=${todas}&recencia_meses=${recencia_meses}`, undefined, 20),
 
@@ -171,6 +183,21 @@ export const api = {
 
   deletePlanViaje: (id: string) =>
     request<{ status: string }>('DELETE', `/mapa/planes/${id}`, undefined, 15),
+
+  getRecomendaciones: (fecha: string) =>
+    handleResponse(request<{ id: number; grupo_id: string; cliente_id: number; distancia_km: number; cerca_de_cliente_id?: number | null; creado_en: string }[]>('GET', `/mapa/recomendaciones?fecha=${fecha}`, undefined, 15), []),
+
+  saveRecomendaciones: (fecha: string, items: { grupo_id: string; cliente_id: number; distancia_km: number; cerca_de_cliente_id?: number | null }[]) =>
+    request<{ status: string; count: number }>('POST', '/mapa/recomendaciones', { fecha, items }, 15),
+
+  mapaOptimizar: (data: { origen: [number, number]; destinos: [number, number][]; prioridades?: Record<string, number> }) =>
+    request<{ orden: string[]; geometry: string; distance: number; duration: number }>('POST', '/mapa/optimizar', data, 25),
+
+  mapaRuta: (data: { puntos: [number, number][] }) =>
+    request<{ geometry: string; distance: number; duration: number }>('POST', '/mapa/ruta', data, 25),
+
+  mapaMatriz: (data: { origen: [number, number]; destinos: [number, number][] }) =>
+    request<{ distances: number[]; durations: number[] }>('POST', '/mapa/matriz', data, 25),
 
   // ---- Productos ----
   listProductos: () => handleResponse(request<import('$lib/types').Producto[]>('GET', '/products', undefined, 10), []),
@@ -194,7 +221,7 @@ export const api = {
       .then(r => r.next_number)
       .catch(() => 'F-00000'),
 
-  listFacturas: (params?: { search?: string; user_id?: number; start?: string; end?: string; limit?: number; estado_entrega?: string }) => {
+  listFacturas: (params?: { search?: string; user_id?: number; start?: string; end?: string; limit?: number; estado_entrega?: string; with_items?: boolean }) => {
     const q = new URLSearchParams();
     if (params?.search) q.set('search', params.search);
     if (params?.user_id) q.set('user_id', String(params.user_id));
@@ -202,6 +229,7 @@ export const api = {
     if (params?.end) q.set('end', params.end);
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.estado_entrega) q.set('estado_entrega', params.estado_entrega);
+    if (params?.with_items !== undefined) q.set('with_items', params.with_items ? 'true' : 'false');
     const qs = q.toString();
     return handleResponse(request<import('$lib/types').Factura[]>('GET', `/invoices${qs ? '?' + qs : ''}`, undefined, 25), []);
   },
@@ -239,6 +267,9 @@ export const api = {
 
   // ---- Pagos ----
   listPagos: () => handleResponse(request<import('$lib/types').Pago[]>('GET', '/payments'), []),
+
+  getInvoicesResumen: () =>
+    request<{ count: number; facturado: number; deuda: number; cobrado: number }>('GET', '/invoices/resumen'),
 
   addPago: (data: any) =>
     request('POST', '/payments', data),
@@ -322,7 +353,7 @@ export const api = {
   },
 
   listPriceListImages: () =>
-    handleResponse(request<{ id: number; name: string; position: number; created_at: string }[]>('GET', '/price-list-images'), []),
+    handleResponse(request<{ id: number; name: string; position: number; created_at: string; view_url?: string | null }[]>('GET', '/price-list-images'), []),
 
   getPriceListViewUrl: (id: number) => `${API_URL}/price-list-images/${id}/view`,
 
@@ -418,25 +449,25 @@ export const api = {
 
   // ---- Tasks ----
   listTasks: () =>
-    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: Array<{ id: number }> }[]>('GET', '/tasks', undefined, 10), [] as any[]),
+    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: TaskImageRef[] }[]>('GET', '/tasks', undefined, 10), [] as any[]),
 
   createTask: (data: { text: string; assigned_by?: string }) =>
-    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: Array<{ id: number }> }>('POST', '/tasks', data),
+    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: TaskImageRef[] }>('POST', '/tasks', data),
 
   updateTask: (id: number, data: { text?: string; done?: boolean; position?: number }) =>
-    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: Array<{ id: number }> }>('PUT', `/tasks/${id}`, data),
+    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: TaskImageRef[] }>('PUT', `/tasks/${id}`, data),
 
   deleteTask: (id: number) =>
     request<{ status: string }>('DELETE', `/tasks/${id}`),
 
 listTaskTrash: () =>
-    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; deleted_at: string | null; assigned_by: string | null; images: Array<{ id: number }> }[]>('GET', '/tasks/trash'), [] as any[]),
+    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; deleted_at: string | null; assigned_by: string | null; images: TaskImageRef[] }[]>('GET', '/tasks/trash'), [] as any[]),
 
   restoreTask: (id: number) =>
     request<{ status: string }>('POST', '/tasks/' + id + '/restore'),
 
   listTaskImages: (taskId: number) =>
-    handleResponse(request<{ id: number; created_at: string | null }[]>('GET', '/tasks/' + taskId + '/images'), []),
+    handleResponse(request<TaskImageRef[]>('GET', '/tasks/' + taskId + '/images'), []),
 
   async uploadTaskImage(taskId: number, file: Uint8Array, name: string) {
     const formData = new FormData();

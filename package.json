@@ -1,7 +1,7 @@
 {
   "name": "galv2-tauri",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.3.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,7 +14,6 @@
     "@sveltejs/vite-plugin-svelte": "^7.1.2",
     "@tauri-apps/cli": "^2.11.2",
     "@tsconfig/svelte": "^5.0.8",
-    "@types/leaflet-routing-machine": "^3.2.9",
     "@types/node": "^24.12.3",
     "esbuild": "^0.28.0",
     "svelte": "^5.55.5",
@@ -37,7 +36,6 @@
     "chartjs-plugin-datalabels": "^2.2.0",
     "flatpickr": "^4.6.13",
     "html2canvas": "^1.4.1",
-    "leaflet": "^1.9.4",
-    "leaflet-routing-machine": "^3.2.12"
+    "leaflet": "^1.9.4"
   }
 }

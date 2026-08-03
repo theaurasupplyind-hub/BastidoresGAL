@@ -70,7 +70,7 @@
     try {
       const res = await api.geocodificarCliente(cliente.id);
       if (res?.lat && res?.lng) {
-        appStore.showToast('Ubicación geocodificada', 'success');
+        appStore.showToast('Ubicación encontrada', 'success');
         onsaved?.();
       }
     } catch (e: any) {
@@ -88,7 +88,7 @@
       if (res?.lat && res?.lng) {
         addr.lat = res.lat;
         addr.lng = res.lng;
-        appStore.showToast('Dirección geocodificada', 'success');
+        appStore.showToast('Dirección encontrada', 'success');
         onsaved?.();
       }
     } catch (e: any) {
@@ -171,7 +171,7 @@
         <div class="modal-actions em-actions">
           {#if !isNew && form.domicilio}
             <button type="button" class="btn-geo-modal" onclick={geocodificarCliente} disabled={geocodificandoId === cliente!.id}>
-              {geocodificandoId === cliente!.id ? '⏳ Geocodificando...' : '📍 Geocodificar ubicación'}
+              {geocodificandoId === cliente!.id ? '⏳ Ubicando...' : '📍 Ubicar'}
             </button>
           {/if}
           <button type="submit" class="btn-primary" disabled={saving}>{saving ? 'Guardando...' : isNew ? 'Crear' : 'Guardar'}</button>
@@ -196,7 +196,7 @@
                 {#if a.is_default}<span class="default-badge">Default</span>{/if}
               </span>
               <span class="address-btns">
-                <button class="btn-sm-addr btn-geo-addr" onclick={() => geocodificarAddress(a)} title="Geocodificar" disabled={geocodificandoAddrId === a.id}>
+                <button class="btn-sm-addr btn-geo-addr" onclick={() => geocodificarAddress(a)} title="Ubicar" disabled={geocodificandoAddrId === a.id}>
                   {geocodificandoAddrId === a.id ? '⏳' : '📍'}
                 </button>
                 {#if !a.is_default}

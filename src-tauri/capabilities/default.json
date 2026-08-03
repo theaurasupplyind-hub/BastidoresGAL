@@ -52,8 +52,8 @@
       "allow": [
         { "url": "https://api-bastidores.onrender.com/**" },
         { "url": "https://nominatim.openstreetmap.org/**" },
-        { "url": "https://router.project-osrm.org/**" },
-        { "url": "https://photon.komoot.io/**" }
+        { "url": "https://photon.komoot.io/**" },
+        { "url": "https://fuxmmiydpfywjbwswdnd.supabase.co/**" }
       ]
     },
     "http:allow-fetch-cancel",
