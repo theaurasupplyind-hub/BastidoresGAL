@@ -7,8 +7,10 @@
   import type { Factura, InvoiceItem, FechasEntrega } from '$lib/types';
   import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
   import { hasMolduraItems, parseCard, buildMoldurasHtmlByTemplate } from '$lib/utils/molduras';
+  import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
   import { invoke } from '@tauri-apps/api/core';
   import InvoicePrintModal from '$lib/components/InvoicePrintModal.svelte';
+  import PrinterBadge from '$lib/components/PrinterBadge.svelte';
 
   const COLUMNS = [
     { key: 'PEDIDO',    title: 'Pedidos',     icon: '📋', color: '#dc3545' },
@@ -590,8 +592,10 @@
     startPdfTimer('Molduras');
     let genOk = false;
     try {
+      await molduraStore.load();
       const parsed = cards.map(f => {
         const p = parseCard(f);
+        molduraStore.applyCorrectionsToCard(p);
         return { ...p, hasMoldura: hasMolduraItems(f) };
       });
       const html = buildMoldurasHtmlByTemplate(parsed, appStore.molduraTemplate);
@@ -633,8 +637,10 @@
     startPdfTimer('Molduras remoto');
     let genOk = false;
     try {
+      await molduraStore.load();
       const parsed = cards.map(f => {
         const p = parseCard(f);
+        molduraStore.applyCorrectionsToCard(p);
         return { ...p, hasMoldura: hasMolduraItems(f) };
       });
       const html = buildMoldurasHtmlByTemplate(parsed, appStore.molduraTemplate);
@@ -828,6 +834,9 @@
             {/if}
             {#if getUrgencia(card)}
               <span class="badge badge-urgencia" style="background: {getUrgencia(card)!.bg}; color: {getUrgencia(card)!.color};">{getUrgencia(card)!.label}</span>
+            {/if}
+            {#if card.impresa_at}
+              <PrinterBadge impresaAt={card.impresa_at} impresaPor={card.impresa_por} />
             {/if}
           </div>
         {/if}
@@ -1151,6 +1160,7 @@
     show={showInvoicePrintModal}
     cards={invoicePrintColIdx >= 0 ? (columns[invoicePrintColIdx]?.cards || []) : []}
     onClose={closeInvoicePrintModal}
+    onPrinted={() => loadData()}
   />
 </div>
 

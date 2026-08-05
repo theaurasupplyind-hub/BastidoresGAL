@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { calcLargueros, calcFilas } from '$lib/utils/molduras';
+  import { getMolduraFormula, computeLarCm, computeTravCm } from '$lib/utils/molduras';
 
   let { w, h, largueroQty, travesanoQty }: {
     w: number;
@@ -10,17 +10,17 @@
 
   let longer = $derived(Math.max(w, h));
   let shorter = $derived(Math.min(w, h));
-  let largueros = $derived(largueroQty ?? calcLargueros(longer));
-  let filas = $derived(travesanoQty ?? calcFilas(shorter));
+  let formula = $derived(getMolduraFormula(w, h, 1));
+
+  let largueros = $derived(largueroQty ?? formula.larguero_count);
+  let filas = $derived(travesanoQty ?? formula.filas);
   let isLandscape = $derived(w >= h);
 
   let cols = $derived(isLandscape ? largueros + 1 : filas + 1);
   let rows = $derived(isLandscape ? filas + 1 : largueros + 1);
 
-  let larCm = $derived(Math.round((shorter - 5.2) * 10) / 10);
-
-  let discount = $derived(largueros === 1 ? 9.0 : largueros === 2 ? 12.8 : 16.5);
-  let travCm = $derived(filas > 0 ? Math.round(((longer - discount) / (largueros + 1)) * 10) / 10 : 0);
+  let larCm = $derived(computeLarCm(shorter));
+  let travCm = $derived(computeTravCm(longer, largueros, filas));
 
   let horzVar = $derived(isLandscape ? w : h);
   let vertVar = $derived(isLandscape ? h : w);

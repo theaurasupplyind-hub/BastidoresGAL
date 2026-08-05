@@ -265,6 +265,13 @@ export const api = {
   patchInvoiceField: (id: number, field: string, value: string) =>
     request('PATCH', `/invoices/${id}`, { [field]: value }),
 
+  setImpresas: (ids: number[], mark: boolean, user_name?: string) =>
+    request<{ status: string; count: number }>('POST', '/invoices/print/batch', {
+      ids,
+      user_name,
+      action: mark ? 'mark' : 'unmark',
+    }),
+
   // ---- Pagos ----
   listPagos: () => handleResponse(request<import('$lib/types').Pago[]>('GET', '/payments'), []),
 
@@ -376,7 +383,10 @@ export const api = {
     larguero_cm: number;
     travesano_qty: number;
     travesano_cm: number;
-  }) => request<{ status: string }>('POST', '/moldura-corrections', data),
+  }) => request<import('$lib/stores/molduraCorrectionsLocal').MolduraCorrectionLocal>('POST', '/moldura-corrections', data),
+
+  getAllMolduraCorrections: () =>
+    handleResponse(request<import('$lib/stores/molduraCorrectionsLocal').MolduraCorrectionLocal[]>('GET', '/moldura-corrections', undefined, 8), []),
 
   findMolduraCorrection: (w: number, h: number, qty: number = 1) =>
     handleResponse(request<any>('GET', `/moldura-corrections/match?w=${w}&h=${h}&qty=${qty}`, undefined, 8), null),

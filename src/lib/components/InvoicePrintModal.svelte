@@ -1,15 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import { confirm as dialogConfirm } from '@tauri-apps/plugin-dialog';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
+  import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { startPdfTimer, endPdfTimer } from '$lib/stores/pdfTimerStore.svelte';
   import type { Factura } from '$lib/types';
 
-  let { show, cards = [] as Factura[], onClose }: {
+  let { show, cards = [] as Factura[], onClose, onPrinted }: {
     show: boolean;
     cards: Factura[];
     onClose: () => void;
+    onPrinted?: () => void;
   } = $props();
 
   let config = $state<any>({});
@@ -68,6 +71,11 @@
     if (selectedIds.size === 0) return;
     const selected = cards.filter(c => selectedIds.has(c.id));
 
+    if (shouldPrint && selected.some(c => c.impresa_at)) {
+      const yaImpresas = selected.filter(c => c.impresa_at).length;
+      if (!await dialogConfirm(`${yaImpresas} factura(s) ya fueron impresas. ¿Reimprimir igual?`)) return;
+    }
+
     const invoices = selected.map(c => ({
       numPresupuesto: c.numero_presupuesto,
       numFactura: c.numero_factura,
@@ -99,6 +107,11 @@
         try {
           await invoke('print_pdf', { path: pdfPath });
           appStore.showToast('Enviando a imprimir...', 'success');
+          try {
+            await api.setImpresas([...selectedIds], true, appStore.user?.user_name);
+            cacheStore.invalidate('facturas');
+            onPrinted?.();
+          } catch {}
         } catch (e: any) {
           const errMsg = e?.message ?? (typeof e === 'string' ? e : 'Error desconocido');
           if (errMsg.startsWith('NO_PRINTER:')) {
@@ -124,6 +137,11 @@
   async function handleSendToRemote() {
     if (selectedIds.size === 0) return;
     const selected = cards.filter(c => selectedIds.has(c.id));
+
+    if (selected.some(c => c.impresa_at)) {
+      const yaImpresas = selected.filter(c => c.impresa_at).length;
+      if (!await dialogConfirm(`${yaImpresas} factura(s) ya fueron impresas. ¿Reenviar a imprimir igual?`)) return;
+    }
 
     const invoices = selected.map(c => ({
       numPresupuesto: c.numero_presupuesto,
@@ -159,6 +177,11 @@
         apiKey: targetKey,
       });
       appStore.showToast('Enviado a impresión remota');
+      try {
+        await api.setImpresas([...selectedIds], true, u?.user_name);
+        cacheStore.invalidate('facturas');
+        onPrinted?.();
+      } catch {}
     } catch (e: any) {
       appStore.showToast('Error: ' + (e?.message || e), 'error');
     } finally {
@@ -197,6 +220,9 @@
                 <span class="invoice-detail">
                   {card.tipo === 'PRESUPUESTO' ? 'Presupuesto' : 'Factura'} #{card.numero_factura || card.numero_presupuesto} — ${(card.total ?? 0).toLocaleString('es-AR')}
                 </span>
+                {#if card.impresa_at}
+                  <span class="invoice-impresa" title="Impreso el {card.impresa_at}{card.impresa_por ? ` por ${card.impresa_por}` : ''}">Ya impreso</span>
+                {/if}
               </div>
             </label>
           {/each}
@@ -301,6 +327,16 @@
   }
   .invoice-client { font-weight: 600; font-size: 0.929rem; }
   .invoice-detail { font-size: 0.786rem; color: #666; }
+  .invoice-impresa {
+    align-self: flex-start;
+    font-size: 0.714rem;
+    font-weight: 600;
+    color: #155724;
+    background: #d4edda;
+    border: 1px solid #c3e6cb;
+    border-radius: 0.286rem;
+    padding: 0.071rem 0.429rem;
+  }
   .modal-footer {
     display: flex;
     gap: 0.571rem;

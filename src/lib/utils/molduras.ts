@@ -11,6 +11,8 @@ export interface CardItem {
   travesaño?: string;
   isNonMolding?: boolean;
   isTapacanto?: boolean;
+  hasCorrection?: boolean;
+  correctionInherited?: boolean;
 }
 
 export interface CardMaterial {
@@ -25,6 +27,12 @@ export const typeLabel: Record<string, string> = {
   T: 'Traves.',
 };
 
+export function syncItemStrings(item: CardItem, mats: CardMaterial[]): void {
+  item.varilla = mats.filter(m => m.type === 'V').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined;
+  item.larguero = mats.filter(m => m.type === 'L').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined;
+  item.travesaño = mats.filter(m => m.type === 'T').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined;
+}
+
 export function parse2DItem(desc: string): { w: number; h: number; label: string } | null {
   const m = desc.match(/(\d+(?:[.,]\d+)?)\s*[xX]\s*(\d+(?:[.,]\d+)?)/);
   if (!m) return null;
@@ -34,38 +42,78 @@ export function parse2DItem(desc: string): { w: number; h: number; label: string
   return { w, h, label: rest || 'Marco' };
 }
 
-export function calcMaterials(w: number, h: number, qty: number): CardMaterial[] {
-  const result: CardMaterial[] = [];
+function largueroCount(longer: number): number {
+  if (longer < 90) return 0;
+  if (longer >= 90 && longer <= 129) return 1;
+  if (longer >= 130 && longer < 201) return 2;
+  return 3;
+}
+
+function filaCount(shorter: number): number {
+  if (shorter < 90) return 0;
+  if (shorter >= 90 && shorter <= 129) return 1;
+  return 2;
+}
+
+export function computeLarCm(shorter: number): number {
+  return Math.round((shorter - 5.2) * 10) / 10;
+}
+
+export function computeTravCm(longer: number, largueros: number, filas: number): number {
+  if (largueros <= 0 || filas <= 0) return 0;
+  const divisiones = largueros + 1;
+  const descuento = largueros === 1 ? 9.0 : largueros === 2 ? 12.8 : 16.5;
+  return Math.trunc(((longer - descuento) / divisiones) * 10) / 10;
+}
+
+export interface MolduraFormula {
+  varillas: CardMaterial[];
+  largueros: CardMaterial[];
+  travesanos: CardMaterial[];
+  larguero_count: number;
+  filas: number;
+  larguero_cm: number;
+  travesano_cm: number;
+}
+
+export function getMolduraFormula(w: number, h: number, qty: number = 1): MolduraFormula {
   const longer = Math.max(w, h);
   const shorter = Math.min(w, h);
+  const largueros = largueroCount(longer);
+  const filas = filaCount(shorter);
+  const larguero_cm = computeLarCm(shorter);
 
-  result.push({ type: 'V', qty: 2 * qty, cm: w });
-  result.push({ type: 'V', qty: 2 * qty, cm: h });
+  const varillas: CardMaterial[] = [
+    { type: 'V', qty: 2 * qty, cm: w },
+    { type: 'V', qty: 2 * qty, cm: h },
+  ];
 
-  let largueros = 0;
-  if (longer >= 90 && longer <= 129) largueros = 1;
-  else if (longer <= 200) largueros = 2;
-  else largueros = 3;
+  const largueroMats: CardMaterial[] = [];
+  const travesanoMats: CardMaterial[] = [];
+  let travesano_cm = 0;
 
   if (largueros > 0) {
-    const larLen = shorter - 5.2;
-    result.push({ type: 'L', qty: largueros * qty, cm: Math.round(larLen * 10) / 10 });
-
-    let filas = 0;
-    if (shorter >= 90 && shorter <= 129) filas = 1;
-    else if (shorter >= 130) filas = 2;
-
+    largueroMats.push({ type: 'L', qty: largueros * qty, cm: larguero_cm });
     if (filas > 0) {
-      let discount = 9.0;
-      if (largueros === 2) discount = 12.8;
-      else if (largueros >= 3) discount = 16.5;
-      const travLen = (longer - discount) / (largueros + 1);
-      const travQty = filas * (largueros + 1) * qty;
-      result.push({ type: 'T', qty: travQty, cm: Math.trunc(travLen * 10) / 10 });
+      travesano_cm = computeTravCm(longer, largueros, filas);
+      travesanoMats.push({ type: 'T', qty: filas * (largueros + 1) * qty, cm: travesano_cm });
     }
   }
 
-  return result;
+  return {
+    varillas,
+    largueros: largueroMats,
+    travesanos: travesanoMats,
+    larguero_count: largueros,
+    filas,
+    larguero_cm,
+    travesano_cm,
+  };
+}
+
+export function calcMaterials(w: number, h: number, qty: number): CardMaterial[] {
+  const { varillas, largueros, travesanos } = getMolduraFormula(w, h, qty);
+  return [...varillas, ...largueros, ...travesanos];
 }
 
 export interface MolduraCorrectionData {
@@ -288,16 +336,11 @@ export function parseCard(f: Factura): {
 }
 
 export function calcLargueros(longer: number): number {
-  if (longer < 90) return 0;
-  if (longer >= 90 && longer <= 129) return 1;
-  if (longer <= 200) return 2;
-  return 3;
+  return largueroCount(longer);
 }
 
 export function calcFilas(shorter: number): number {
-  if (shorter >= 90 && shorter <= 129) return 1;
-  if (shorter >= 130) return 2;
-  return 0;
+  return filaCount(shorter);
 }
 
 export function buildFrameSvgForDim(w: number, h: number): string {

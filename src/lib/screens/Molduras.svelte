@@ -5,12 +5,13 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { parseCard, typeLabel, groupMaterials, buildMoldurasHtmlByTemplate, calcMaterials, applyCorrection, parse2DItem, calcFilas, calcLargueros, consolidateMaterials } from '$lib/utils/molduras';
+  import { parseCard, groupMaterials, buildMoldurasHtmlByTemplate, getMolduraFormula, computeLarCm, computeTravCm } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
   import MoldurasReorderModal from '$lib/components/MoldurasReorderModal.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { confirm as dialogConfirm } from '@tauri-apps/plugin-dialog';
-  import type { CardItem, CardMaterial, MolduraCorrectionData } from '$lib/utils/molduras';
+  import type { CardItem, CardMaterial } from '$lib/utils/molduras';
+  import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
 
   let loading = $state(false);
   let cards = $state<ParsedCard[]>([]);
@@ -28,7 +29,8 @@
   let addSearch = $state('');
   let allFacturas = $state<Factura[]>([]);
   let addSelected = $state<Set<number>>(new Set());
-  let correctionsMap = $state<Map<number, MolduraCorrectionData>>(new Map());
+  let showCorrectionsModal = $state(false);
+  let correctionsList = $state<molduraStore.MolduraCorrectionLocal[]>([]);
   let editLargQty = $state(0);
   let editLargCm = $state(0);
   let editLargNum = $state(0);
@@ -41,7 +43,11 @@
 
   let hasChanges = $derived(editLargNum !== savedLargNum || editTravQty !== savedTravQty);
 
-  let editTravFilas = $derived(editTravQty > 0 ? Math.ceil(editTravQty / (editLargNum + 1)) : 0);
+  let editTravFilas = $derived.by(() => {
+    if (editTravQty <= 0 || editLargNum <= 0) return 0;
+    const step = editLargNum + 1;
+    return Math.max(1, Math.round(editTravQty / step));
+  });
 
   interface ParsedCard {
     id: number;
@@ -65,18 +71,7 @@
   function parseCardLocal(f: Factura): ParsedCard {
     const p = parseCard(f);
     const base = { ...p, entrega: f.estado_entrega || 'PENDIENTE', hasCorrection: false };
-    for (const item of p.items) {
-      const m = parse2DItem(item.medida);
-      if (m && m.w && m.h) {
-        const corr = correctionsMap.get(f.id);
-        if (corr) {
-          base.hasCorrection = true;
-          const formula = calcMaterials(m.w, m.h, item.cantidad);
-          base.materials = applyCorrection(formula, corr);
-          break;
-        }
-      }
-    }
+    molduraStore.applyCorrectionsToCard(base);
     return base;
   }
 
@@ -84,18 +79,9 @@
     loading = true;
     selectedIds = new Set();
     try {
+      await molduraStore.load();
       const facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       const pending = facturas.filter(f => f.estado_moldura === 'PENDING' && f.estado_entrega !== 'ENTREGADO');
-      const correctionMap = new Map<number, MolduraCorrectionData>();
-      await Promise.all(pending.map(async f => {
-        try {
-          const corrs = await api.getInvoiceCorrections(f.id);
-          if (corrs.length > 0) {
-            correctionMap.set(f.id, corrs[0]);
-          }
-        } catch { }
-      }));
-      correctionsMap = correctionMap;
       cards = pending.map(parseCardLocal);
     } catch (e) {
       appStore.alert('Error al cargar: ' + (e as Error).message);
@@ -285,30 +271,18 @@
     if (!m) return null;
     return { w: parseFloat(m[1]), h: parseFloat(m[2]) };
   });
-  const detailItemMaterials = $derived.by(() => {
-    if (!detailItem || !detailItemDims) return [];
-    return calcMaterials(detailItemDims.w, detailItemDims.h, detailItem.cantidad);
-  });
+
+  function buildCardMaterials(card: ParsedCard): CardMaterial[] {
+    molduraStore.applyCorrectionsToCard(card);
+    return card.materials;
+  }
 
   function openDetail(card: ParsedCard) {
     detailCard = card;
     detailItemIdx = 0;
     editMode = false;
     showDetailModal = true;
-    const item = card.items[0];
-    const dimMatch = item?.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
-    if (!dimMatch) return;
-    const w = parseFloat(dimMatch[1]);
-    const h = parseFloat(dimMatch[2]);
-    const shorter = Math.min(w, h);
-    const formula = calcMaterials(w, h, item.cantidad);
-    const l = formula.find(m => m.type === 'L');
-    const t = formula.find(m => m.type === 'T');
-    editLargNum = calcLargueros(Math.max(w, h));
-    editLargCm = l?.cm ?? Math.round((shorter - 5.2) * 10) / 10;
-    editTravQty = t?.qty ?? 0;
-    const discount = editLargNum === 1 ? 9.0 : editLargNum === 2 ? 12.8 : 16.5;
-    editTravCm = t?.cm ?? (editTravFilas > 0 ? Math.round(((Math.max(w, h) - discount) / (editLargNum + 1)) * 10) / 10 : 0);
+    updateDetailItem();
   }
 
   async function saveCorrection() {
@@ -317,7 +291,7 @@
     savingCorrection = true;
     try {
       const item = detailCard.items[detailItemIdx];
-      await api.saveMolduraCorrection({
+      await molduraStore.save({
         invoice_id: detailCard.id,
         item_descripcion: item.medida,
         width: detailItemDims.w,
@@ -325,30 +299,11 @@
         qty: item.cantidad,
         larguero_qty: editLargQty,
         larguero_cm: editLargCm,
-        travesano_qty: editTravQty,
+        travesano_qty: editTravQty * (item.cantidad || 1),
         travesano_cm: editTravCm
       });
       editMode = false;
-      detailCard.hasCorrection = true;
-      const allMats: CardMaterial[] = [];
-      const curItem = detailCard.items[detailItemIdx];
-      for (const it of detailCard.items) {
-        const dm = parse2DItem(it.medida);
-        if (!dm) continue;
-        if (it === curItem) {
-          allMats.push({ type: 'V', qty: 2 * it.cantidad, cm: dm.w });
-          allMats.push({ type: 'V', qty: 2 * it.cantidad, cm: dm.h });
-          if (editLargQty > 0) allMats.push({ type: 'L', qty: editLargQty, cm: editLargCm });
-          if (editTravQty > 0) allMats.push({ type: 'T', qty: editTravQty, cm: editTravCm });
-        } else {
-          allMats.push(...calcMaterials(dm.w, dm.h, it.cantidad));
-        }
-      }
-      detailCard.materials = consolidateMaterials(allMats);
-      const corrs = await api.getInvoiceCorrections(detailCard.id);
-      if (corrs.length > 0) {
-        correctionsMap.set(detailCard.id, corrs[0]);
-      }
+      detailCard.materials = buildCardMaterials(detailCard);
       appStore.showToast('Corrección guardada', 'success');
       savedLargNum = editLargNum;
       savedTravQty = editTravQty;
@@ -366,19 +321,46 @@
     editMode = true;
   }
 
+  function setLargNum(raw: number) {
+    editLargNum = Math.max(0, Math.floor(raw || 0));
+    if (editLargNum <= 0) {
+      editTravQty = 0;
+      return;
+    }
+    const step = editLargNum + 1;
+    const filas = editTravQty > 0 ? Math.max(1, Math.round(editTravQty / step)) : 0;
+    editTravQty = filas * step;
+  }
+
+  function snapTravQty(raw: number) {
+    if (editLargNum <= 0) {
+      editTravQty = 0;
+      return;
+    }
+    const step = editLargNum + 1;
+    const filas = raw > 0 ? Math.max(1, Math.round(raw / step)) : 0;
+    editTravQty = filas * step;
+  }
+
   function updateDetailItem() {
     const item = detailCard?.items[detailItemIdx];
     const dims = detailItemDims;
-    if (!item || !dims) return;
-    const shorter = Math.min(dims.w, dims.h);
-    const formula = calcMaterials(dims.w, dims.h, item.cantidad);
-    const l = formula.find(m => m.type === 'L');
-    const t = formula.find(m => m.type === 'T');
-    editLargNum = calcLargueros(Math.max(dims.w, dims.h));
-    editLargCm = l?.cm ?? Math.round((shorter - 5.2) * 10) / 10;
-    editTravQty = t?.qty ?? 0;
-    const discount = editLargNum === 1 ? 9.0 : editLargNum === 2 ? 12.8 : 16.5;
-    editTravCm = t?.cm ?? (editTravFilas > 0 ? Math.round(((Math.max(dims.w, dims.h) - discount) / (editLargNum + 1)) * 10) / 10 : 0);
+    if (!detailCard || !item || !dims) return;
+    const eff = molduraStore.effectiveFor(detailCard.id, item.medida, dims.w, dims.h, item.cantidad);
+    if (eff) {
+      editLargNum = eff.corr.larguero_qty / (item.cantidad || 1);
+      editLargCm = eff.corr.larguero_cm;
+      editTravQty = eff.corr.travesano_qty / (item.cantidad || 1);
+      editTravCm = eff.corr.travesano_cm;
+    } else {
+      const formula = getMolduraFormula(dims.w, dims.h, item.cantidad);
+      editLargNum = formula.larguero_count;
+      editLargCm = formula.larguero_cm;
+      editTravQty = (formula.travesanos.length > 0 ? formula.travesanos[0].qty : 0) / (item.cantidad || 1);
+      editTravCm = formula.travesano_cm;
+    }
+    savedLargNum = editLargNum;
+    savedTravQty = editTravQty;
   }
 
   async function switchDetailItem(i: number) {
@@ -394,43 +376,43 @@
 
   function cancelEdit() {
     editMode = false;
-    const dims = detailItemDims;
-    if (!dims) return;
-    const shorter = Math.min(dims.w, dims.h);
-    const formula = calcMaterials(dims.w, dims.h, detailCard?.items[detailItemIdx]?.cantidad ?? 1);
-    const l = formula.find(m => m.type === 'L');
-    const t = formula.find(m => m.type === 'T');
-    editLargNum = calcLargueros(Math.max(dims.w, dims.h));
-    editLargCm = l?.cm ?? Math.round((shorter - 5.2) * 10) / 10;
-    editTravQty = t?.qty ?? 0;
-    const discount = editLargNum === 1 ? 9.0 : editLargNum === 2 ? 12.8 : 16.5;
-    const filas = calcFilas(shorter);
-    editTravCm = t?.cm ?? (filas > 0 ? Math.round(((Math.max(dims.w, dims.h) - discount) / (editLargNum + 1)) * 10) / 10 : 0);
+    updateDetailItem();
   }
 
   async function restoreFormula() {
     if (!detailCard) return;
     if (!await dialogConfirm('¿Eliminar la corrección y restaurar valores de la fórmula?')) return;
-    const corr = correctionsMap.get(detailCard.id);
-    if (corr && (corr as any).id) {
-      try {
-        await api.deleteMolduraCorrection((corr as any).id);
-      } catch (e) {
-        appStore.alert('Error al eliminar corrección: ' + (e as Error).message);
-        return;
-      }
-    }
-    correctionsMap.delete(detailCard.id);
-    detailCard.hasCorrection = false;
+    const item = detailCard.items[detailItemIdx];
+    await molduraStore.removeForItem(detailCard.id, item.medida);
     editMode = false;
     updateDetailItem();
-    const allMats: CardMaterial[] = [];
-    for (const item of detailCard.items) {
-      const dm = parse2DItem(item.medida);
-      if (dm) allMats.push(...calcMaterials(dm.w, dm.h, item.cantidad));
-    }
-    detailCard.materials = consolidateMaterials(allMats);
+    detailCard.materials = buildCardMaterials(detailCard);
     appStore.showToast('Fórmula restaurada', 'success');
+  }
+
+  async function openCorrectionsModal() {
+    await molduraStore.load();
+    correctionsList = molduraStore.getAll();
+    showCorrectionsModal = true;
+  }
+
+  function invoiceLabel(invoiceId: number): string {
+    const card = cards.find(c => c.id === invoiceId);
+    return card ? `${card.num} — ${card.cliente}` : `ID: ${invoiceId}`;
+  }
+
+  async function revertCorrection(corr: molduraStore.MolduraCorrectionLocal) {
+    if (!await dialogConfirm(`¿Revertir corrección de ${corr.item_descripcion} (${invoiceLabel(corr.invoice_id)})?`)) return;
+    await molduraStore.removeForItem(corr.invoice_id, corr.item_descripcion);
+    correctionsList = molduraStore.getAll();
+    const card = cards.find(c => c.id === corr.invoice_id);
+    if (card) {
+      card.materials = buildCardMaterials(card);
+      if (showDetailModal && detailCard?.id === card.id && detailCard.items[detailItemIdx]?.medida === corr.item_descripcion) {
+        updateDetailItem();
+      }
+    }
+    appStore.showToast('Corrección revertida', 'success');
   }
 
   async function closeDetailModal() {
@@ -444,11 +426,10 @@
     const item = detailCard?.items[detailItemIdx];
     const dims = detailItemDims;
     if (!item || !dims) return;
-    const shorter = Math.min(dims.w, dims.h);
     const longer = Math.max(dims.w, dims.h);
-    editLargCm = Math.round((shorter - 5.2) * 10) / 10;
-    const discount = editLargNum === 1 ? 9.0 : editLargNum === 2 ? 12.8 : 16.5;
-    editTravCm = editTravFilas > 0 ? Math.round(((longer - discount) / (editLargNum + 1)) * 10) / 10 : 0;
+    const shorter = Math.min(dims.w, dims.h);
+    editLargCm = computeLarCm(shorter);
+    editTravCm = computeTravCm(longer, editLargNum, editTravFilas);
     editLargQty = editLargNum * item.cantidad;
   });
 
@@ -478,6 +459,7 @@
         </button>
       {/if}
       <button class="btn btn-sm btn-secondary" onclick={() => showFormulaModal = true}>📐 Fórmula</button>
+      <button class="btn btn-sm btn-warning" onclick={openCorrectionsModal}>✏️ Correcciones</button>
       <button class="btn btn-sm btn-primary" onclick={loadCards} disabled={loading}>
         {loading ? 'Cargando...' : '🔄 Refrescar'}
       </button>
@@ -524,6 +506,7 @@
                         <td class="sm-qty">{item.cantidad}</td>
                         <td class="sm-measure">
                           {item.medida}
+                          {#if item.hasCorrection}<span class="sm-edit" title={item.correctionInherited ? 'Heredado de corrección guardada' : 'Editado'}>{item.correctionInherited ? '↪️' : '✏️'}</span>{/if}
                           {#if item.isNonMolding}
                             <span class="sm-tag-no"> No moldura</span>
                           {:else}
@@ -639,8 +622,8 @@
           <p>Cantidad según el lado <strong>más largo</strong>:</p>
           <ul>
             <li>90 – 129 cm → 1 larguero</li>
-            <li>130 – 200 cm → 2 largueros</li>
-            <li>&gt; 200 cm → 3 largueros</li>
+            <li>130 cm – &lt; 201 cm → 2 largueros</li>
+            <li>≥ 201 cm → 3 largueros</li>
           </ul>
           <p class="formula-example">Largo = lado_corto − 5.2 cm</p>
         </div>
@@ -657,6 +640,42 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" onclick={() => showFormulaModal = false}>Cerrar</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Corrections Modal -->
+{#if showCorrectionsModal}
+  <div class="modal-overlay" role="presentation">
+    <div class="modal modal-corrections" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showCorrectionsModal = false)}>
+      <div class="modal-header">
+        <h3>✏️ Correcciones Guardadas</h3>
+        <button class="modal-close" onclick={() => showCorrectionsModal = false} aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        {#if correctionsList.length === 0}
+          <div class="corr-empty">Sin correcciones guardadas</div>
+        {:else}
+          <div class="corr-list">
+            {#each correctionsList as corr (corr.id)}
+              <div class="corr-row">
+                <div class="corr-info">
+                  <div class="corr-invoice">📄 {invoiceLabel(corr.invoice_id)}</div>
+                  <div class="corr-measure">{corr.item_descripcion} · {corr.width}×{corr.height} cm</div>
+                  <div class="corr-values">
+                    <span class="cv-lar">L: {Math.round((corr.larguero_qty / (corr.qty || 1)) * 10) / 10} × {corr.larguero_cm} cm</span>
+                    <span class="cv-tra">T: {Math.round((corr.travesano_qty / (corr.qty || 1)) * 10) / 10} × {corr.travesano_cm} cm</span>
+                  </div>
+                </div>
+                <button class="btn btn-sm btn-outline" onclick={() => revertCorrection(corr)}>↩ Revertir</button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick={() => showCorrectionsModal = false}>Cerrar</button>
       </div>
     </div>
   </div>
@@ -686,6 +705,7 @@
               >
                 <span class="di-qty">{item.cantidad}x</span>
                 <span class="di-measure">{item.medida}</span>
+                {#if item.hasCorrection}<span class="di-edit" title={item.correctionInherited ? 'Heredado de corrección guardada' : 'Editado'}>{item.correctionInherited ? '↪️' : '✏️'}</span>{/if}
                 <span class="di-type">{item.isNonMolding ? 'No moldura' : item.tipo}</span>
               </div>
             {/each}
@@ -695,6 +715,9 @@
           {#if detailItemDims}
             <Bastidor w={detailItemDims.w} h={detailItemDims.h} largueroQty={editLargNum} travesanoQty={editTravFilas} />
             <div class="detail-mat-info">
+              <div class="detail-per-unit">
+                Por bastidor · <strong>×{detailItem?.cantidad ?? 1}</strong> unidades
+              </div>
               <table class="detail-mat-table">
                 <thead>
                   <tr><th></th><th>#</th><th>CM</th></tr>
@@ -702,13 +725,13 @@
                 <tbody>
                   <tr>
                     <td style="font-weight:600;color:#2c3e50">Varilla</td>
-                    <td>{2 * (detailItem?.cantidad ?? 1)}</td>
-                    <td>{detailItemDims.w} / {detailItemDims.h}</td>
+                    <td>4</td>
+                    <td>2×{detailItemDims.w} + 2×{detailItemDims.h}</td>
                   </tr>
                   <tr>
                     <td style="font-weight:600;color:#27ae60">Larguero</td>
                     {#if editMode}
-                      <td><input type="number" class="mat-input" bind:value={editLargNum} min="0" /></td>
+                      <td><input type="number" class="mat-input" value={editLargNum} min="0" step="1" onchange={(e) => setLargNum(parseFloat(e.currentTarget.value) || 0)} /></td>
                     {:else}
                       <td><span class="mat-ro">{editLargNum}</span></td>
                     {/if}
@@ -717,7 +740,7 @@
                   <tr>
                     <td style="font-weight:600;color:#d35400">Traves.</td>
                     {#if editMode}
-                      <td><input type="number" class="mat-input" bind:value={editTravQty} min="0" /></td>
+                      <td><input type="number" class="mat-input" value={editTravQty} min={editLargNum > 0 ? editLargNum + 1 : 0} step={editLargNum > 0 ? editLargNum + 1 : 1} onchange={(e) => snapTravQty(parseFloat(e.currentTarget.value) || 0)} /></td>
                     {:else}
                       <td><span class="mat-ro">{editTravQty}</span></td>
                     {/if}
@@ -741,11 +764,11 @@
         </div>
       </div>
       <div class="modal-footer">
-        <span class="corr-indicator" class:has-corr={detailCard.hasCorrection}>
-          {detailCard.hasCorrection ? '✏️ Valores corregidos' : '📐 Fórmula original'}
+        <span class="corr-indicator" class:has-corr={detailItem?.hasCorrection}>
+          {detailItem?.correctionInherited ? '✏️ Heredado de corrección guardada' : detailItem?.hasCorrection ? '✏️ Valores corregidos' : '📐 Fórmula original'}
         </span>
         <div class="modal-btn-group">
-          {#if detailCard.hasCorrection && !editMode}
+          {#if detailItem?.hasCorrection && !detailItem?.correctionInherited && !editMode}
             <button class="btn btn-sm btn-outline" onclick={restoreFormula}>🔄 Restaurar fórmula</button>
           {/if}
           {#if !editMode}
@@ -856,6 +879,7 @@
   }
   .sm-qty { font-weight: 900; font-size: 1.15rem; width: 2.5rem; text-align: center; }
   .sm-measure { font-weight: 700; font-size: 1rem; }
+  .sm-edit { margin-left: 0.286rem; font-size: 0.8rem; }
   .sm-tipo { font-weight: 400; color: var(--text-secondary); font-size: 0.78rem; }
   .sm-tag-no { font-size: 0.68rem; color: var(--text-muted); font-style: italic; }
   .mol-summary-table tr.non-molding { opacity: 0.5; }
@@ -925,9 +949,12 @@
   .detail-item-row.non-molding { opacity: 0.5; }
   .di-qty { font-weight: 700; min-width: 2rem; color: var(--text-primary); }
   .di-measure { flex: 1; font-weight: 500; }
+  .di-edit { font-size: 0.78rem; margin-right: 0.286rem; }
   .di-type { font-size: 0.72rem; color: var(--text-muted); min-width: 4.286rem; text-align: right; }
   .detail-svg { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.857rem; min-height: 12rem; }
   .detail-mat-info { width: 100%; max-width: 16rem; }
+  .detail-per-unit { font-size: 0.75rem; color: var(--text-muted); text-align: center; margin-bottom: 0.429rem; }
+  .detail-per-unit strong { color: var(--text-primary); }
   .detail-mat-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
   .detail-mat-table th { background: var(--bg-hover); padding: 0.286rem 0.571rem; text-align: center; font-size: 0.7rem; text-transform: uppercase; color: var(--text-secondary); }
   .detail-mat-table td { padding: 0.286rem 0.571rem; text-align: center; border-bottom: 1px solid var(--border-light); }
@@ -964,6 +991,25 @@
   .add-total { font-family: monospace; min-width: 4.286rem; text-align: right; color: var(--text-secondary); }
   .add-check { min-width: 1.429rem; color: #27ae60; font-weight: 700; text-align: center; }
   .add-empty { padding: 1.429rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
+
+  .corr-list { display: flex; flex-direction: column; gap: 0.571rem; max-height: 60vh; overflow-y: auto; }
+  .corr-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.857rem;
+    padding: 0.571rem 0.714rem;
+    border: 1px solid var(--border-light);
+    border-radius: 0.429rem;
+    background: var(--bg-card);
+  }
+  .corr-info { flex: 1; min-width: 0; }
+  .corr-invoice { font-weight: 700; font-size: 0.85rem; color: var(--text-primary); }
+  .corr-measure { font-size: 0.78rem; color: var(--text-secondary); margin: 0.143rem 0; }
+  .corr-values { display: flex; gap: 0.857rem; font-size: 0.75rem; }
+  .cv-lar { color: #27ae60; font-weight: 700; }
+  .cv-tra { color: #d35400; font-weight: 700; }
+  .corr-empty { padding: 1.429rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
 
   .mat-input {
     width: 3.571rem;

@@ -13,6 +13,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import MoldurasModal from '$lib/components/MoldurasModal.svelte';
   import PagoDialog from '$lib/components/PagoDialog.svelte';
   import PriceListModal from '$lib/components/PriceListModal.svelte';
+  import PrinterBadge from '$lib/components/PrinterBadge.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, type PriceSuggestion } from '$lib/utils/precios';
 import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
 import type { ClientAddress } from '$lib/types';
@@ -1250,6 +1251,12 @@ import 'flatpickr/dist/flatpickr.min.css';
         try {
           await invoke('print_pdf', { path: pdfPath });
           appStore.showToast('Enviando a imprimir...', 'success');
+          if (id) {
+            try {
+              await api.setImpresas([id], true, appStore.user?.user_name);
+              invalidateCache();
+            } catch {}
+          }
         } catch (e: any) {
           const errMsg = e?.message ?? (typeof e === 'string' ? e : 'Error desconocido');
           console.error('Error al imprimir PDF:', e);
@@ -1313,6 +1320,12 @@ import 'flatpickr/dist/flatpickr.min.css';
         apiKey: targetKey,
       });
       appStore.showToast('Enviado a impresión remota');
+      if (id) {
+        try {
+          await api.setImpresas([id], true, u?.user_name);
+          invalidateCache();
+        } catch {}
+      }
     } catch (e: any) {
       const errMsg = e?.message ?? (typeof e === 'string' ? e : 'Error desconocido');
       console.error('Error al enviar a impresión remota:', e);
@@ -1864,6 +1877,9 @@ import 'flatpickr/dist/flatpickr.min.css';
                 <span class="status-paid">✓ Pagado</span>
               {:else}
                 <span class="status-debt">Debe ${((f.total || 0) - (pagoMap[f.id] || 0)).toFixed(0)}</span>
+              {/if}
+              {#if f.impresa_at}
+                <PrinterBadge impresaAt={f.impresa_at} impresaPor={f.impresa_por} />
               {/if}
             </div>
           </div>
@@ -3047,6 +3063,10 @@ import 'flatpickr/dist/flatpickr.min.css';
   }
   .history-status {
     margin-top: 0.143rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
   }
   .status-paid {
     color: var(--success, #16a34a);

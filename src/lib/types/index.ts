@@ -204,6 +204,9 @@ export interface Factura {
   lat?: number | null;
   lng?: number | null;
   geocode_error?: string | null;
+  impresa_at?: string | null;
+  impresa_por?: string | null;
+  impresa_count?: number;
 }
 
 export interface OnlineUser {

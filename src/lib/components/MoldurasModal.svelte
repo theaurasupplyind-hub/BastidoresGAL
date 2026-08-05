@@ -6,6 +6,7 @@
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
   import { hasMolduraItems, parseCard, buildMoldurasHtmlByTemplate } from '$lib/utils/molduras';
+  import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
   import { invoke } from '@tauri-apps/api/core';
 
   let { show, preselectedIds = [], onClose }: {
@@ -26,6 +27,7 @@
 
   onMount(async () => {
     try { config = await invoke('get_config'); } catch {}
+    try { await molduraStore.load(); } catch {}
     selectedIds = new Set(preselectedIds);
     if (preselectedIds.length > 0) {
       await loadFacturas();
@@ -38,6 +40,7 @@
       const f = facturas.find(x => x.id === id);
       if (f) {
         p = parseCard(f);
+        molduraStore.applyCorrectionsToCard(p);
         parsedCache.set(id, p);
       }
     }
