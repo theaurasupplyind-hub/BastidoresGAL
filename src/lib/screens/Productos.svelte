@@ -174,14 +174,15 @@
         <div class="form-row">
           <div>
             <label>Categoría</label>
-            <select bind:value={form.categoria}>
-              <option value="Varios">Varios</option>
-              <option value="Bastidor">Bastidor</option>
-              <option value="Marco">Marco</option>
-              <option value="Lienzo">Lienzo</option>
-              <option value="Moldura">Moldura</option>
-              <option value="Servicio">Servicio</option>
-            </select>
+            <input type="text" bind:value={form.categoria} list="categorias-list" placeholder="Varios" />
+            <datalist id="categorias-list">
+              <option value="Varios"></option>
+              <option value="Bastidor"></option>
+              <option value="Marco"></option>
+              <option value="Lienzo"></option>
+              <option value="Servicio"></option>
+              <option value="Circulares"></option>
+            </datalist>
           </div>
           <div>
             <label>Medida</label>

@@ -153,10 +153,11 @@
     return m;
   });
 
-  const firmaViajes = $derived.by(() => {
-    const g = [...grupos.values()].map(x => `${x.id}:${(x.clienteIds || []).join(',')}`).join('|');
+  // Las recomendaciones solo se recalculan cuando cambia el set de facturas del día
+  // (factura nueva o recarga), NO cuando se editan los viajes (mover clientes, etc).
+  const firmaFacturas = $derived.by(() => {
     const f = facturasDelDia.map(x => x.id).join(',');
-    return `${fecha}|${g}|${f}`;
+    return `${fecha}|${f}`;
   });
 
   const facturasFiltradas = $derived.by(() => {
@@ -313,7 +314,7 @@
   $effect(() => { mapaStore.mostrarRecomendados = mostrarRecomendados; });
 
   $effect(() => {
-    const _ = firmaViajes;
+    const _ = firmaFacturas;
     if (!map || !L || !recomendacionListo || mapaStore.cargando) return;
     clearTimeout(recomendacionTimer);
     recomendacionTimer = setTimeout(() => {
@@ -1292,20 +1293,18 @@
   async function asegurarPlan() {
     // Sin plan previo → el agrupamiento lo hace recomendarRutas desde cero
     if (grupos.size === 0) {
-      await generarPlanAuto();
+      const ok = await generarPlanAuto();
+      if (ok) await persistPlanSilencioso();
       return;
     }
 
-    // Detectar clientes con dirección cambiada (el backend compara el domicilio de la
-    // factura contra el del cliente). Se tratan como factura nueva: salen de su viaje
-    // actual y se reasignan según recomendarRutas.
-    const cambioDireccion = new Map<number, boolean>();
-    try {
-      const pending = await api.getClusterPending('plan_permanente');
-      for (const p of pending) {
-        if (p.cliente_id != null && p.ya_en_plan && p.cambio_direccion) cambioDireccion.set(p.cliente_id, true);
-      }
-    } catch {}
+    // Dirección de la factura del día por cliente (para detectar direcciones nuevas)
+    const facturasPorCliente = new Map<number, any[]>();
+    for (const f of facturasDelDia) {
+      if (f.cliente_id == null) continue;
+      if (!facturasPorCliente.has(f.cliente_id)) facturasPorCliente.set(f.cliente_id, []);
+      facturasPorCliente.get(f.cliente_id)!.push(f);
+    }
 
     const clientesDia = clientesParaPlan();
     if (clientesDia.length === 0) return;
@@ -1325,108 +1324,222 @@
       for (const cid of cs) if (!grupoAnterior.has(cid)) grupoAnterior.set(cid, id);
     }
 
-    // Sueltos = clientes sin viaje (factura nueva) + clientes con dirección cambiada.
-    // Si no hay ninguno, NO se recomputa nada: el plan queda tal cual.
+    // El plan solo se recalcula con facturas nuevas (cliente sin viaje). La dirección
+    // nueva se detecta acá (normalizada contra todas las direcciones del cliente) y se
+    // reubica de forma ligera, sin volver a clusterizar. Si no hay ninguna de las dos,
+    // NO se toca nada: evita el recálculo en cada apertura.
     const sueltosSet = new Set<number>();
+    const reubicarDir: number[] = [];
     for (const c of clientesDia) {
-      if (!grupoAnterior.has(c.id) || cambioDireccion.get(c.id)) sueltosSet.add(c.id);
-    }
-    if (sueltosSet.size === 0) return;
-
-    // Recompute con recomendarRutas (determinístico) respetando min/máx/eps
-    const recomputados = recomendarRutas(
-      clientesDia,
-      mapaStore.algoMinPorGrupo,
-      mapaStore.algoMaxPorGrupo,
-      mapaStore.algoEpsKm
-    );
-    if (recomputados.length === 0) return;
-
-    const nuevos = new Map<string, any>();
-
-    // 1) Los que no cambiaron y ya tienen viaje → se quedan donde están (respetar manual)
-    for (const [id, e] of prev) {
-      const miembros = e.clientes.filter(cid => idsFacturaDia.has(cid) && !sueltosSet.has(cid));
-      if (miembros.length === 0) continue;
-      nuevos.set(id, {
-        id,
-        color: e.color,
-        nombre: e.nombre || 'General',
-        clienteIds: [...miembros],
-        ordenRuta: e.orden.filter(cid => miembros.includes(cid)),
-      });
-    }
-
-    // 2) Sueltos → se insertan en el viaje al que recomendarRutas los agrupa,
-    //    sin superar algoMaxPorGrupo. Los que no entran van a sinTarget.
-    const sinTarget: number[] = [];
-    for (const r of recomputados) {
-      const sueltos = r.clientesIds.filter(cid => sueltosSet.has(cid));
-      if (sueltos.length === 0) continue;
-
-      // Viaje existente con el que recompute más se solapa → ahí van los sueltos
-      let mejorId: string | null = null;
-      let mejorOverlap = 0;
-      for (const [id, e] of prev) {
-        const overlap = r.clientesIds.filter(cid => e.clientes.includes(cid)).length;
-        if (overlap > mejorOverlap) { mejorOverlap = overlap; mejorId = id; }
-      }
-
-      const target = mejorId && nuevos.has(mejorId) ? mejorId : null;
-      const g = target ? nuevos.get(target) : null;
-      const agregar = g ? sueltos.filter(cid => !g.clienteIds.includes(cid)) : sueltos;
-      const cupoOK = g != null && (mapaStore.algoMaxPorGrupo === 0 || g.clienteIds.length + agregar.length <= mapaStore.algoMaxPorGrupo);
-      if (g && cupoOK && agregar.length > 0) {
-        nuevos.set(target!, { ...g, clienteIds: [...g.clienteIds, ...agregar], ordenRuta: [...g.ordenRuta, ...agregar] });
+      if (!grupoAnterior.has(c.id)) {
+        sueltosSet.add(c.id);
       } else {
-        sinTarget.push(...sueltos);
+        const cliente = todosLosClientes.find(cc => cc.id === c.id);
+        const facturas = facturasPorCliente.get(c.id) || [];
+        if (cliente && facturas.some(f => esDireccionNueva(cliente, f))) reubicarDir.push(c.id);
       }
     }
+    if (sueltosSet.size === 0 && reubicarDir.length === 0) return;
 
-    // 2b) Sueltos sin destino válido → viajes nuevos respetando min/máx/eps
-    if (sinTarget.length > 0) {
-      const porId = new Map(clientesDia.map(c => [c.id, c]));
-      const sinTargetClientes: ClienteParaAgrupar[] = sinTarget
-        .map(id => porId.get(id))
-        .filter((c): c is ClienteParaAgrupar => !!c);
-      if (sinTargetClientes.length > 0) {
-        const gruposNuevos = recomendarRutas(sinTargetClientes, mapaStore.algoMinPorGrupo, mapaStore.algoMaxPorGrupo, mapaStore.algoEpsKm);
-        for (const gr of gruposNuevos) {
-          if (gr.clientesIds.length === 0) continue;
-          const id = `grupo-auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const porId = new Map(clientesDia.map(c => [c.id, c]));
+
+    // 1) Facturas nuevas → recalcular (único caso que justifica el re-cluster)
+    if (sueltosSet.size > 0) {
+      // Recompute con recomendarRutas (determinístico) respetando min/máx/eps
+      const recomputados = recomendarRutas(
+        clientesDia,
+        mapaStore.algoMinPorGrupo,
+        mapaStore.algoMaxPorGrupo,
+        mapaStore.algoEpsKm
+      );
+
+      if (recomputados.length > 0) {
+        const nuevos = new Map<string, any>();
+
+        // 1.1) Los que no cambiaron y ya tienen viaje → se quedan donde están (respetar manual)
+        for (const [id, e] of prev) {
+          const miembros = e.clientes.filter(cid => idsFacturaDia.has(cid) && !sueltosSet.has(cid));
+          if (miembros.length === 0) continue;
           nuevos.set(id, {
             id,
-            color: CONSOLA_COLORS[nuevos.size % CONSOLA_COLORS.length],
-            nombre: gr.nombreZona || 'General',
-            clienteIds: gr.clientesIds,
-            ordenRuta: gr.clientesIds,
+            color: e.color,
+            nombre: e.nombre || 'General',
+            clienteIds: [...miembros],
+            ordenRuta: e.orden.filter(cid => miembros.includes(cid)),
           });
         }
+
+        // 1.2) Sueltos → se insertan en el viaje al que recomendarRutas los agrupa,
+        //      sin superar algoMaxPorGrupo. Los que no entran van a sinTarget.
+        const sinTarget: number[] = [];
+        for (const r of recomputados) {
+          const sueltos = r.clientesIds.filter(cid => sueltosSet.has(cid));
+          if (sueltos.length === 0) continue;
+
+          // Viaje existente con el que recompute más se solapa → ahí van los sueltos
+          let mejorId: string | null = null;
+          let mejorOverlap = 0;
+          for (const [id, e] of prev) {
+            const overlap = r.clientesIds.filter(cid => e.clientes.includes(cid)).length;
+            if (overlap > mejorOverlap) { mejorOverlap = overlap; mejorId = id; }
+          }
+
+          const target = mejorId && nuevos.has(mejorId) ? mejorId : null;
+          const g = target ? nuevos.get(target) : null;
+          const agregar = g ? sueltos.filter(cid => !g.clienteIds.includes(cid)) : sueltos;
+          const cupoOK = g != null && (mapaStore.algoMaxPorGrupo === 0 || g.clienteIds.length + agregar.length <= mapaStore.algoMaxPorGrupo);
+          if (g && cupoOK && agregar.length > 0) {
+            nuevos.set(target!, { ...g, clienteIds: [...g.clienteIds, ...agregar], ordenRuta: [...g.ordenRuta, ...agregar] });
+          } else {
+            sinTarget.push(...sueltos);
+          }
+        }
+
+        // 1.3) Sueltos sin destino válido → viajes nuevos respetando min/máx/eps
+        if (sinTarget.length > 0) {
+          const sinTargetClientes: ClienteParaAgrupar[] = sinTarget
+            .map(id => porId.get(id))
+            .filter((c): c is ClienteParaAgrupar => !!c);
+          if (sinTargetClientes.length > 0) {
+            const gruposNuevos = recomendarRutas(sinTargetClientes, mapaStore.algoMinPorGrupo, mapaStore.algoMaxPorGrupo, mapaStore.algoEpsKm);
+            for (const gr of gruposNuevos) {
+              if (gr.clientesIds.length === 0) continue;
+              const id = `grupo-auto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+              nuevos.set(id, {
+                id,
+                color: CONSOLA_COLORS[nuevos.size % CONSOLA_COLORS.length],
+                nombre: gr.nombreZona || 'General',
+                clienteIds: gr.clientesIds,
+                ordenRuta: gr.clientesIds,
+              });
+            }
+          }
+        }
+
+        // 1.4) Limpiar vacíos y asignar
+        for (const [id, g] of nuevos) {
+          if ((g.clienteIds || []).length === 0) nuevos.delete(id);
+        }
+        grupos = nuevos;
+        if (!grupos.has(grupoActivoId!)) grupoActivoId = grupos.size > 0 ? [...grupos.keys()][0] : null;
       }
     }
 
-    // 3) Contar reasignados por cambio de dirección
-    let reasignados = 0;
-    if (cambioDireccion.size > 0) {
-      const nuevoGrupoDe = new Map<number, string>();
-      for (const [id, g] of nuevos) for (const cid of g.clienteIds) if (!nuevoGrupoDe.has(cid)) nuevoGrupoDe.set(cid, id);
-      for (const [cid] of cambioDireccion) {
-        const antes = grupoAnterior.get(cid);
-        const ahora = nuevoGrupoDe.get(cid);
-        if (antes && ahora && antes !== ahora) reasignados++;
+    // 2) Dirección cambiada → reubicar al viaje con centroide más cercano (ligero)
+    let reasignadosDir = 0;
+    if (reubicarDir.length > 0) {
+      const gruposTrabajo = [...grupos.values()].map(g => ({
+        id: g.id,
+        color: g.color,
+        nombre: g.nombre,
+        clienteIds: [...(g.clienteIds || [])],
+        ordenRuta: [...(g.ordenRuta || g.clienteIds || [])],
+      }));
+      for (const cid of reubicarDir) {
+        if (moverAlGrupoCercano(cid, porId, gruposTrabajo)) reasignadosDir++;
       }
+      grupos = new Map(gruposTrabajo.map(g => [g.id, g]));
+      if (!grupos.has(grupoActivoId!)) grupoActivoId = grupos.size > 0 ? [...grupos.keys()][0] : null;
     }
 
-    // 4) Limpiar vacíos y asignar
-    for (const [id, g] of nuevos) {
-      if ((g.clienteIds || []).length === 0) nuevos.delete(id);
-    }
-    grupos = nuevos;
-    if (!grupos.has(grupoActivoId!)) grupoActivoId = grupos.size > 0 ? [...grupos.keys()][0] : null;
     renderizarMarcadores();
-    if (reasignados > 0) {
-      appStore.showToast(`🔀 ${reasignados} cliente(s) reasignado(s) a un viaje más cercano por cambio de dirección`, 'success');
+    await persistPlanSilencioso();
+    if (reasignadosDir > 0) {
+      appStore.showToast(`🔀 ${reasignadosDir} cliente(s) reasignado(s) al viaje más cercano por dirección nueva`, 'success');
     }
+  }
+
+  // Normaliza una dirección para comparaciones tolerantes a formato
+  function normalizarDireccion(dir: string): string {
+    if (!dir) return '';
+    return dir
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[.,°º;:()'"“”]/g, ' ')
+      .replace(/\b(piso|pb|depto|dpto|departamento|oficina|local|torre|edificio|block|manzana|lote)\s*\d*\b/g, ' ')
+      .replace(/\b(retira|retirar|retiro)\b/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  // True si la dirección de entrega de la factura no coincide con NINGUNA dirección
+  // conocida del cliente (domicilio + todas las guardadas en addresses).
+  function esDireccionNueva(cliente: any, factura: any): boolean {
+    const dirFactura = normalizarDireccion(`${factura.cliente_domicilio || ''} ${factura.cliente_piso_depto || ''}`);
+    if (!dirFactura) return false;
+    const conocidas: string[] = [cliente.domicilio || ''];
+    for (const a of (cliente.addresses || [])) {
+      conocidas.push(`${a.address || ''} ${a.extra || ''}`);
+    }
+    return !conocidas.some(c => c && normalizarDireccion(c) === dirFactura);
+  }
+
+  // Centroide (lat/lng) de un viaje a partir de los clientes geocodificados del día
+  function centroideGrupo(g: { clienteIds: number[] }, porId: Map<number, ClienteParaAgrupar>): { lat: number; lng: number } | null {
+    let lat = 0, lng = 0, n = 0;
+    for (const id of g.clienteIds) {
+      const c = porId.get(id);
+      if (c && c.lat != null && c.lng != null) { lat += c.lat; lng += c.lng; n++; }
+    }
+    if (n === 0) return null;
+    return { lat: lat / n, lng: lng / n };
+  }
+
+  // Mueve un cliente al viaje con centroide más cercano (respetando máx). Devuelve true si lo movió.
+  function moverAlGrupoCercano(
+    clienteId: number,
+    porId: Map<number, ClienteParaAgrupar>,
+    grupos: Array<{ id: string; color: string; nombre: string; clienteIds: number[]; ordenRuta: number[] }>
+  ): boolean {
+    const cli = porId.get(clienteId);
+    if (!cli || cli.lat == null || cli.lng == null) return false;
+    let actualIdx = -1;
+    for (let i = 0; i < grupos.length; i++) {
+      if (grupos[i].clienteIds.includes(clienteId)) { actualIdx = i; break; }
+    }
+    if (actualIdx < 0) return false;
+    const actualGrupo = grupos[actualIdx];
+    const centroActual = centroideGrupo(actualGrupo, porId);
+    const distActual = centroActual ? haversine({ lat: cli.lat, lng: cli.lng }, centroActual) : Infinity;
+    let mejorIdx = -1;
+    let mejorDist = distActual;
+    for (let i = 0; i < grupos.length; i++) {
+      if (i === actualIdx) continue;
+      const g = grupos[i];
+      if (mapaStore.algoMaxPorGrupo > 0 && g.clienteIds.length >= mapaStore.algoMaxPorGrupo) continue;
+      const c = centroideGrupo(g, porId);
+      if (!c) continue;
+      const d = haversine({ lat: cli.lat, lng: cli.lng }, c);
+      if (d < mejorDist) { mejorDist = d; mejorIdx = i; }
+    }
+    if (mejorIdx < 0) return false;
+    const actual = grupos[actualIdx];
+    const mejor = grupos[mejorIdx];
+    actual.clienteIds = actual.clienteIds.filter(id => id !== clienteId);
+    actual.ordenRuta = actual.ordenRuta.filter(id => id !== clienteId);
+    if (!mejor.clienteIds.includes(clienteId)) {
+      mejor.clienteIds.push(clienteId);
+      mejor.ordenRuta.push(clienteId);
+    }
+    return true;
+  }
+
+  // Guarda el plan sin toasts, para que el recálculo no se repita al reabrir el mapa
+  async function persistPlanSilencioso() {
+    try {
+      if (grupos.size === 0) {
+        if (planViajeId) { await api.deletePlanViaje(planViajeId); planViajeId = null; }
+        return;
+      }
+      const data = { fecha: 'plan_permanente', grupos: [...grupos.values()] };
+      if (planViajeId) {
+        await api.updatePlanViaje(planViajeId, data);
+      } else {
+        const res = await api.savePlanViaje(data);
+        planViajeId = res.id;
+      }
+    } catch {}
   }
 
   const RADIO_RECOMENDACION_KM = 1;
@@ -1576,6 +1689,7 @@
 
   async function guardarConfigAgrupamiento() {
     await generarPlanAuto();
+    await persistPlanSilencioso();
     renderizarMarcadores();
     appStore.showToast('✅ Plan regenerado con la configuración de agrupamiento', 'success');
   }

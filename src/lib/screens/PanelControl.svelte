@@ -3,6 +3,7 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { mapaStore } from '$lib/stores/mapaStore.svelte';
   import { animate, spring } from 'animejs';
 
   // ── Task List (API) ──
@@ -148,18 +149,33 @@
   async function loadDashboardPanel() {
     loadingData = true;
     try {
-      // Caché compartida con MapaClientes (clientes + entregas). El plan es el
-      // permanente ('plan_permanente'), se trae aparte porque es específico del panel.
-      const base = await cacheStore.fetch('mapa-base:0', async () => {
-        const data = await api.getMapaDashboard(PLAN_FECHA, true);
+      // Caché compartida con MapaClientes: la misma query y la misma clave, así el
+      // panel lee siempre los mismos datos que el mapa. El plan es el permanente
+      // ('plan_permanente'), se trae aparte porque es específico del panel.
+      const base = await cacheStore.fetch(`mapa-base:${mapaStore.filtroRecencia}`, async () => {
+        const data = await api.getMapaDashboard(mapaStore.fecha, false, mapaStore.filtroRecencia);
         return { clientes: data.clientes, entregas: data.entregas };
       }, 60000);
-      entregas = base.entregas;
+      entregas = filtrarEntregasActivas(base.entregas);
       todosLosClientes = base.clientes;
+
+      // Grupos iguales al mapa: solo clientes con entregas activas hoy, sin grupos vacíos
+      const idsActivos = new Set<number>();
+      for (const e of entregas) {
+        if (e.id != null) idsActivos.add(e.id);
+        for (const f of (e.facturas || [])) if (f.cliente_id) idsActivos.add(f.cliente_id);
+      }
       const plan = await api.getPlanViaje(PLAN_FECHA);
       if (plan && plan.grupos && plan.grupos.length > 0) {
-        planGrupos = plan.grupos.filter((g: any) => (g.clienteIds || []).length > 0);
-        planViajeId = plan.id;
+        const gruposFiltrados = plan.grupos
+          .map((g: any) => ({
+            ...g,
+            clienteIds: (g.clienteIds || []).filter((id: number) => idsActivos.has(id)),
+            ordenRuta: (g.ordenRuta || []).filter((id: number) => idsActivos.has(id)),
+          }))
+          .filter((g: any) => (g.clienteIds || []).length > 0);
+        planGrupos = gruposFiltrados;
+        planViajeId = gruposFiltrados.length > 0 ? plan.id : null;
       } else {
         planGrupos = [];
         planViajeId = null;
@@ -172,6 +188,19 @@
       entregas = []; todosLosClientes = []; planGrupos = []; planViajeId = null;
     }
     finally { loadingData = false; }
+  }
+
+  function filtrarEntregasActivas(lista: any[]): any[] {
+    return lista
+      .map((e: any) => {
+        const farr = Array.isArray(e.facturas) ? e.facturas : [e];
+        const activas = farr.filter((f: any) =>
+          f.estado_kanban !== 'NO_CONFIRMADO' && f.estado_kanban !== 'ENTREGADO' && f.estado_kanban !== 'ARCHIVADO'
+        );
+        if (activas.length === 0) return null;
+        return { ...e, facturas: activas };
+      })
+      .filter(Boolean);
   }
 
   function buscarCliente(id: number): any | null {
@@ -191,8 +220,31 @@
   }
 
   function facturasDelCliente(id: number): any[] {
-    return entregas.find(e => e.id === id)?.facturas?.filter((f: any) => f.estado_kanban !== 'NO_CONFIRMADO') ?? [];
+    return entregas.filter((f: any) =>
+      f.cliente_id === id &&
+      f.estado_kanban !== 'NO_CONFIRMADO' &&
+      f.estado_kanban !== 'ENTREGADO' &&
+      f.estado_kanban !== 'ARCHIVADO'
+    );
   }
+
+  function irAFacturacion(facturaId: number) {
+    appStore.pendingInvoiceId = facturaId;
+    appStore.currentTab = 'facturacion';
+  }
+
+  function abrirPrimeraFactura(clienteId: number) {
+    const facts = facturasDelCliente(clienteId);
+    if (facts.length > 0) {
+      irAFacturacion(facts[0].id);
+    } else {
+      appStore.showToast('Este cliente no tiene facturas activas', 'error');
+    }
+  }
+
+  const entregasActivasCount = $derived(entregas.filter((e: any) =>
+    e.estado_kanban !== 'NO_CONFIRMADO' && e.estado_kanban !== 'ENTREGADO' && e.estado_kanban !== 'ARCHIVADO'
+  ).length);
 
   // ── Plan de viaje ──
   let planGrupos = $state<any[]>([]);
@@ -230,7 +282,7 @@
     for (const g of planGrupos) {
       for (const id of g.clienteIds) agrupados.add(id);
     }
-    const idsEntregaHoy = new Set(entregas.map((e: any) => e.id));
+    const idsEntregaHoy = new Set(entregas.map((e: any) => e.cliente_id));
     return (todosLosClientes.length > 0 ? todosLosClientes : entregas).filter((e: any) => {
       if (agrupados.has(e.id)) return false;
       const tienePendientes = (e.pedidos_pendientes ?? 0) > 0;
@@ -605,16 +657,34 @@
   }
 
   let activityInterval: ReturnType<typeof setInterval>;
+  let panelInterval: ReturnType<typeof setInterval>;
+
+  function refrescarPanel() {
+    if (planDirty) return;
+    cacheStore.invalidate('mapa-base');
+    loadDashboardPanel();
+  }
+
+  function onVisibilityPanel() {
+    if (document.visibilityState === 'visible') refrescarPanel();
+  }
 
   onMount(() => {
     loadTasks();
     loadNotes();
+    cacheStore.invalidate('mapa-base');
     loadDashboardPanel();
     loadActivity();
     loadDismissed();
     activityInterval = setInterval(loadActivity, 60000);
-  });  onDestroy(() => {
+    panelInterval = setInterval(refrescarPanel, 60000);
+    document.addEventListener('visibilitychange', onVisibilityPanel);
+  });
+
+  onDestroy(() => {
     if (activityInterval) clearInterval(activityInterval);
+    if (panelInterval) clearInterval(panelInterval);
+    document.removeEventListener('visibilitychange', onVisibilityPanel);
   });
 </script>
 
@@ -745,11 +815,11 @@
           <svg class="card-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           <span class="card-title">ENTREGAS PENDIENTES</span>
         </div>
-        <span class="card-badge badge-white">{entregas.reduce((s: number, e: any) => s + (e.facturas?.length || 0), 0)} entregas</span>
+        <span class="card-badge badge-white">{entregasActivasCount} entregas</span>
       </div>
       <div class="entregas-stats">
         <div class="entregas-stat">
-          <span class="stat-big">{entregas.reduce((s: number, e: any) => s + (e.facturas?.length || 0), 0)}</span>
+          <span class="stat-big">{entregasActivasCount}</span>
           <span class="stat-label">entregas</span>
         </div>
         <div class="entregas-stat">
@@ -802,6 +872,7 @@
                       <div
                         class="cliente-card"
                         draggable="true"
+                        ondblclick={(e) => { e.stopPropagation(); abrirPrimeraFactura(ec.id); }}
                         ondragstart={(e) => dragStartCliente(ec.id, grupo.id, e.currentTarget)}
                       >
                         <span class="cliente-drag">⠿</span>
@@ -812,7 +883,12 @@
                           {#if facts.length > 0}
                             <div class="cliente-facturas">
                               {#each facts as f}
-                                <span class="factura-chip">
+                                <span
+                                  class="factura-chip"
+                                  onmousedown={(e) => e.preventDefault()}
+                                  title="Doble clic para abrir en Facturación"
+                                  ondblclick={(e) => { e.stopPropagation(); irAFacturacion(f.id); }}
+                                >
                                   <span class="factura-num">{f.numero_factura}</span>
                                   <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
                                   <span class="factura-date">{f.fecha || ''}</span>
@@ -850,17 +926,23 @@
                   <div
                     class="cliente-card"
                     draggable="true"
+                    ondblclick={(e) => { e.stopPropagation(); abrirPrimeraFactura(ec.id); }}
                     ondragstart={(e) => dragStartCliente(ec.id, null, e.currentTarget)}
                   >
                     <span class="cliente-drag">⠿</span>
-                    <span class="cliente-order" style="background:#9ca3af">{entregas.findIndex((e: any) => e.id === ec.id) + 1 || ''}</span>
+                    <span class="cliente-order" style="background:#9ca3af">{entregas.findIndex((e: any) => e.cliente_id === ec.id) + 1 || ''}</span>
                     <div class="cliente-body">
                       <span class="cliente-nombre">{ec.nombre}</span>
                       <span class="cliente-dir">{ec.domicilio || ''}</span>
                       {#if facts.length > 0}
                         <div class="cliente-facturas">
                           {#each facts as f}
-                            <span class="factura-chip">
+                            <span
+                              class="factura-chip"
+                              onmousedown={(e) => e.preventDefault()}
+                              title="Doble clic para abrir en Facturación"
+                              ondblclick={(e) => { e.stopPropagation(); irAFacturacion(f.id); }}
+                            >
                               <span class="factura-num">{f.numero_factura}</span>
                               <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
                               <span class="factura-date">{f.fecha || ''}</span>
@@ -1065,6 +1147,7 @@
                   <div
                     class="cliente-card"
                     draggable="true"
+                    ondblclick={(e) => { e.stopPropagation(); abrirPrimeraFactura(ec.id); }}
                     ondragstart={(e) => dragStartCliente(ec.id, grupo.id, e.currentTarget)}
                   >
                     <span class="cliente-drag">⠿</span>
@@ -1075,7 +1158,12 @@
                       {#if facts.length > 0}
                         <div class="cliente-facturas">
                           {#each facts as f}
-                            <span class="factura-chip">
+                            <span
+                              class="factura-chip"
+                              onmousedown={(e) => e.preventDefault()}
+                              title="Doble clic para abrir en Facturación"
+                              ondblclick={(e) => { e.stopPropagation(); irAFacturacion(f.id); }}
+                            >
                               <span class="factura-num">{f.numero_factura}</span>
                               <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
                               <span class="factura-date">{f.fecha || ''}</span>
@@ -1112,6 +1200,7 @@
                 <div
                   class="cliente-card"
                   draggable="true"
+                  ondblclick={(e) => { e.stopPropagation(); abrirPrimeraFactura(ec.id); }}
                   ondragstart={(e) => dragStartCliente(ec.id, null, e.currentTarget)}
                 >
                   <span class="cliente-drag">⠿</span>
@@ -1122,7 +1211,12 @@
                     {#if facts.length > 0}
                       <div class="cliente-facturas">
                         {#each facts as f}
-                          <span class="factura-chip">
+                          <span
+                            class="factura-chip"
+                            onmousedown={(e) => e.preventDefault()}
+                            title="Doble clic para abrir en Facturación"
+                            ondblclick={(e) => { e.stopPropagation(); irAFacturacion(f.id); }}
+                          >
                             <span class="factura-num">{f.numero_factura}</span>
                             <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
                             <span class="factura-date">{f.fecha || ''}</span>
@@ -1624,6 +1718,12 @@
     background: rgba(255,255,255,0.08);
     border-radius: 6px;
     font-size: 12px;
+    cursor: pointer;
+    transition: background 0.12s;
+    user-select: none;
+  }
+  .factura-chip:hover {
+    background: rgba(255,255,255,0.18);
   }
   .factura-num {
     font-weight: 700;
@@ -2224,7 +2324,7 @@
   .kanban-column-body .cliente-dir { font-size: 12px; }
   .kanban-column-body .cliente-order { width: 22px; height: 22px; min-width: 22px; font-size: 11px; }
   .kanban-column-body .cliente-drag { font-size: 16px; }
-  .kanban-column-body .factura-chip { font-size: 11px; padding: 4px 8px; }
+  .kanban-column-body .factura-chip { font-size: 11px; padding: 4px 8px; cursor: pointer; }
   .kanban-column-body .factura-num { font-size: 11px; }
   .kanban-column-body .cliente-remove { opacity: 0; }
   .kanban-column-body .cliente-card:hover .cliente-remove { opacity: 1; }
