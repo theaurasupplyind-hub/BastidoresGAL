@@ -1,24 +1,28 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import type { Employee, Attendance } from '$lib/types';
   import { animate } from 'animejs';
+  import GIcon from './GIcon.svelte';
 
   let employees = $state<Employee[]>([]);
   let attMonth = $state(new Date().toISOString().slice(0, 7));
   let attDirty = $state<Set<string>>(new Set());
   let attData = $state<Map<string, string>>(new Map());
+  let attExitData = $state<Map<string, string>>(new Map());
   let selectedAttEmp = $state<number | ''>('');
   let isMonthView = $state(false);
-  let auditEntries = $state<{ employeeName: string; status: string; date: string; id: number; employeeId: number }[]>([]);
+  let auditEntries = $state<{ employeeName: string; status: string; date: string; id: number; employeeId: number; exitTime?: string }[]>([]);
   let gridWrapEl: HTMLElement;
   let showEditor = $state(false);
+  let panelCollapsed = $state(false);
   let editorEmpId = $state(0);
   let editorDate = $state('');
   let editorStatus = $state('');
   let editorTime = $state('');
+  let editorExitTime = $state('');
 
   function key(empId: number, date: string) { return `${empId}_${date}`; }
 
@@ -61,7 +65,7 @@
     if (status === 'AUS') return 'AUS';
     if (status === 'VACACIONES') return 'VAC';
     if (status === 'LICENCIA') return 'LIC';
-    if (status.startsWith('TARDE')) return status.replace('TARDE-', '⏰ ');
+    if (status.startsWith('TARDE')) return status.replace('TARDE-', '');
     if (status.startsWith('NOTA:')) return status.split(':')[1]?.slice(0, 6) || 'NOTA';
     return status;
   }
@@ -86,13 +90,28 @@
     cacheStore.invalidate('attendance');
   }
 
+  async function forceReload() {
+    invalidateCache();
+    await loadAll();
+  }
+
+  let autoReloadTimer: ReturnType<typeof setInterval> | null = null;
+
   onMount(async () => {
     await loadAll();
     scrollToToday();
+    autoReloadTimer = setInterval(() => {
+      if (attDirty.size > 0) return;
+      forceReload();
+    }, 30000);
     if (gridWrapEl) {
       const onWheel = (e: WheelEvent) => { e.preventDefault(); gridWrapEl.scrollLeft += e.deltaY; };
       gridWrapEl.addEventListener('wheel', onWheel, { passive: false });
     }
+  });
+
+  onDestroy(() => {
+    if (autoReloadTimer) clearInterval(autoReloadTimer);
   });
 
   async function loadAll() {
@@ -102,8 +121,13 @@
       const cacheKey = `attendance:${month}:${empId ?? 'all'}`;
       const records: Attendance[] = await cacheStore.fetch(cacheKey, () => api.listAttendance(empId, month), 120000);
       const map = new Map<string, string>();
-      for (const r of records) map.set(key(r.employee_id, r.date), r.status);
+      const exitMap = new Map<string, string>();
+      for (const r of records) {
+        map.set(key(r.employee_id, r.date), r.status);
+        if (r.exit_time) exitMap.set(key(r.employee_id, r.date), r.exit_time);
+      }
       attData = map;
+      attExitData = exitMap;
 
       if (employees.length === 0)
         employees = await cacheStore.fetch('employees:active', () => api.listEmployees(true), 900000);
@@ -116,6 +140,7 @@
         date: r.date,
         id: r.id,
         employeeId: r.employee_id,
+        exitTime: r.exit_time,
       }));
     } catch (e) {
       console.error('[asistencia] Error:', e);
@@ -129,6 +154,7 @@
     editorEmpId = empId;
     editorDate = date;
     editorStatus = current;
+    editorExitTime = attExitData.get(k) || '';
     if (current && current !== 'AUS' && current !== 'VACACIONES' && current !== 'LICENCIA' && !current.startsWith('NOTA:')) {
       editorTime = current.replace('TARDE-', '');
     } else {
@@ -163,6 +189,11 @@
     const k = key(editorEmpId, editorDate);
     attData.set(k, finalStatus);
     attDirty.add(k);
+    if (['AUS', 'VACACIONES', 'LICENCIA'].includes(finalStatus) || finalStatus.startsWith('NOTA:')) {
+      attExitData.set(k, '');
+    } else {
+      attExitData.set(k, editorExitTime.trim());
+    }
     showEditor = false;
     await saveAttendance();
   }
@@ -197,7 +228,12 @@
     for (const k of attDirty) {
       const parts = k.split('_');
       const date = parts.slice(1).join('_');
-      records.push({ employee_id: parseInt(parts[0]), date, status: attData.get(k) || 'AUS' });
+      records.push({
+        employee_id: parseInt(parts[0]),
+        date,
+        status: attData.get(k) || 'AUS',
+        exit_time: attExitData.get(k) || undefined,
+      });
     }
     try {
       await api.saveAttendanceBulk(records);
@@ -228,8 +264,8 @@
     if (!gridWrapEl || isMonthView) return;
     const day = new Date().getDate();
     const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
-    const empCol = 3 * rem;
-    const cellW = 5.5 * rem;
+    const empCol = 9 * rem;
+    const cellW = 6.5 * rem;
     const dayOffset = empCol + (day - 1) * cellW + cellW / 2;
     const target = dayOffset - gridWrapEl.clientWidth / 2;
     const maxScroll = gridWrapEl.scrollWidth - gridWrapEl.clientWidth;
@@ -244,12 +280,24 @@
     }
   }
 
-  function statusIcon(status: string | undefined) {
-    if (!status || status === 'AUS') return '🔴';
-    if (status === 'VACACIONES') return '🏖️';
-    if (status === 'LICENCIA') return '🏥';
-    if (status.startsWith('TARDE')) return '⏰';
-    return '🟢';
+  function togglePanel() {
+    panelCollapsed = !panelCollapsed;
+  }
+
+  function statusIcon(status: string | undefined): string {
+    if (!status || status === 'AUS') return 'x-circle';
+    if (status === 'VACACIONES') return 'sun';
+    if (status === 'LICENCIA') return 'activity';
+    if (status.startsWith('TARDE')) return 'clock';
+    return 'check-circle';
+  }
+
+  function statusColor(status: string | undefined): string {
+    if (!status || status === 'AUS') return '#dc2626';
+    if (status === 'VACACIONES') return '#0d9488';
+    if (status === 'LICENCIA') return '#7c3aed';
+    if (status.startsWith('TARDE')) return '#d97706';
+    return '#16a34a';
   }
 
 </script>
@@ -257,9 +305,9 @@
 <div class="g-asistencia">
   <div class="g-att-main">
     <div class="g-att-header">
-      <button class="btn btn-sm" onclick={() => shiftMonth(-1)}>◀</button>
+      <button class="btn btn-sm" onclick={() => shiftMonth(-1)} aria-label="Mes anterior"><GIcon name="chevron-left" size={14} /></button>
       <span class="g-month-name">{monthName(attMonth)}</span>
-      <button class="btn btn-sm" onclick={() => shiftMonth(1)}>▶</button>
+      <button class="btn btn-sm" onclick={() => shiftMonth(1)} aria-label="Mes siguiente"><GIcon name="chevron-right" size={14} /></button>
     </div>
     <div class="g-att-grid-wrap" bind:this={gridWrapEl}>
       <div class="g-att-grid">
@@ -280,14 +328,19 @@
                 <tr>
                   <td class="att-td-emp">{emp.name}</td>
                   {#each getMonthDates() as date}
+                    {@const cellStatus = attData.get(key(emp.id, date))}
+                    {@const cellExit = attExitData.get(key(emp.id, date))}
                     <td
-                      class="att-cell {cellClass(attData.get(key(emp.id, date)))}"
+                      class="att-cell {cellClass(cellStatus)}"
                       class:weekend={isWeekendStr(date)}
                       onclick={() => openEditor(emp.id, date)}
                       role="button" tabindex="0"
                       onkeydown={(e) => e.key === 'Enter' && openEditor(emp.id, date)}
                     >
-                      {cellText(attData.get(key(emp.id, date)))}
+                      {cellText(cellStatus)}
+                      {#if cellExit}
+                        <span class="att-cell-exit">→ {cellExit}</span>
+                      {/if}
                     </td>
                   {/each}
                 </tr>
@@ -303,8 +356,8 @@
                 <th class="att-th-emp">Empleado</th>
                 {#each getWeekDates() as date}
                   <th class="att-th-day" class:today={isToday(date)} class:weekend={isWeekend(date)}>
-                    <span class="att-day-num">{date.getDate()}</span>
                     <span class="att-day-name">{dayName(date)}</span>
+                    <span class="att-day-num">{date.getDate()}</span>
                   </th>
                 {/each}
               </tr>
@@ -312,10 +365,14 @@
             <tbody>
               {#each employees as emp}
                 <tr>
-                  <td class="att-td-emp">{emp.name}</td>
+                  <td class="att-td-emp">
+                    <span class="att-emp-name">{emp.name}</span>
+                    <span class="att-emp-job">{emp.job_type}</span>
+                  </td>
                   {#each getWeekDates() as date}
                     {@const dateKey = dk(date)}
                     {@const status = attData.get(key(emp.id, dateKey))}
+                    {@const cellExit = attExitData.get(key(emp.id, dateKey))}
                     <td
                       class="att-cell {cellClass(status)}"
                       class:today={isToday(date)}
@@ -325,6 +382,9 @@
                       onkeydown={(e) => e.key === 'Enter' && openEditor(emp.id, dateKey)}
                     >
                       <span class="att-cell-text">{cellText(status)}</span>
+                      {#if cellExit}
+                        <span class="att-cell-exit">→ {cellExit}</span>
+                      {/if}
                     </td>
                   {/each}
                 </tr>
@@ -339,42 +399,47 @@
   </div>
 
   <!-- Right panel -->
-  <div class="g-att-panel">
-    <div class="g-att-panel-section">
-      <div class="g-att-panel-title">📋 Últimos registros</div>
-      <div class="g-att-panel-list">
-        {#each auditEntries as e}
-          <div class="g-att-panel-item">
-            <span class="g-att-panel-icon">{statusIcon(e.status)}</span>
-            <span class="g-att-panel-name">{e.employeeName}</span>
-            <span class="g-att-panel-status">{cellText(e.status) || e.status}</span>
-            <span class="g-att-panel-date">{e.date.slice(5)}</span>
-            <button class="btn-icon" onclick={() => deleteAuditAttendance(e.employeeId, e.date)} title="Eliminar">✕</button>
-          </div>
-        {:else}
-          <div class="g-att-panel-empty">Sin registros</div>
-        {/each}
+  <div class="g-att-panel" class:collapsed={panelCollapsed}>
+    <button class="g-att-panel-toggle" onclick={togglePanel} title={panelCollapsed ? 'Expandir panel' : 'Colapsar panel'}>
+      <GIcon name={panelCollapsed ? 'chevron-right' : 'chevron-left'} size={14} />
+    </button>
+    {#if !panelCollapsed}
+      <div class="g-att-panel-section">
+        <div class="g-att-panel-title"><GIcon name="activity" size={12} /> Últimos registros</div>
+        <div class="g-att-panel-list">
+          {#each auditEntries as e}
+            <div class="g-att-panel-item">
+              <span class="g-att-panel-icon" style={`color: ${statusColor(e.status)}`}><GIcon name={statusIcon(e.status)} size={13} /></span>
+              <span class="g-att-panel-name">{e.employeeName}</span>
+              <span class="g-att-panel-status">{cellText(e.status) || e.status}{e.exitTime ? ` → ${e.exitTime}` : ''}</span>
+              <span class="g-att-panel-date">{e.date.slice(5)}</span>
+              <button class="btn-icon" onclick={() => deleteAuditAttendance(e.employeeId, e.date)} title="Eliminar"><GIcon name="trash" size={12} /></button>
+            </div>
+          {:else}
+            <div class="g-att-panel-empty">Sin registros</div>
+          {/each}
+        </div>
       </div>
-    </div>
-    <div class="g-att-panel-divider"></div>
-    <div class="g-att-panel-actions">
-      <button class="btn btn-sm btn-secondary" onclick={toggleView} style="flex:1">{isMonthView ? '📅 Semana' : '📅 Mes'}</button>
-      <button class="btn btn-sm btn-secondary" onclick={async () => { attMonth = new Date().toISOString().slice(0, 7); await loadAll(); scrollToToday(); }} style="flex:1">Hoy</button>
-    </div>
-    <div class="g-att-panel-actions">
-      <select bind:value={selectedAttEmp} onchange={async () => { await loadAll(); scrollToToday(); }} class="g-att-select" style="flex:1">
-        <option value={''}>Todos</option>
-        {#each employees as e}
-          <option value={e.id}>{e.name}</option>
-        {/each}
-      </select>
-    </div>
-    <div class="g-att-panel-actions">
-      <button class="btn btn-sm btn-primary" onclick={saveAttendance} disabled={attDirty.size === 0} style="flex:1">
-        {attDirty.size > 0 ? `Guardar (${attDirty.size})` : 'Guardar'}
-      </button>
-      <button class="btn btn-sm btn-secondary" onclick={loadAll}>🔄</button>
-    </div>
+      <div class="g-att-panel-divider"></div>
+      <div class="g-att-panel-actions">
+        <button class="btn btn-sm btn-secondary" onclick={toggleView} style="flex:1"><GIcon name="calendar" size={12} /> {isMonthView ? 'Semana' : 'Mes'}</button>
+        <button class="btn btn-sm btn-secondary" onclick={async () => { attMonth = new Date().toISOString().slice(0, 7); await loadAll(); scrollToToday(); }} style="flex:1">Hoy</button>
+      </div>
+      <div class="g-att-panel-actions">
+        <select bind:value={selectedAttEmp} onchange={async () => { await loadAll(); scrollToToday(); }} class="g-att-select" style="flex:1">
+          <option value={''}>Todos</option>
+          {#each employees as e}
+            <option value={e.id}>{e.name}</option>
+          {/each}
+        </select>
+      </div>
+      <div class="g-att-panel-actions">
+        <button class="btn btn-sm btn-primary" onclick={saveAttendance} disabled={attDirty.size === 0} style="flex:1">
+          {attDirty.size > 0 ? `Guardar (${attDirty.size})` : 'Guardar'}
+        </button>
+        <button class="btn btn-sm btn-secondary" onclick={forceReload} title="Recargar"><GIcon name="refresh" size={13} /></button>
+      </div>
+    {/if}
   </div>
 </div>
 
@@ -396,21 +461,25 @@
       </div>
       <div class="att-editor-body">
         <div class="att-editor-statuses">
-          <button class="btn btn-att-status" class:active={editorStatus === '' || editorStatus.startsWith('PRESENTE') || (!['AUS','VACACIONES','LICENCIA'].includes(editorStatus) && !editorStatus.startsWith('TARDE') && !editorStatus.startsWith('NOTA:'))} onclick={() => editorSetStatus('')}>✅ Presente</button>
-          <button class="btn btn-att-status" class:active={editorStatus === 'TARDE'} onclick={() => editorSetStatus('TARDE')}>⏰ Tarde</button>
-          <button class="btn btn-att-status" class:active={editorStatus === 'AUS'} onclick={() => editorSetStatus('AUS')}>❌ Ausente</button>
-          <button class="btn btn-att-status" class:active={editorStatus === 'VACACIONES'} onclick={() => editorSetStatus('VACACIONES')}>🏖 Vacaciones</button>
-          <button class="btn btn-att-status" class:active={editorStatus === 'LICENCIA'} onclick={() => editorSetStatus('LICENCIA')}>🏥 Licencia</button>
+          <button class="btn btn-att-status" class:active={editorStatus === '' || editorStatus.startsWith('PRESENTE') || (!['AUS','VACACIONES','LICENCIA'].includes(editorStatus) && !editorStatus.startsWith('TARDE') && !editorStatus.startsWith('NOTA:'))} onclick={() => editorSetStatus('')}><GIcon name="check-circle" size={15} /> Presente</button>
+          <button class="btn btn-att-status" class:active={editorStatus === 'TARDE'} onclick={() => editorSetStatus('TARDE')}><GIcon name="clock" size={15} /> Tarde</button>
+          <button class="btn btn-att-status" class:active={editorStatus === 'AUS'} onclick={() => editorSetStatus('AUS')}><GIcon name="x-circle" size={15} /> Ausente</button>
+          <button class="btn btn-att-status" class:active={editorStatus === 'VACACIONES'} onclick={() => editorSetStatus('VACACIONES')}><GIcon name="sun" size={15} /> Vacaciones</button>
+          <button class="btn btn-att-status" class:active={editorStatus === 'LICENCIA'} onclick={() => editorSetStatus('LICENCIA')}><GIcon name="activity" size={15} /> Licencia</button>
         </div>
         {#if editorStatus === '' || editorStatus.startsWith('TARDE') || editorStatus.startsWith('PRESENTE')}
           <div class="att-editor-time">
             <label>Hora:</label>
             <input type="time" bind:value={editorTime} />
           </div>
+          <div class="att-editor-time">
+            <label>Salida:</label>
+            <input type="time" bind:value={editorExitTime} />
+          </div>
         {/if}
       </div>
       <div class="att-editor-actions">
-        <button class="btn btn-sm btn-danger" onclick={deleteEditorAttendance} title="Eliminar registro">🗑</button>
+        <button class="btn btn-sm btn-danger" onclick={deleteEditorAttendance} title="Eliminar registro"><GIcon name="trash" size={14} /></button>
         <span style="flex:1"></span>
         <button class="btn btn-sm btn-secondary" onclick={() => showEditor = false}>Cancelar</button>
         <button class="btn btn-sm btn-primary" onclick={saveEditor}>Guardar</button>
@@ -441,14 +510,31 @@
     width: 22rem; flex-shrink: 0;
     background: var(--bg-card); border-radius: 0.5rem;
     display: flex; flex-direction: column; overflow: hidden;
+    transition: width 0.2s ease;
   }
+  .g-att-panel.collapsed {
+    width: 2.2rem; min-width: 2.2rem;
+  }
+  .g-att-panel.collapsed .g-att-panel-section,
+  .g-att-panel.collapsed .g-att-panel-divider,
+  .g-att-panel.collapsed .g-att-panel-actions {
+    display: none;
+  }
+  .g-att-panel-toggle {
+    width: 100%; padding: 0.45rem 0;
+    background: var(--bg-page); border: none; border-bottom: 1px solid var(--border-light);
+    cursor: pointer; font-size: 0.7rem; color: var(--text-secondary);
+    border-radius: 0; transition: background 0.15s;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .g-att-panel-toggle:hover { background: var(--accent); color: white; }
   .g-att-panel-section { flex: 1; display: flex; flex-direction: column; min-height: 0; }
-  .g-att-panel-title { font-size: 0.75rem; font-weight: 600; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border-light); color: var(--text-secondary); }
+  .g-att-panel-title { font-size: 0.75rem; font-weight: 600; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border-light); color: var(--text-secondary); display: inline-flex; align-items: center; gap: 0.3rem; }
   .g-att-panel-list { flex: 1; overflow-y: auto; padding: 0.3rem 0; }
   .g-att-panel-item { display: flex; align-items: center; gap: 0.3rem; padding: 0.25rem 0.6rem; font-size: 0.72rem; border-bottom: 1px solid #f0f0f0; }
-  .g-att-panel-item .btn-icon { background: none; border: none; cursor: pointer; padding: 0 0.15rem; font-size: 0.65rem; color: var(--text-muted); line-height: 1; opacity: 0.4; transition: opacity 0.15s; }
+  .g-att-panel-item .btn-icon { background: none; border: none; cursor: pointer; padding: 0 0.15rem; color: var(--text-muted); line-height: 1; opacity: 0.4; transition: opacity 0.15s; display: inline-flex; }
   .g-att-panel-item .btn-icon:hover { opacity: 1; color: #c00; }
-  .g-att-panel-icon { font-size: 0.65rem; }
+  .g-att-panel-icon { display: inline-flex; }
   .g-att-panel-name { font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .g-att-panel-status { color: var(--text-secondary); }
   .g-att-panel-date { color: var(--text-muted); font-size: 0.65rem; }
@@ -461,44 +547,50 @@
   .g-att-grid-wrap::-webkit-scrollbar { height: 6px; }
   .g-att-grid-wrap::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
 
-  .att-table { border-collapse: collapse; }
+  .att-table { border-collapse: separate; border-spacing: 0; }
   .att-table-month { width: 100%; }
   .att-table th {
     background: var(--bg-page); padding: 0.3rem 0.15rem; font-weight: 600; color: var(--text-secondary);
     font-size: 0.68rem; position: sticky; top: 0; z-index: 1;
     border: 1px solid var(--border-light); text-align: center;
   }
-  .att-th-emp { text-align: left; width: 5rem; position: sticky; left: 0; z-index: 2; background: var(--bg-page); border-left: none; }
-  .att-th-day { font-size: 0.8rem; transition: background 0.15s; }
-  .att-th-day.today { background: var(--accent); color: white; }
-  .att-th-day.today .att-day-name { color: rgba(255,255,255,0.8); }
+  .att-table .att-th-emp { text-align: left; width: 9rem; position: sticky; top: 0; left: 0; z-index: 3; background: var(--bg-page); border-left: none; }
+  .att-th-day { font-size: 0.8rem; transition: background 0.15s; padding: 0.4rem 0.15rem; }
+  .att-th-day.today { background: #333; color: white; }
+  .att-th-day.today .att-day-name { color: rgba(255,255,255,0.9); }
+  .att-th-day.today .att-day-num { color: white; }
   .att-th-day:hover { background: var(--accent); color: white; }
   .att-th-day:hover .att-day-name { color: rgba(255,255,255,0.8); }
-  .att-th-day.weekend { color: var(--text-muted); }
-  .att-day-name { display: block; font-size: 0.65rem; font-weight: 400; color: var(--text-muted); }
+  .att-th-day.weekend { color: var(--text-muted); opacity: 0.45; }
+  .att-day-name { display: block; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03rem; color: var(--text-muted); }
+  .att-day-num { display: block; font-size: 0.95rem; font-weight: 700; margin-top: 0.1rem; }
   .att-table td { padding: 0.15rem; text-align: center; border: 1px solid #e8e8e8; cursor: pointer; }
-  .att-td-emp { text-align: left; font-weight: 500; position: sticky; left: 0; background: var(--bg-card); z-index: 1; font-size: 0.78rem; padding: 0.15rem 0.25rem !important; max-width: 5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-left: none; }
+  .att-td-emp { text-align: left; position: sticky; left: 0; background: var(--bg-card); z-index: 1; padding: 0.3rem 0.5rem !important; border-left: none; white-space: nowrap; text-overflow: ellipsis; max-width: 10rem; }
+  .att-emp-name { display: block; font-weight: 600; font-size: 0.82rem; color: var(--text-primary); }
+  .att-emp-job { display: block; font-size: 0.68rem; color: var(--text-muted); font-weight: 400; margin-top: 0.05rem; }
+  .att-td-emp.weekend { opacity: 0.45; }
 
   /* Week cells */
   .att-table-week { width: max-content; min-width: 100%; table-layout: fixed; }
-  .att-table-week td.att-cell { width: 5.5rem; height: 3.2rem; vertical-align: middle; }
+  .att-table-week td.att-cell { width: 6.5rem; height: 3.8rem; vertical-align: middle; padding: 0.3rem 0.4rem; }
   .att-table-week .att-cell-text { font-size: 0.95rem; font-weight: 600; display: block; }
-  .att-table-week .att-td-emp { width: 3rem; font-size: 0.7rem; }
+  .att-cell-exit { display: block; font-size: 0.62rem; font-weight: 500; color: var(--text-muted); margin-top: 0.1rem; }
+  .att-table-week .att-td-emp { width: 9rem; }
 
   /* Month cells */
   .att-table-month { table-layout: fixed; }
   .att-table-month td.att-cell { width: 2.2rem; font-size: 0.75rem; }
 
-  .att-cell { transition: background 0.15s; }
+  .att-cell { transition: background 0.15s; border-radius: 0.4rem; }
   .att-cell:hover { filter: brightness(1.06); }
-  .att-cell.weekend { background: #f5f5f5; cursor: default; }
+  .att-cell.weekend { background: #f5f5f5; cursor: default; opacity: 0.45; }
   .att-cell.weekend:hover { filter: none; }
 
-  .att-present { background: #d4edda; color: #155724; }
-  .att-absent { background: #f8d7da; color: #721c24; }
-  .att-late { background: #fff3cd; color: #856404; }
-  .att-vacation { background: #d1ecf1; color: #0c5460; }
-  .att-license { background: #e2d9f3; color: #5a3d8a; }
+  .att-present { background: #d4edda; color: #155724; border-radius: 0.4rem; }
+  .att-absent { background: #f8d7da; color: #721c24; border-radius: 0.4rem; }
+  .att-late { background: #fff3cd; color: #856404; border-radius: 0.4rem; }
+  .att-vacation { background: #d1ecf1; color: #0c5460; border-radius: 0.4rem; }
+  .att-license { background: #e2d9f3; color: #5a3d8a; border-radius: 0.4rem; }
   .att-none { color: transparent; }
   .g-empty { padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.8rem; }
 

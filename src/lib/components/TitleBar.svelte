@@ -5,6 +5,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { appStore } from '$lib/stores/appStore.svelte';
   import type { TabId } from '$lib/types';
+  import GIcon from '$lib/components/gastos/GIcon.svelte';
 
   let maximized = $state(false);
   let moreOpen = $state(false);
@@ -142,11 +143,11 @@
       </button>
       {#if gastosOpen}
         <div class="dropdown gastos-dropdown" transition:slide={{ duration: 120 }}>
-          <button class="more-item" class:active={appStore.gastosTab === 'dashboard'} onclick={() => { appStore.gastosTab = 'dashboard'; selectTab('gastos'); }}>📊 Dashboard</button>
-          <button class="more-item" class:active={appStore.gastosTab === 'proveedores'} onclick={() => { appStore.gastosTab = 'proveedores'; selectTab('gastos'); }}>📂 Proveedores</button>
-          <button class="more-item" class:active={appStore.gastosTab === 'sueldos'} onclick={() => { appStore.gastosTab = 'sueldos'; selectTab('gastos'); }}>👷 Sueldos</button>
-          <button class="more-item" class:active={appStore.gastosTab === 'asistencia'} onclick={() => { appStore.gastosTab = 'asistencia'; selectTab('gastos'); }}>📅 Asistencia</button>
-          <button class="more-item" class:active={appStore.gastosTab === 'categorias'} onclick={() => { appStore.gastosTab = 'categorias'; selectTab('gastos'); }}>🏷️ Categorías</button>
+          <button class="more-item" class:active={appStore.gastosTab === 'dashboard'} onclick={() => { appStore.gastosTab = 'dashboard'; selectTab('gastos'); }}><GIcon name="grid" size={14} /> Dashboard</button>
+          <button class="more-item" class:active={appStore.gastosTab === 'proveedores'} onclick={() => { appStore.gastosTab = 'proveedores'; selectTab('gastos'); }}><GIcon name="folder" size={14} /> Proveedores</button>
+          <button class="more-item" class:active={appStore.gastosTab === 'sueldos'} onclick={() => { appStore.gastosTab = 'sueldos'; selectTab('gastos'); }}><GIcon name="users" size={14} /> Sueldos</button>
+          <button class="more-item" class:active={appStore.gastosTab === 'asistencia'} onclick={() => { appStore.gastosTab = 'asistencia'; selectTab('gastos'); }}><GIcon name="calendar" size={14} /> Asistencia</button>
+          <button class="more-item" class:active={appStore.gastosTab === 'categorias'} onclick={() => { appStore.gastosTab = 'categorias'; selectTab('gastos'); }}><GIcon name="tag" size={14} /> Categorías</button>
         </div>
       {/if}
     </div>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Provider } from '$lib/types';
   import { appStore } from '$lib/stores/appStore.svelte';
+  import GIcon from './GIcon.svelte';
 
   interface FolderCardInfo {
     debt: number;
@@ -98,18 +99,18 @@
           class="file-btn file-btn-copy"
           tabindex="0"
           onclick={(e) => { e.stopPropagation(); copyProvider(); }}
-        >📋 Copiar Información</button>
+        ><GIcon name="copy" size={13} /> Copiar Información</button>
         <div class="file-extra-actions">
           <button
             class="file-btn file-btn-pay"
             tabindex="0"
             onclick={(e) => { e.stopPropagation(); onPay(); }}
-          >💸 Pago Rápido</button>
+          ><GIcon name="dollar" size={13} /> Pago Rápido</button>
           <button
             class="file-btn file-btn-buy"
             tabindex="0"
             onclick={(e) => { e.stopPropagation(); onPurchase(); }}
-          >🛒 Compra Rápida</button>
+          ><GIcon name="cart" size={13} /> Compra Rápida</button>
         </div>
       </div>
     </div>
@@ -243,6 +244,11 @@
     cursor: pointer;
     font-family: inherit;
     transition: filter 0.12s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.286rem;
+    white-space: nowrap;
   }
   .file-btn:hover { filter: brightness(1.08); }
   .file-btn-pay { background: #ffc107; color: #333; }

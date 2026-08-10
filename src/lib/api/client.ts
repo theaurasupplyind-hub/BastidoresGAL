@@ -442,12 +442,13 @@ export const api = {
   },
   createExpense: (data: Omit<import('$lib/types').Expense, 'id' | 'created_at' | 'updated_at'>) =>
     request<import('$lib/types').Expense>('POST', '/expenses', data),
-  getExpensesSummary: (from_date?: string, to_date?: string, group_by: string = 'category', exclude_owners?: boolean) => {
+  getExpensesSummary: (from_date?: string, to_date?: string, group_by: string = 'category', exclude_owners?: boolean, category_id?: number | null) => {
     const q = new URLSearchParams();
     if (from_date) q.set('from_date', from_date);
     if (to_date) q.set('to_date', to_date);
     q.set('group_by', group_by);
     if (exclude_owners) q.set('exclude_owners', 'true');
+    if (category_id) q.set('category_id', String(category_id));
     return request<{ group_by: string; total: number; groups: Record<string, number> }>('GET', `/expenses/summary?${q.toString()}`);
   },
   migrateExpenses: () =>

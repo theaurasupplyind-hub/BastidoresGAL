@@ -6,6 +6,7 @@
   import type { Provider, Employee } from '$lib/types';
   import { parseExpense, getSuggestions, extractAmount, fuzzyMatchEntities, EXPENSE_TYPE_LABELS } from '$lib/utils/quickExpense';
   import type { ParsedExpense, Suggestion } from '$lib/utils/quickExpense';
+  import GIcon from '$lib/components/gastos/GIcon.svelte';
 
   let providers: Provider[] = $state([]);
   let employees: Employee[] = $state([]);
@@ -183,17 +184,17 @@
 
   function getTypeIcon(type: ParsedExpense['type']): string {
     switch (type) {
-      case 'PAYMENT': return '💸';
-      case 'PURCHASE': return '🛒';
-      case 'EMPLOYEE_PAYMENT': return '👷';
-      case 'GENERAL': return '📄';
+      case 'PAYMENT': return 'dollar';
+      case 'PURCHASE': return 'cart';
+      case 'EMPLOYEE_PAYMENT': return 'users';
+      case 'GENERAL': return 'file-text';
     }
   }
 </script>
 
 <div class="gasto-rapido">
   <div class="gr-header">
-    <h2>🚀 Gasto Rápido</h2>
+    <h2><GIcon name="zap" size={20} /> Gasto Rápido</h2>
   </div>
 
   {#if loading}
@@ -226,11 +227,7 @@
               onmouseenter={() => selectedIdx = i}
             >
               <span class="gr-sug-icon">
-                {#if s.type === 'provider'}📦
-                {:else if s.type === 'employee'}👤
-                {:else if s.type === 'template'}⚡
-                {:else}📁
-                {/if}
+                <GIcon name={s.type === 'provider' ? 'box' : s.type === 'employee' ? 'user' : s.type === 'template' ? 'zap' : 'folder'} size={15} />
               </span>
               <span class="gr-sug-label">{s.label}</span>
               <span class="gr-sug-sub">{s.subtitle}</span>
@@ -252,7 +249,7 @@
             <span class="gr-preview-label">Tipo</span>
             <span class="gr-preview-value">
               <span class="gr-type-badge {getTypeBadgeClass(parsed.type)}">
-                {getTypeIcon(parsed.type)} {EXPENSE_TYPE_LABELS[parsed.type]}
+                <GIcon name={getTypeIcon(parsed.type)} size={13} /> {EXPENSE_TYPE_LABELS[parsed.type]}
               </span>
             </span>
           </div>
@@ -279,7 +276,11 @@
           onclick={confirmExpense}
           disabled={saving}
         >
-          {saving ? 'Guardando...' : '✓ Confirmar Gasto'}
+          {#if saving}
+            Guardando...
+          {:else}
+            <GIcon name="check" size={15} /> Confirmar Gasto
+          {/if}
         </button>
       </div>
     {:else if inputText}
@@ -321,6 +322,9 @@
     margin: 0;
     font-size: 1.3rem;
     color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 0.429rem;
   }
 
   .gr-loading {
@@ -483,7 +487,6 @@
     font-size: 0.78rem;
     font-weight: 600;
   }
-
   .badge-payment { background: #d4edda; color: #155724; }
   .badge-purchase { background: #fff3cd; color: #856404; }
   .badge-salary { background: #cce5ff; color: #004085; }
@@ -513,7 +516,10 @@
   }
 
   .gr-confirm-btn {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.429rem;
     width: 100%;
     margin-top: 0.857rem;
     padding: 0.714rem;

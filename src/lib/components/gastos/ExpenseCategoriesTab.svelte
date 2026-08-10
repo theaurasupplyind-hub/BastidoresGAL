@@ -2,6 +2,28 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import type { ExpenseCategory } from '$lib/types';
+  import GIcon from './GIcon.svelte';
+
+  function iconFor(cat: ExpenseCategory): string {
+    const s = ((cat.slug || '') + ' ' + cat.name).toLowerCase();
+    if (s.includes('luz') || s.includes('electric')) return 'zap';
+    if (s.includes('agua')) return 'droplet';
+    if (s.includes('internet')) return 'wifi';
+    if (s.includes('alquiler')) return 'home';
+    if (s.includes('gas')) return 'zap';
+    if (s.includes('limpieza')) return 'box';
+    if (s.includes('seguro')) return 'check-circle';
+    if (s.includes('impuest')) return 'file-text';
+    if (s.includes('contab')) return 'bar-chart';
+    if (s.includes('proveedor') || s.includes('compra') || s.includes('materia')) return 'box';
+    if (s.includes('herramient') || s.includes('mantenim') || s.includes('consumible')) return 'activity';
+    if (s.includes('sueldo') || s.includes('personal') || s.includes('bonif') || s.includes('adicional')) return 'users';
+    if (s.includes('viático') || s.includes('viaje') || s.includes('flete') || s.includes('envío') || s.includes('transporte') || s.includes('combust')) return 'truck';
+    if (s.includes('comida')) return 'cart';
+    if (s.includes('market') || s.includes('publicidad')) return 'zap';
+    if (s.includes('subscrip') || s.includes('susc') || s.includes('software')) return 'credit-card';
+    return 'folder';
+  }
 
   let categories = $state<ExpenseCategory[]>([]);
   let loading = $state(true);
@@ -58,7 +80,7 @@
 </script>
 
 <div class="categories-tab">
-  <h3>🏷️ Categorías de gastos</h3>
+  <h3><GIcon name="tag" size={16} /> Categorías de gastos</h3>
 
   <div class="new-category">
     <input
@@ -83,7 +105,7 @@
     <div class="categories-grid">
       {#each categories as cat}
         <div class="category-card" style="border-color: {cat.color}">
-          <span class="category-icon">{cat.icon}</span>
+          <span class="category-icon"><GIcon name={iconFor(cat)} size={18} /></span>
           <span class="category-name">{cat.name}</span>
           <span class="category-type">{cat.type}</span>
           {#if cat.is_default}

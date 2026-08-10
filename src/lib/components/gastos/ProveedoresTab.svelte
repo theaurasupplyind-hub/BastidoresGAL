@@ -5,8 +5,10 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { byDateDesc } from '$lib/types';
   import type { Provider, ProviderMovement } from '$lib/types';
   import ProviderFolderCard from './ProviderFolderCard.svelte';
+  import GIcon from './GIcon.svelte';
 
   // ── Grid state ──
   let providers = $state<Provider[]>([]);
@@ -59,6 +61,29 @@
     return total;
   });
 
+  interface MoveGroup {
+    date: string;
+    label: string;
+    items: ProviderMovement[];
+  }
+
+  function groupByDate(moves: ProviderMovement[]): MoveGroup[] {
+    const groups: MoveGroup[] = [];
+    for (const m of moves) {
+      const key = m.date || '';
+      const last = groups[groups.length - 1];
+      if (last && last.date === key) {
+        last.items.push(m);
+      } else {
+        groups.push({ date: key, label: dayLabel(key), items: [m] });
+      }
+    }
+    return groups;
+  }
+
+  let transGroups = $derived(groupByDate(transMoves));
+  let cashGroups = $derived(groupByDate(cashMoves));
+
   let detailDebt = $derived(
     providerMoves.filter(m => m.type === 'PURCHASE').reduce((s, m) => s + (m.amount || 0), 0)
     - providerMoves.filter(m => m.type === 'PAYMENT').reduce((s, m) => s + (m.amount || 0), 0)
@@ -80,11 +105,14 @@
     return '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 });
   }
 
-  function formatDate(d: string): string {
+  function dayLabel(d: string): string {
     if (!d) return '';
-    const p = d.split('-');
-    if (p.length === 3) return `${p[2]}/${p[1]}/${p[0]}`;
-    return d;
+    let parts = d.split('-').map(Number);
+    if (parts.some(isNaN)) parts = d.split('/').map(Number).reverse();
+    const [y, m, dd] = parts;
+    if (!y || !m || !dd) return d;
+    const dt = new Date(y, m - 1, dd);
+    return dt.toLocaleString('es-AR', { day: 'numeric', month: 'long' });
   }
 
   function invalidateCache() {
@@ -127,7 +155,8 @@
           movesMap.set(p.id, moves);
           const purchases = moves.filter(m => m.type === 'PURCHASE').reduce((s, m) => s + (m.amount || 0), 0);
           const payments = moves.filter(m => m.type === 'PAYMENT').reduce((s, m) => s + (m.amount || 0), 0);
-          const lastMove = moves.length > 0 ? moves[0] : null;
+          const sortedMoves = [...moves].sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
+          const lastMove = sortedMoves.length > 0 ? sortedMoves[0] : null;
           infoMap.set(p.id, {
             debt: purchases - payments,
             stockQty: moves.filter(m => m.type === 'STOCK_IN').reduce((s, m) => s + (m.quantity || 0), 0)
@@ -159,7 +188,7 @@
         opacity: [0, 1],
         duration: 340,
         ease: 'outBack',
-        delay: (_el, i = 0) => i * 90 + 120,
+        delay: (_el: unknown, i = 0) => i * 90 + 120,
       });
     }
     return {};
@@ -168,7 +197,7 @@
   function openDetail(p: Provider) {
     selectedProvider = p;
     const moves = providerMovesMap.get(p.id) || [];
-    providerMoves = [...moves].reverse();
+    providerMoves = [...moves].sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
     viewMode = 'detail';
     timelineFilter = 'Todo';
   }
@@ -197,7 +226,7 @@
     if (!selectedProvider) return;
     try {
       const detail = await api.getProvider(selectedProvider.id);
-      providerMoves = [...(detail?.movements || [])].reverse();
+      providerMoves = [...(detail?.movements || [])].sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
       providerMovesMap.set(selectedProvider.id, detail?.movements || []);
     } catch {}
   }
@@ -285,12 +314,12 @@
 {#if viewMode === 'grid'}
   <div class="pp-grid" transition:fade={{ duration: 120 }}>
     <div class="pp-grid-header">
-      <h3>📂 Carpetas de Proveedores</h3>
+      <h3><GIcon name="folder" size={16} /> Carpetas de Proveedores</h3>
       <div class="pp-grid-toolbar">
         <div class="pp-search-wrap">
           <input type="text" bind:value={providerSearch} placeholder="Buscar proveedor..." class="pp-search" />
         </div>
-        <button class="btn btn-sm btn-primary" onclick={openNewProvider}>➕ Nuevo</button>
+        <button class="btn btn-sm btn-primary" onclick={openNewProvider}><GIcon name="plus" size={13} /> Nuevo</button>
       </div>
     </div>
     <div class="pp-cards-grid">
@@ -313,49 +342,31 @@
 {:else if viewMode === 'detail' && selectedProvider}
   <div class="pp-detail" bind:this={detailEl} use:panelEnter>
     <div class="pp-detail-nav">
-      <button class="btn btn-sm btn-secondary" onclick={closeDetail}>⬅ Volver</button>
-      <h3>🏢 {selectedProvider.name}</h3>
+      <button class="btn btn-sm btn-secondary" onclick={closeDetail}><GIcon name="arrow-left" size={13} /> Volver</button>
+      <div class="pp-detail-nav-center">
+        <h3><GIcon name="building" size={16} /> {selectedProvider.name}</h3>
+        <div class="pp-nav-stats">
+          <span class="pp-nav-debt" style="color:{detailDebt > 0 ? '#dc3545' : '#28a745'}">{formatCurrency(detailDebt)}</span>
+          <span class="pp-nav-stock"><GIcon name="box" size={14} /> {detailStock} unid.</span>
+        </div>
+      </div>
       <div class="pp-detail-nav-actions">
-        <button class="btn btn-xs btn-secondary" onclick={openEditProvider}>✏️ Editar</button>
-        <button class="btn btn-xs btn-danger" onclick={() => deleteProvider(selectedProvider.id)}>🗑</button>
+        <button class="btn btn-xs btn-secondary" onclick={openEditProvider}><GIcon name="edit" size={13} /> Editar</button>
+        <button class="btn btn-xs btn-danger" onclick={() => deleteProvider(selectedProvider.id)}><GIcon name="trash" size={13} /></button>
       </div>
     </div>
 
     <div class="pp-detail-cols">
-      <!-- LEFT: Summary -->
-      <div class="pp-detail-left">
-        <div class="pp-card-section">
-          <h4>📊 Resumen</h4>
-          <div class="pp-summary-block">
-            <span class="pp-summary-label">💰 Deuda</span>
-            <span class="pp-summary-value" style="color:{detailDebt > 0 ? '#dc3545' : '#28a745'}; font-size:1.4rem">{formatCurrency(detailDebt)}</span>
-            <span style="font-size:0.75rem;color:var(--text-muted)">{detailDebt > 0 ? '🔴 Pendiente' : '🟢 Al día'}</span>
-          </div>
-          <div class="pp-summary-block">
-            <span class="pp-summary-label">📦 Stock</span>
-            <span class="pp-summary-value">{detailStock} unid.</span>
-          </div>
-          <hr class="pp-divider" />
-          <div class="pp-summary-block">
-            <span class="pp-summary-label">📇 Datos</span>
-            {#if selectedProvider.cuit}<span class="pp-summary-data">CUIT: {selectedProvider.cuit}</span>{/if}
-            {#if selectedProvider.alias_mp}<span class="pp-summary-data">Alias MP: {selectedProvider.alias_mp}</span>{/if}
-            {#if selectedProvider.alias_cbu}<span class="pp-summary-data">Alias CBU: {selectedProvider.alias_cbu}</span>{/if}
-            {#if selectedProvider.address}<span class="pp-summary-data">Dirección: {selectedProvider.address}</span>{/if}
-          </div>
-        </div>
-      </div>
-
       <!-- CENTER: Timeline -->
       <div class="pp-detail-center">
         <div class="pp-timeline-header">
-          <h4>📋 Timeline</h4>
+          <h4><GIcon name="activity" size={13} /> Timeline</h4>
           <div class="pp-timeline-filter">
             {#each ['Todo', 'Financiero', 'Stock'] as f}
               <button
                 class="pp-filter-btn"
                 class:active={timelineFilter === f}
-                onclick={() => timelineFilter = f}
+                onclick={() => timelineFilter = f as 'Todo' | 'Financiero' | 'Stock'}
               >{f}</button>
             {/each}
           </div>
@@ -363,26 +374,24 @@
         <div class="pp-timeline-panels">
           <div class="pp-timeline-panel">
             <div class="pp-panel-header">
-              <span>🏦 Transferencias</span>
+              <span><GIcon name="credit-card" size={14} /> Transferencias</span>
               <span class="pp-panel-total" class:positive={transTotal >= 0} class:negative={transTotal < 0}>
                 {transTotal >= 0 ? '+' : ''}{formatCurrency(transTotal)}
               </span>
             </div>
             <div class="pp-panel-scroll">
-              {#each transMoves as m, i}
-                <div class="pp-move-item" class:pp-move-alt={i % 2 === 1}>
-                  <div class="pp-move-top">
-                    <span class="pp-move-date">{formatDate(m.date)}</span>
+              {#each transGroups as g}
+                <div class="pp-date-header">{g.label}</div>
+                {#each g.items as m}
+                  <div class="pp-move-row">
                     <span class="pp-move-type-badge {moveTypeClass(m.type)}">{moveTypeLabel(m.type)}</span>
+                    <span class="pp-move-desc">{m.description || '—'}</span>
                     <span class="pp-move-amount" class:positive={m.type === 'PURCHASE'} class:negative={m.type === 'PAYMENT'}>
                       {m.type === 'PAYMENT' ? '-' : '+'}{formatCurrency(m.amount)}
                     </span>
-                    <div class="pp-move-actions">
-                      <button class="pp-move-btn pp-move-del" onclick={() => deleteMove(m.id)} title="Eliminar">🗑</button>
-                    </div>
+                    <button class="pp-move-btn pp-move-del" onclick={() => deleteMove(m.id)} title="Eliminar"><GIcon name="trash" size={13} /></button>
                   </div>
-                  <div class="pp-move-desc">{m.description || '—'}</div>
-                </div>
+                {/each}
               {:else}
                 <div class="pp-panel-empty">Sin movimientos</div>
               {/each}
@@ -390,26 +399,24 @@
           </div>
           <div class="pp-timeline-panel">
             <div class="pp-panel-header">
-              <span>💵 Efectivo</span>
+              <span><GIcon name="dollar" size={14} /> Efectivo</span>
               <span class="pp-panel-total" class:positive={cashTotal >= 0} class:negative={cashTotal < 0}>
                 {cashTotal >= 0 ? '+' : ''}{formatCurrency(cashTotal)}
               </span>
             </div>
             <div class="pp-panel-scroll">
-              {#each cashMoves as m, i}
-                <div class="pp-move-item" class:pp-move-alt={i % 2 === 1}>
-                  <div class="pp-move-top">
-                    <span class="pp-move-date">{formatDate(m.date)}</span>
+              {#each cashGroups as g}
+                <div class="pp-date-header">{g.label}</div>
+                {#each g.items as m}
+                  <div class="pp-move-row">
                     <span class="pp-move-type-badge {moveTypeClass(m.type)}">{moveTypeLabel(m.type)}</span>
+                    <span class="pp-move-desc">{m.description || '—'}</span>
                     <span class="pp-move-amount" class:positive={m.type === 'PURCHASE'} class:negative={m.type === 'PAYMENT'}>
                       {m.type === 'PAYMENT' ? '-' : '+'}{formatCurrency(m.amount)}
                     </span>
-                    <div class="pp-move-actions">
-                      <button class="pp-move-btn pp-move-del" onclick={() => deleteMove(m.id)} title="Eliminar">🗑</button>
-                    </div>
+                    <button class="pp-move-btn pp-move-del" onclick={() => deleteMove(m.id)} title="Eliminar"><GIcon name="trash" size={13} /></button>
                   </div>
-                  <div class="pp-move-desc">{m.description || '—'}</div>
-                </div>
+                {/each}
               {:else}
                 <div class="pp-panel-empty">Sin movimientos</div>
               {/each}
@@ -418,15 +425,24 @@
         </div>
       </div>
 
-      <!-- RIGHT: Actions -->
+      <!-- RIGHT: Actions + Details -->
       <div class="pp-detail-right">
         <div class="pp-card-section">
-          <h4>⚡ Acciones</h4>
-          <button class="pp-action-btn pp-action-pay" onclick={() => openNewMove('PAYMENT')}>💸 Pago Rápido</button>
-          <button class="pp-action-btn pp-action-buy" onclick={() => openNewMove('PURCHASE')}>🛒 Compra Nueva</button>
-          <button class="pp-action-btn pp-action-stock" onclick={() => openNewMove('STOCK_IN')}>📦 Entrada Stock</button>
+          <h4><GIcon name="zap" size={13} /> Acciones</h4>
+          <button class="pp-action-btn pp-action-pay" onclick={() => openNewMove('PAYMENT')}><GIcon name="dollar" size={13} /> Pago Rápido</button>
+          <button class="pp-action-btn pp-action-buy" onclick={() => openNewMove('PURCHASE')}><GIcon name="cart" size={13} /> Compra Nueva</button>
+          <button class="pp-action-btn pp-action-stock" onclick={() => openNewMove('STOCK_IN')}><GIcon name="box" size={13} /> Entrada Stock</button>
           <hr class="pp-divider" />
-          <button class="pp-action-btn pp-action-edit" onclick={openEditProvider}>✏️ Editar Datos</button>
+          <button class="pp-action-btn pp-action-edit" onclick={openEditProvider}><GIcon name="edit" size={13} /> Editar Datos</button>
+        </div>
+        <div class="pp-card-section">
+          <h4><GIcon name="file-text" size={13} /> Detalles</h4>
+          <div class="pp-detail-data">
+            {#if selectedProvider.cuit}<span>CUIT: {selectedProvider.cuit}</span>{/if}
+            {#if selectedProvider.alias_mp}<span>Alias MP: {selectedProvider.alias_mp}</span>{/if}
+            {#if selectedProvider.alias_cbu}<span>Alias CBU: {selectedProvider.alias_cbu}</span>{/if}
+            {#if selectedProvider.address}<span>Dirección: {selectedProvider.address}</span>{/if}
+          </div>
         </div>
       </div>
     </div>
@@ -486,7 +502,7 @@
   /* ============ GRID VIEW ============ */
   .pp-grid { display: flex; flex-direction: column; gap: 0.714rem; flex: 1; min-height: 0; }
   .pp-grid-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.571rem; }
-  .pp-grid-header h3 { margin: 0; font-size: 1.05rem; color: var(--text-primary); }
+  .pp-grid-header h3 { margin: 0; font-size: 1.05rem; color: var(--text-primary); display: inline-flex; align-items: center; gap: 0.429rem; }
   .pp-grid-toolbar { display: flex; gap: 0.429rem; align-items: center; }
   .pp-search-wrap { position: relative; }
   .pp-search {
@@ -537,30 +553,31 @@
     border-radius: 0.571rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
   }
-  .pp-detail-nav h3 { margin: 0; font-size: 1rem; color: var(--text-primary); flex: 1; }
+  .pp-detail-nav h3 { margin: 0; font-size: 0.9rem; color: var(--text-primary); display: inline-flex; align-items: center; gap: 0.429rem; min-width: 0; }
+  .pp-detail-nav h3 :global(svg) { flex-shrink: 0; }
+  .pp-detail-nav-center { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 0.143rem; min-width: 0; padding: 0 0.571rem; }
+  .pp-nav-stats { display: flex; align-items: center; gap: 0.714rem; min-width: 0; }
+  .pp-nav-debt { font-family: monospace; font-size: 1.5rem; font-weight: 800; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pp-nav-stock { display: inline-flex; align-items: center; gap: 0.286rem; font-size: 0.85rem; font-weight: 600; color: var(--text-secondary); white-space: nowrap; }
   .pp-detail-nav-actions { display: flex; gap: 0.286rem; }
 
   .pp-detail-cols {
     display: grid;
-    grid-template-columns: 14rem 1fr 12rem;
+    grid-template-columns: 1fr 12rem;
     gap: 0.571rem;
     flex: 1;
     min-height: 0;
   }
 
-  /* LEFT */
-  .pp-detail-left { display: flex; flex-direction: column; gap: 0.571rem; }
   .pp-card-section {
     background: var(--bg-card);
     border-radius: 0.571rem;
     padding: 0.714rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
   }
-  .pp-card-section h4 { margin: 0 0 0.571rem; font-size: 0.78rem; color: var(--text-muted); font-weight: 600; }
-  .pp-summary-block { display: flex; flex-direction: column; gap: 0.143rem; margin-bottom: 0.571rem; }
-  .pp-summary-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
-  .pp-summary-value { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); }
-  .pp-summary-data { font-size: 0.75rem; color: var(--text-secondary); }
+  .pp-card-section h4 { margin: 0 0 0.571rem; font-size: 0.78rem; color: var(--text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 0.357rem; }
+  .pp-detail-data { display: flex; flex-direction: column; gap: 0.286rem; }
+  .pp-detail-data span { font-size: 0.75rem; color: var(--text-secondary); }
   .pp-divider { border: none; border-top: 1px solid var(--border-light); margin: 0.571rem 0; }
 
   /* CENTER */
@@ -580,7 +597,7 @@
     padding: 0.571rem 0.714rem;
     box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
   }
-  .pp-timeline-header h4 { margin: 0; font-size: 0.82rem; color: var(--text-primary); }
+  .pp-timeline-header h4 { margin: 0; font-size: 0.82rem; color: var(--text-primary); display: inline-flex; align-items: center; gap: 0.357rem; }
   .pp-timeline-filter { display: flex; gap: 0.143rem; }
   .pp-filter-btn {
     padding: 0.214rem 0.571rem;
@@ -615,61 +632,85 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 0.5rem 0.714rem;
+    padding: 0.571rem 0.714rem;
     border-bottom: 2px solid var(--border-light);
-    font-size: 0.78rem;
+    font-size: 0.92rem;
     font-weight: 600;
     color: var(--text-secondary);
     flex-shrink: 0;
   }
-  .pp-panel-total { font-family: monospace; font-size: 0.82rem; }
+  .pp-panel-total { font-family: monospace; font-size: 1.05rem; }
   .pp-panel-total.positive { color: #dc3545; }
   .pp-panel-total.negative { color: #28a745; }
-  .pp-panel-scroll { flex: 1; overflow: auto; padding: 0.286rem 0.429rem; }
+  .pp-panel-scroll { flex: 1; overflow: auto; padding: 0.143rem 0.429rem; }
 
-  .pp-move-item {
-    padding: 0.357rem 0.429rem;
-    border-bottom: 1px solid #f5f5f5;
-    font-size: 0.75rem;
+  .pp-date-header {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    padding: 0.857rem 0.571rem 0.429rem;
+    border-bottom: 1px solid var(--border-light);
+    margin-top: 0.714rem;
   }
-  .pp-move-alt { background: #fafbfc; }
-  .pp-move-top { display: flex; align-items: center; gap: 0.357rem; }
-  .pp-move-date { font-family: monospace; font-size: 0.68rem; color: #888; min-width: 3rem; }
+  .pp-panel-scroll > .pp-date-header:first-child { margin-top: 0; }
+
+  .pp-move-row {
+    display: flex;
+    align-items: center;
+    gap: 0.571rem;
+    padding: 0.571rem;
+    font-size: 0.85rem;
+    border-radius: 0.357rem;
+    transition: background 0.12s;
+  }
+  .pp-move-row:hover { background: var(--bg-hover); }
   .pp-move-type-badge {
-    font-size: 0.6rem;
-    font-weight: 600;
-    padding: 0.071rem 0.357rem;
-    border-radius: 0.214rem;
-    min-width: 2.5rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 0.143rem 0.5rem;
+    border-radius: 0.3rem;
+    flex-shrink: 0;
     text-align: center;
+    letter-spacing: 0.014rem;
   }
   .type-purchase { background: #fff3cd; color: #856404; }
   .type-payment { background: #d4edda; color: #155724; }
   .type-stockin { background: #cce5ff; color: #004085; }
   .type-stockout { background: #f8d7da; color: #721c24; }
 
-  .pp-move-amount { font-family: monospace; font-weight: 700; font-size: 0.78rem; margin-left: auto; }
+  .pp-move-amount { font-family: monospace; font-weight: 700; font-size: 1rem; margin-left: auto; flex-shrink: 0; white-space: nowrap; }
   .pp-move-amount.positive { color: #dc3545; }
   .pp-move-amount.negative { color: #28a745; }
-  .pp-move-actions { display: flex; gap: 0.143rem; flex-shrink: 0; }
   .pp-move-btn {
     background: none;
     border: none;
     cursor: pointer;
-    font-size: 0.72rem;
-    padding: 0.071rem 0.143rem;
-    opacity: 0.4;
-    transition: opacity 0.1s;
+    font-size: 0.85rem;
+    padding: 0.143rem 0.286rem;
+    opacity: 0;
+    transition: opacity 0.12s;
+    flex-shrink: 0;
   }
-  .pp-move-item:hover .pp-move-btn { opacity: 1; }
-  .pp-move-del:hover { opacity: 1; }
-  .pp-move-desc { font-size: 0.72rem; color: #666; margin-top: 0.071rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pp-panel-empty { padding: 1rem; text-align: center; color: #ccc; font-size: 0.78rem; }
+  .pp-move-row:hover .pp-move-btn { opacity: 0.5; }
+  .pp-move-btn:hover { opacity: 1 !important; }
+  .pp-move-desc {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pp-panel-empty { padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.85rem; }
 
   /* RIGHT */
   .pp-detail-right { display: flex; flex-direction: column; gap: 0.571rem; }
   .pp-action-btn {
-    display: block;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.357rem;
     width: 100%;
     padding: 0.571rem;
     border: none;

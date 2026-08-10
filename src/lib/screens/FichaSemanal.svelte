@@ -6,7 +6,7 @@
   import { facturasActivas } from '$lib/utils/facturas';
   import PagoDialog from '$lib/components/PagoDialog.svelte';
   import type { Factura, Pago, FichaSemanalRow, Kpis, Cliente } from '$lib/types';
-  import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
+  import { parseFechasEntrega, formatFechasEntregaDisplay, byDateDesc } from '$lib/types';
 
   let loading = $state(false);
   let rows = $state<FichaSemanalRow[]>([]);
@@ -337,7 +337,7 @@
       const facturaMap = new Map(facturas.map(f => [f.id, f.cliente_nombre || '']));
       auditLogs = allP
         .filter(p => p.username)
-        .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        .sort((a, b) => byDateDesc(a.date || '', b.date || '', a.id, b.id))
         .slice(0, 100)
         .map(p => ({
           fecha_sistema: p.date,

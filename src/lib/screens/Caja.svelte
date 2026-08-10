@@ -118,8 +118,10 @@
 
         const employees = await cacheStore.fetch('employees:all', () => api.listEmployees(false), 900000);
         const empMap = new Map(employees.map(e => [e.id, e.name]));
+        const ownerIds = new Set(employees.filter(e => e.is_owner === 1).map(e => e.id));
 
         for (const ep of empPays) {
+          if (ownerIds.has(ep.employee_id)) continue;
           entries.push({
             id: `emp-pay-${ep.id}`,
             fecha: ep.date || '',

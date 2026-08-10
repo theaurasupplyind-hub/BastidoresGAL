@@ -4,13 +4,14 @@
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import type { Employee } from '$lib/types';
+  import GIcon from './GIcon.svelte';
 
   let employees = $state<Employee[]>([]);
   let selectedEmployee = $state<Employee | null>(null);
   let employeePayments = $state<any[]>([]);
   let showEmployeeForm = $state(false);
   let employeeForm = $state<{ id: number | null; name: string; phone: string; address: string; cuit: string; cbu: string; alias: string; job_type: string; payment_freq: string; base_salary: number; attendance_bonus: number; work_days: string; is_owner: number; entry_time: string; exit_time: string; late_threshold: number }>({
-    id: null, name: '', phone: '', address: '', job_type: 'NOMINA', payment_freq: 'MENSUAL', base_salary: 0, attendance_bonus: 0, work_days: 'L M M J V S', is_owner: 0
+    id: null, name: '', phone: '', address: '', cuit: '', cbu: '', alias: '', job_type: 'NOMINA', payment_freq: 'MENSUAL', base_salary: 0, attendance_bonus: 0, work_days: 'L M M J V S', is_owner: 0, entry_time: '', exit_time: '', late_threshold: 5
   });
   let showEmployeePayForm = $state(false);
   let confirmHardDelete = $state(false);
@@ -70,14 +71,17 @@
 
   async function saveEmployee() {
     try {
-      if (employeeForm.id) {
-        await api.updateEmployee(employeeForm.id, employeeForm);
+      let savedId = employeeForm.id;
+      if (savedId) {
+        await api.updateEmployee(savedId, employeeForm);
       } else {
-        await api.addEmployee(employeeForm);
+        savedId = (await api.addEmployee(employeeForm)).id;
       }
       showEmployeeForm = false;
       invalidateCache();
       await loadEmployees();
+      const fresh = employees.find(x => x.id === savedId);
+      if (fresh) selectedEmployee = fresh;
     } catch (e) {
       appStore.alert('Error al guardar: ' + (e as Error).message);
     }
@@ -158,7 +162,7 @@
 <div class="g-sueldos">
   <div class="g-emp-sidebar">
     <div class="g-emp-toolbar">
-      <button class="btn btn-sm btn-primary" onclick={openNewEmployee}>➕ Nuevo</button>
+      <button class="btn btn-sm btn-primary" onclick={openNewEmployee}><GIcon name="plus" size={13} /> Nuevo</button>
     </div>
     <div class="g-emp-list">
       {#each employees as e}
@@ -194,11 +198,15 @@
           <span class="g-emp-badge g-emp-badge-owner">Dueño</span>
         {/if}
         <div class="g-emp-actions">
-          <button class="btn btn-xs btn-secondary" onclick={() => openEditEmployee(selectedEmployee)}>✏️</button>
-          <button class="btn btn-xs btn-primary" onclick={openPayEmployee}>💰 Pago</button>
-          <button class="btn btn-xs btn-danger" onclick={() => deleteEmployee(selectedEmployee.id)} title="Desactivar">🗑</button>
-          <button class="btn btn-xs btn-danger" onclick={() => hardDeleteEmployee(selectedEmployee.id)} title="Eliminar permanente">
-            {confirmHardDelete ? '¿Confirmar?' : '🔥'}
+          <button class="btn btn-xs btn-secondary" onclick={() => selectedEmployee && openEditEmployee(selectedEmployee)} title="Editar"><GIcon name="edit" size={13} /></button>
+          <button class="btn btn-xs btn-primary" onclick={openPayEmployee}><GIcon name="dollar" size={13} /> Pago</button>
+          <button class="btn btn-xs btn-danger" onclick={() => selectedEmployee && deleteEmployee(selectedEmployee.id)} title="Desactivar"><GIcon name="trash" size={13} /></button>
+          <button class="btn btn-xs btn-danger" onclick={() => selectedEmployee && hardDeleteEmployee(selectedEmployee.id)} title="Eliminar permanente">
+            {#if confirmHardDelete}
+              ¿Confirmar?
+            {:else}
+              <GIcon name="alert-circle" size={13} />
+            {/if}
           </button>
         </div>
       </div>
@@ -274,7 +282,7 @@
         </div>
         <div class="form-group">
           <label class="owner-check-label">
-            <input type="checkbox" bind:checked={employeeForm.is_owner} />
+            <input type="checkbox" checked={employeeForm.is_owner === 1} onchange={(e) => employeeForm.is_owner = (e.currentTarget.checked ? 1 : 0)} />
             Dueño — sus gastos no cuentan en totales
           </label>
         </div>

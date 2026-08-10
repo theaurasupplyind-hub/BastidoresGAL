@@ -177,6 +177,27 @@ export function parseFecha(fecha: string): Date {
   return new Date(fecha);
 }
 
+function dateKey(d: string): number {
+  if (!d) return 0;
+  if (d.includes('/')) {
+    const p = d.split('/');
+    const [dd, mm, yyyy] = [parseInt(p[0], 10), parseInt(p[1], 10), parseInt(p[2], 10)];
+    if (!yyyy || !mm || !dd) return 0;
+    return yyyy * 10000 + mm * 100 + dd;
+  }
+  if (d.includes('-')) {
+    const p = d.split('-');
+    const [yyyy, mm, dd] = [parseInt(p[0], 10), parseInt(p[1], 10), parseInt(p[2], 10)];
+    if (!yyyy || !mm || !dd) return 0;
+    return yyyy * 10000 + mm * 100 + dd;
+  }
+  return 0;
+}
+
+export function byDateDesc(aDate: string, bDate: string, aId = 0, bId = 0): number {
+  return dateKey(bDate) - dateKey(aDate) || bId - aId;
+}
+
 export interface Factura {
   id: number;
   numero_factura: string;
@@ -338,6 +359,7 @@ export interface Employee {
   entry_time?: string;
   exit_time?: string;
   late_threshold?: number;
+  is_owner?: number;
 }
 
 export interface Attendance {
@@ -345,6 +367,7 @@ export interface Attendance {
   employee_id: number;
   date: string;
   status: string;
+  exit_time?: string;
   created_at?: string;
 }
 

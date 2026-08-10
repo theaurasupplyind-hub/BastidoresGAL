@@ -1,17 +1,29 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
   import { api } from '$lib/api/client';
-  import type { Expense, ExpenseCategory } from '$lib/types';
+  import { cacheStore } from '$lib/stores/cacheStore.svelte';
+  import { byDateDesc } from '$lib/types';
+  import type { Expense, ExpenseCategory, Provider, Employee } from '$lib/types';
+  import GIcon from './GIcon.svelte';
 
-  let { fromDate = '', toDate = '', categoryId = null }: { fromDate?: string; toDate?: string; categoryId?: number | null } = $props();
+  let { fromDate = '', toDate = '', categoryId = null, onChanged }: {
+    fromDate?: string;
+    toDate?: string;
+    categoryId?: number | null;
+    onChanged?: () => void;
+  } = $props();
 
   let expenses = $state<Expense[]>([]);
   let categories = $state<ExpenseCategory[]>([]);
+  let providers = $state<Provider[]>([]);
+  let employees = $state<Employee[]>([]);
   let loading = $state(true);
   let openMenuId = $state<number | null>(null);
   let editingExpense = $state<Expense | null>(null);
   let editForm = $state({ description: '', amount: 0, date: '', category_id: 0 });
   let saving = $state(false);
+  let pendingDelete = $state<Expense | null>(null);
+  let deleting = $state(false);
 
   const CAT_ICONS: Record<string, string> = {
     luz: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M15.09 14c.18-.98.65-1.74 1.41-2.5A4.65 4.65 0 0 0 18 8 6 6 0 0 0 6 8c0 1 .23 2.23 1.5 3.5A4.61 4.61 0 0 1 8.91 14"/></svg>',
@@ -83,6 +95,24 @@
     return categories.find(c => c.id === id)?.name || 'Sin categoría';
   }
 
+  function catColor(id: number): string {
+    const c = categories.find(x => x.id === id);
+    if (!c || !/^#[0-9a-fA-F]{6}$/.test(c.color || '')) return '#94a3b8';
+    return c.color;
+  }
+
+  function entityLabel(exp: Expense): string {
+    if (exp.provider_id) return providers.find(p => p.id === exp.provider_id)?.name || 'Proveedor';
+    if (exp.employee_id) return employees.find(e => e.id === exp.employee_id)?.name || 'Empleado';
+    return '';
+  }
+
+  function linkWarning(exp: Expense): string {
+    if (exp.provider_id) return 'También se eliminará su movimiento de Proveedores y se recalculará la deuda.';
+    if (exp.employee_id) return 'También se eliminará el pago registrado en Sueldos.';
+    return 'No tiene movimientos vinculados en Proveedores ni Sueldos.';
+  }
+
   function sourceIcon(src: string): string {
     return SOURCE_ICONS[src] || SOURCE_ICONS.manual;
   }
@@ -101,7 +131,7 @@
   async function loadData() {
     loading = true;
     try {
-      const [exps, cats] = await Promise.all([
+      const [exps, cats, provs, emps] = await Promise.all([
         api.listExpenses({
           from_date: fromDate || undefined,
           to_date: toDate || undefined,
@@ -110,9 +140,13 @@
           limit: 200,
         }),
         api.listExpenseCategories(),
+        cacheStore.fetch('providers', () => api.listProviders(), 900000),
+        cacheStore.fetch('employees:active', () => api.listEmployees(true), 900000),
       ]);
-      expenses = exps.sort((a, b) => b.date.localeCompare(a.date));
+      expenses = exps.sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
       categories = cats;
+      providers = provs;
+      employees = emps;
     } catch (e) {
       console.error('ExpensesTab error:', e);
     } finally {
@@ -148,6 +182,7 @@
       });
       editingExpense = null;
       await loadData();
+      onChanged?.();
     } catch (e) {
       alert('Error al guardar: ' + (e as Error).message);
     } finally {
@@ -159,14 +194,34 @@
     editingExpense = null;
   }
 
-  async function deleteExpense(id: number, desc: string) {
+  function requestDelete(exp: Expense) {
     openMenuId = null;
-    if (!confirm(`¿Eliminar "${desc.slice(0, 40)}"?`)) return;
+    pendingDelete = exp;
+  }
+
+  function cancelDelete() {
+    if (!deleting) pendingDelete = null;
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    deleting = true;
+    const exp = pendingDelete;
     try {
-      await api.deleteExpense(id);
+      await api.deleteExpense(exp.id);
+      pendingDelete = null;
+      cacheStore.invalidate('providers');
+      cacheStore.invalidate('provider:moves');
+      cacheStore.invalidate('employees');
+      cacheStore.invalidate('employees:active');
+      cacheStore.invalidate('employee:payments');
       await loadData();
+      onChanged?.();
     } catch (e) {
       alert('Error al eliminar: ' + (e as Error).message);
+      pendingDelete = null;
+    } finally {
+      deleting = false;
     }
   }
 
@@ -194,7 +249,13 @@
           <span class="expense-icon">{@html catIcon(exp.category_id)}</span>
           <span class="expense-date">{formatDate(exp.date)}</span>
           <span class="expense-desc" title={exp.description}>{exp.description}</span>
-          <span class="expense-category">{catName(exp.category_id)}</span>
+          <span class="expense-category" style={`color: ${catColor(exp.category_id)}; background: ${catColor(exp.category_id)}1a;`}>{catName(exp.category_id)}</span>
+          <span class="expense-entity" class:has-entity={!!entityLabel(exp)}>
+            {#if entityLabel(exp)}
+              <GIcon name={exp.provider_id ? 'box' : 'user'} size={12} />
+              <span>{entityLabel(exp)}</span>
+            {/if}
+          </span>
           <span class="expense-source" title={exp.source}>{@html sourceIcon(exp.source)}</span>
           <span class="expense-amount">{formatCurrency(exp.amount)}</span>
           <div class="expense-menu">
@@ -205,7 +266,7 @@
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                   Editar
                 </button>
-                <button class="menu-item menu-item-danger" onclick={() => deleteExpense(exp.id, exp.description)}>
+                <button class="menu-item menu-item-danger" onclick={() => requestDelete(exp)}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                   Eliminar
                 </button>
@@ -253,6 +314,25 @@
   </div>
 {/if}
 
+{#if pendingDelete}
+  <div class="modal-overlay" role="presentation">
+    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+      <div class="modal-header">
+        <h3>Eliminar gasto</h3>
+        <button class="modal-close" onclick={cancelDelete} aria-label="Cerrar">✕</button>
+      </div>
+      <div class="confirm-body">
+        <p>¿Eliminar el gasto <b>"{pendingDelete.description.slice(0, 60)}"</b> de {formatCurrency(pendingDelete.amount)}?</p>
+        <p class="confirm-warning">{linkWarning(pendingDelete)}</p>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick={cancelDelete} disabled={deleting}>Cancelar</button>
+        <button class="btn-delete" onclick={confirmDelete} disabled={deleting}>{deleting ? 'Eliminando…' : 'Eliminar'}</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <style>
   .expenses-tab {
     display: flex;
@@ -272,7 +352,7 @@
   }
   .expense-row {
     display: grid;
-    grid-template-columns: 2rem 6rem 1fr 8rem 3rem 7rem 2rem;
+    grid-template-columns: 2rem 5.5rem 1fr 8rem 7rem 2.5rem 7rem 2rem;
     gap: 0.8rem;
     align-items: center;
     padding: 0.9rem 1rem;
@@ -305,6 +385,21 @@
     border-radius: 0.3rem;
     text-align: center;
     font-size: 0.9rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .expense-entity {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    min-width: 0;
+  }
+  .expense-entity svg { flex-shrink: 0; color: var(--text-muted); }
+  .expense-entity.has-entity span {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -437,4 +532,24 @@
     font-weight: 600;
   }
   .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
+  .btn-delete {
+    padding: 0.5rem 1rem;
+    border: none;
+    border-radius: 0.35rem;
+    background: var(--danger, #e53935);
+    color: white;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+  }
+  .btn-delete:disabled { opacity: 0.6; cursor: not-allowed; }
+  .confirm-body { display: flex; flex-direction: column; gap: 0.6rem; }
+  .confirm-body p { margin: 0; font-size: 0.95rem; color: var(--text-primary); }
+  .confirm-warning {
+    padding: 0.6rem 0.75rem;
+    background: #fef3c7;
+    color: #92400e;
+    border-radius: 0.35rem;
+    font-size: 0.85rem;
+  }
 </style>

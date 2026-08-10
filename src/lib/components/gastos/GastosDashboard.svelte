@@ -2,12 +2,12 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import type { Provider, ProviderMovement, Employee, Attendance, ExpenseCategory } from '$lib/types';
+  import type { Provider, Employee, Attendance, ExpenseCategory } from '$lib/types';
   import ExpensesTab from './ExpensesTab.svelte';
+  import GIcon from './GIcon.svelte';
 
   let providers = $state<Provider[]>([]);
   let employees = $state<Employee[]>([]);
-  let providerMoves = $state<ProviderMovement[]>([]);
   let attendanceRecords = $state<Attendance[]>([]);
   let providerDebt = $state(0);
   let providerCount = $state(0);
@@ -18,6 +18,11 @@
   let loading = $state(true);
 
   let categories = $state<ExpenseCategory[]>([]);
+  let summaryGroups = $state<Record<string, number>>({});
+
+  function fmt(n: number): string {
+    return '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+  }
 
   function defaultFrom(): string {
     const d = new Date(); d.setDate(d.getDate() - 30);
@@ -31,8 +36,75 @@
   let toDate = $state(defaultTo());
   let categoryId = $state<number | null>(null);
 
-  function formatCurrency(n: number): string {
-    return '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2 });
+  function toIso(d: string): string {
+    if (!d) return '';
+    if (d.includes('/')) {
+      const p = d.split('/');
+      return `${p[2]}-${p[1]}-${p[0]}`;
+    }
+    return d;
+  }
+
+  const PRESETS = [
+    {
+      label: 'Este mes',
+      apply: () => {
+        const n = new Date();
+        fromDate = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-01`;
+        toDate = defaultTo();
+        loadDashboard();
+      },
+    },
+    {
+      label: 'Últimos 30 días',
+      apply: () => { fromDate = defaultFrom(); toDate = defaultTo(); loadDashboard(); },
+    },
+    {
+      label: 'Trimestre',
+      apply: () => {
+        const n = new Date(); n.setMonth(n.getMonth() - 3);
+        fromDate = n.toISOString().slice(0, 10); toDate = defaultTo();
+        loadDashboard();
+      },
+    },
+  ];
+
+  const KPIS = [
+    { key: 'debt', label: 'Deuda Proveedores', color: '#f59e0b', icon: 'box' },
+    { key: 'sueldos', label: 'Sueldos del período', color: '#8b5cf6', icon: 'users' },
+    { key: 'personal', label: 'Personal Activo', color: '#3b82f6', icon: 'user' },
+    { key: 'asistencia', label: 'Asistencia', color: '#10b981', icon: 'check-circle' },
+    { key: 'gastos', label: 'Gastos del período', color: '#ef4444', icon: 'wallet' },
+  ];
+
+  let dist = $derived(
+    Object.entries(summaryGroups).sort((a, b) => b[1] - a[1]).slice(0, 6)
+  );
+
+  function catColor(name: string): string {
+    return categories.find(c => c.name === name)?.color || '#94a3b8';
+  }
+
+  function catSlug(name: string): string {
+    const c = categories.find(x => x.name === name);
+    return c ? c.slug : 'varios';
+  }
+
+  const CAT_ICON_SLUG: Record<string, string> = {
+    luz: 'zap', agua: 'droplet', internet: 'wifi', alquiler: 'home', gas: 'zap',
+    limpieza: 'box', seguro: 'check-circle', impuestos: 'file-text', contabilidad: 'bar-chart',
+    proveedor: 'box', materia: 'box', herramientas: 'box', mantenimiento: 'activity',
+    sueldos: 'users', viáticos: 'truck', flete: 'truck', envío: 'truck', transporte: 'truck',
+    combustible: 'zap', comida: 'cart', marketing: 'zap', subscripciones: 'credit-card',
+    varios: 'folder',
+  };
+
+  function catIconName(name: string): string {
+    const slug = catSlug(name);
+    if (CAT_ICON_SLUG[slug]) return CAT_ICON_SLUG[slug];
+    if (slug.includes('proveedor')) return 'box';
+    if (slug.includes('sueldo') || slug.includes('personal')) return 'users';
+    return 'folder';
   }
 
   onMount(() => { loadDashboard(); });
@@ -47,38 +119,26 @@
       providers = provs;
       employees = emps;
 
-      const allMoves: ProviderMovement[] = [];
-      for (const p of provs) {
-        try {
-          const detail = await api.getProvider(p.id);
-          if (detail?.movements) allMoves.push(...detail.movements);
-        } catch {}
-      }
-      providerMoves = allMoves;
-
-      const purchases = allMoves.filter(m => m.type === 'PURCHASE');
-      const payments = allMoves.filter(m => m.type === 'PAYMENT');
-      const totalPurchases = purchases.reduce((s, m) => s + (m.amount || 0), 0);
-      const totalPayments = payments.reduce((s, m) => s + (m.amount || 0), 0);
-      providerDebt = totalPurchases - totalPayments;
-      providerCount = provs.filter(p => {
-        const pMoves = allMoves.filter(m => m.provider_id === p.id);
-        const pPurchases = pMoves.filter(m => m.type === 'PURCHASE').reduce((s, m) => s + (m.amount || 0), 0);
-        const pPayments = pMoves.filter(m => m.type === 'PAYMENT').reduce((s, m) => s + (m.amount || 0), 0);
-        return (pPurchases - pPayments) > 0;
-      }).length;
-
+      providerDebt = provs.reduce((s, p) => s + (p.balance || 0), 0);
+      providerCount = provs.filter(p => (p.balance || 0) > 0).length;
       activeEmpCount = emps.filter(e => e.active).length;
-      const filterFrom = fromDate || new Date().toISOString().slice(0, 10);
-      const filterTo = toDate || new Date().toISOString().slice(0, 10);
-      const recentPays = await api.listEmployeePaymentsRecent(1000);
+
+      const filterFrom = fromDate || defaultTo();
+      const filterTo = toDate || defaultTo();
+      const recentPays = await api.listEmployeePaymentsRecent(2000);
+      const ownerIds = new Set(emps.filter(e => e.is_owner === 1).map(e => e.id));
       empPayTotal = recentPays
-        .filter((p: any) => p.date && p.date >= filterFrom && p.date <= filterTo)
+        .filter((p: any) => {
+          const iso = toIso(p.date);
+          return iso && iso >= filterFrom && iso <= filterTo && !ownerIds.has(p.employee_id);
+        })
         .reduce((s: number, p: any) => s + (p.amount || 0), 0);
 
       categories = await api.listExpenseCategories();
-      const summary = await api.listExpenses({ from_date: filterFrom, to_date: filterTo, limit: 200, exclude_owners: true });
-      gastoTotal = summary.reduce((s: number, e: any) => s + e.amount, 0);
+      const summary = await api.getExpensesSummary(filterFrom, filterTo, 'category', true, categoryId);
+      gastoTotal = summary.total;
+      summaryGroups = summary.groups;
+
       const month = filterFrom.slice(0, 7);
       const attRecords = await api.listAttendance(undefined, month);
       attendanceRecords = attRecords;
@@ -97,87 +157,265 @@
       loading = false;
     }
   }
+
+  function kpiValue(key: string): string {
+    switch (key) {
+      case 'debt': return fmt(providerDebt);
+      case 'sueldos': return fmt(empPayTotal);
+      case 'personal': return String(activeEmpCount);
+      case 'asistencia': return `${attAvg.toFixed(0)}%`;
+      case 'gastos': return fmt(gastoTotal);
+      default: return '';
+    }
+  }
+
+  function kpiSub(key: string): string {
+    switch (key) {
+      case 'debt': return `${providerCount} con deuda`;
+      case 'sueldos': return `${fromDate} a ${toDate}`;
+      case 'personal': return 'empleados';
+      case 'asistencia': return `${attendanceRecords.length} registros`;
+      case 'gastos': return `${fromDate} a ${toDate}`;
+      default: return '';
+    }
+  }
 </script>
 
 <div class="g-dashboard">
   {#if loading}
-    <div class="g-loading">Cargando dashboard...</div>
+    <div class="g-loading">Cargando panel…</div>
   {:else}
-    <div class="g-filters">
-      <input type="date" bind:value={fromDate} />
-      <input type="date" bind:value={toDate} />
-      <select bind:value={categoryId}>
-        <option value={null}>Todas las categorías</option>
-        {#each categories as cat}
-          <option value={cat.id}>{cat.icon} {cat.name}</option>
-        {/each}
-      </select>
-      <button onclick={loadDashboard}>Buscar</button>
-    </div>
+    <header class="g-head">
+      <div class="g-head-top">
+        <div class="g-head-title">
+          <span class="g-head-icon"><GIcon name="wallet" size={18} /></span>
+          <h2>Panel de Gastos</h2>
+        </div>
+        <div class="g-presets">
+          {#each PRESETS as p}
+            <button class="g-preset" onclick={p.apply}>{p.label}</button>
+          {/each}
+        </div>
+      </div>
+      <div class="g-filters">
+        <div class="g-filter-field">
+          <GIcon name="calendar" size={15} />
+          <input type="date" bind:value={fromDate} onchange={loadDashboard} aria-label="Desde" />
+        </div>
+        <div class="g-filter-field">
+          <GIcon name="calendar" size={15} />
+          <input type="date" bind:value={toDate} onchange={loadDashboard} aria-label="Hasta" />
+        </div>
+        <select class="g-cat" bind:value={categoryId} onchange={loadDashboard}>
+          <option value={null}>Todas las categorías</option>
+          {#each categories as cat}
+            <option value={cat.id}>{cat.name}</option>
+          {/each}
+        </select>
+        <button class="g-buscar" onclick={loadDashboard}>Buscar</button>
+      </div>
+    </header>
+
     <div class="g-kpis">
-      <div class="g-kpi-card">
-        <span class="g-kpi-label">Deuda Proveedores</span>
-        <span class="g-kpi-value">{formatCurrency(providerDebt)}</span>
-        <span class="g-kpi-sub">{providerCount} con deuda</span>
-      </div>
-      <div class="g-kpi-card">
-        <span class="g-kpi-label">Sueldos del Mes</span>
-        <span class="g-kpi-value">{formatCurrency(empPayTotal)}</span>
-      </div>
-      <div class="g-kpi-card">
-        <span class="g-kpi-label">Personal Activo</span>
-        <span class="g-kpi-value">{activeEmpCount}</span>
-        <span class="g-kpi-sub">empleados</span>
-      </div>
-      <div class="g-kpi-card">
-        <span class="g-kpi-label">Asistencia</span>
-        <span class="g-kpi-value">{attAvg.toFixed(0)}%</span>
-        <span class="g-kpi-sub">{attendanceRecords.length} registros</span>
-      </div>
-      <div class="g-kpi-card">
-        <span class="g-kpi-label">Gastos del período</span>
-        <span class="g-kpi-value">{formatCurrency(gastoTotal)}</span>
-        <span class="g-kpi-sub">{fromDate} a {toDate}</span>
-      </div>
+      {#each KPIS as kpi}
+        <div class="g-kpi-card" style={`--kpi: ${kpi.color}`}>
+          <span class="g-kpi-icon" style={`background: ${kpi.color}1a; color: ${kpi.color}`}>
+            <GIcon name={kpi.icon} size={18} />
+          </span>
+          <div class="g-kpi-body">
+            <span class="g-kpi-label">{kpi.label}</span>
+            <span class="g-kpi-value">{kpiValue(kpi.key)}</span>
+            <span class="g-kpi-sub">{kpiSub(kpi.key)}</span>
+          </div>
+        </div>
+      {/each}
     </div>
-    <ExpensesTab {fromDate} {toDate} {categoryId} />
+
+    {#if dist.length > 0}
+      <section class="g-dist">
+        <div class="g-dist-head">
+          <h3><GIcon name="bar-chart" size={15} /> Gastos por categoría</h3>
+          <span class="g-dist-total">{fmt(gastoTotal)}</span>
+        </div>
+        <div class="g-dist-list">
+          {#each dist as [name, value]}
+            {@const color = catColor(name)}
+            {@const pct = gastoTotal > 0 ? Math.round((value / gastoTotal) * 100) : 0}
+            <div class="g-dist-row">
+              <span class="g-dist-name" style={`color: ${color}`}>
+                <GIcon name={catIconName(name)} size={14} />
+                <span>{name}</span>
+              </span>
+              <div class="g-dist-track">
+                <div class="g-dist-bar" style={`width: ${pct}%; background: ${color}`}></div>
+              </div>
+              <span class="g-dist-amount">{fmt(value)}</span>
+              <span class="g-dist-pct">{pct}%</span>
+            </div>
+          {/each}
+        </div>
+      </section>
+    {/if}
+
+    <ExpensesTab {fromDate} {toDate} {categoryId} onChanged={loadDashboard} />
   {/if}
 </div>
 
 <style>
   .g-dashboard { display: flex; flex-direction: column; gap: 0.857rem; }
   .g-loading { padding: 2rem; text-align: center; color: var(--text-muted); font-size: 0.9rem; }
-  .g-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 0.714rem; }
-  .g-kpi-card {
+
+  .g-head {
     background: var(--bg-card);
-    border-radius: 0.571rem;
-    padding: 1.2rem 1rem;
-    box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
+    border-radius: 0.714rem;
+    padding: 0.857rem 1rem;
+    box-shadow: var(--shadow-sm);
     display: flex;
     flex-direction: column;
-    justify-content: space-between;
-    min-height: 110px;
+    gap: 0.714rem;
   }
-  .g-kpi-label { font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; }
-  .g-kpi-value { font-size: 1.4rem; font-weight: 700; color: var(--text-primary); margin: 0.4rem 0; }
-  .g-kpi-sub { font-size: 0.75rem; color: var(--text-muted); }
-  .g-filters {
+  .g-head-top {
     display: flex;
-    gap: 0.5rem;
+    align-items: center;
+    justify-content: space-between;
     flex-wrap: wrap;
+    gap: 0.571rem;
   }
-  .g-filters input, .g-filters select {
-    padding: 0.4rem 0.6rem;
-    border: 1px solid #ddd;
-    border-radius: 0.3rem;
-    font-size: 0.85rem;
+  .g-head-title { display: flex; align-items: center; gap: 0.571rem; }
+  .g-head-title h2 { margin: 0; font-size: 1.15rem; color: var(--text-primary); }
+  .g-head-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border-radius: 0.5rem;
+    background: var(--accent-light);
+    color: var(--accent);
   }
-  .g-filters button {
-    padding: 0.4rem 0.8rem;
-    border: none;
-    background: var(--accent, #3498db);
-    color: white;
-    border-radius: 0.3rem;
+  .g-presets { display: flex; gap: 0.286rem; }
+  .g-preset {
+    padding: 0.286rem 0.714rem;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    border-radius: 0.357rem;
+    font-size: 0.78rem;
+    font-weight: 600;
     cursor: pointer;
   }
+  .g-preset:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .g-filters { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+  .g-filter-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+  .g-filter-field svg {
+    position: absolute;
+    left: 0.571rem;
+    color: var(--text-muted);
+    pointer-events: none;
+  }
+  .g-filter-field input {
+    padding: 0.429rem 0.571rem 0.429rem 1.9rem;
+    border: 1px solid var(--border);
+    border-radius: 0.357rem;
+    font-size: 0.85rem;
+    background: var(--bg-page);
+    color: var(--text-primary);
+  }
+  .g-cat {
+    padding: 0.429rem 0.571rem;
+    border: 1px solid var(--border);
+    border-radius: 0.357rem;
+    font-size: 0.85rem;
+    background: var(--bg-page);
+    color: var(--text-primary);
+  }
+  .g-buscar {
+    padding: 0.429rem 1rem;
+    border: none;
+    background: var(--accent);
+    color: white;
+    border-radius: 0.357rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .g-buscar:hover { background: var(--accent-hover); }
+
+  .g-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.714rem; }
+  .g-kpi-card {
+    background: var(--bg-card);
+    border-radius: 0.714rem;
+    padding: 1rem;
+    box-shadow: var(--shadow-sm);
+    border-left: 0.214rem solid var(--kpi);
+    display: flex;
+    gap: 0.714rem;
+    align-items: flex-start;
+  }
+  .g-kpi-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2.4rem;
+    height: 2.4rem;
+    border-radius: 0.571rem;
+    flex-shrink: 0;
+  }
+  .g-kpi-body { display: flex; flex-direction: column; min-width: 0; }
+  .g-kpi-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.02em; color: var(--text-muted); font-weight: 700; }
+  .g-kpi-value { font-size: 1.35rem; font-weight: 800; color: var(--text-primary); line-height: 1.25; word-break: break-word; }
+  .g-kpi-sub { font-size: 0.75rem; color: var(--text-muted); }
+
+  .g-dist {
+    background: var(--bg-card);
+    border-radius: 0.714rem;
+    padding: 0.857rem 1rem;
+    box-shadow: var(--shadow-sm);
+  }
+  .g-dist-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.714rem;
+  }
+  .g-dist-head h3 {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 0.429rem;
+  }
+  .g-dist-total { font-family: var(--font-mono); font-weight: 700; font-size: 0.9rem; color: var(--text-secondary); }
+  .g-dist-list { display: flex; flex-direction: column; gap: 0.571rem; }
+  .g-dist-row {
+    display: grid;
+    grid-template-columns: 9rem 1fr 6.5rem 2.5rem;
+    gap: 0.714rem;
+    align-items: center;
+  }
+  .g-dist-name {
+    display: flex;
+    align-items: center;
+    gap: 0.357rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .g-dist-track {
+    height: 0.429rem;
+    background: var(--bg-hover);
+    border-radius: 0.357rem;
+    overflow: hidden;
+  }
+  .g-dist-bar { height: 100%; border-radius: 0.357rem; transition: width 0.3s ease; }
+  .g-dist-amount { font-family: var(--font-mono); font-size: 0.82rem; font-weight: 600; text-align: right; color: var(--text-primary); }
+  .g-dist-pct { font-size: 0.78rem; text-align: right; color: var(--text-muted); }
 </style>

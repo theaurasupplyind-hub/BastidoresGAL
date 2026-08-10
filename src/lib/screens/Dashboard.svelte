@@ -24,6 +24,7 @@
   import PanelControl from './PanelControl.svelte';
   import UpdateAnnouncement from '$lib/components/UpdateAnnouncement.svelte';
   import { CHANGELOG } from '$lib/data/changelog';
+  import GIcon from '$lib/components/gastos/GIcon.svelte';
 
   let { onLogout }: { onLogout: () => void } = $props();
 
@@ -239,11 +240,11 @@
       {/if}
       {#if appStore.currentTab === 'gastos'}
         <div class="gastos-topbar">
-          <button class="g-top-btn" class:active={appStore.gastosTab === 'dashboard'} onclick={() => appStore.gastosTab = 'dashboard'}>📊 Dashboard</button>
-          <button class="g-top-btn" class:active={appStore.gastosTab === 'proveedores'} onclick={() => appStore.gastosTab = 'proveedores'}>📂 Proveedores</button>
-          <button class="g-top-btn" class:active={appStore.gastosTab === 'sueldos'} onclick={() => appStore.gastosTab = 'sueldos'}>👷 Sueldos</button>
-          <button class="g-top-btn" class:active={appStore.gastosTab === 'asistencia'} onclick={() => appStore.gastosTab = 'asistencia'}>📅 Asistencia</button>
-          <button class="g-top-btn" class:active={appStore.gastosTab === 'categorias'} onclick={() => appStore.gastosTab = 'categorias'}>🏷️ Categorías</button>
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'dashboard'} onclick={() => appStore.gastosTab = 'dashboard'}><GIcon name="grid" size={14} /> Dashboard</button>
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'proveedores'} onclick={() => appStore.gastosTab = 'proveedores'}><GIcon name="folder" size={14} /> Proveedores</button>
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'sueldos'} onclick={() => appStore.gastosTab = 'sueldos'}><GIcon name="users" size={14} /> Sueldos</button>
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'asistencia'} onclick={() => appStore.gastosTab = 'asistencia'}><GIcon name="calendar" size={14} /> Asistencia</button>
+          <button class="g-top-btn" class:active={appStore.gastosTab === 'categorias'} onclick={() => appStore.gastosTab = 'categorias'}><GIcon name="tag" size={14} /> Categorías</button>
         </div>
       {/if}
     </header>
@@ -335,6 +336,9 @@
     color: var(--text-secondary);
     border-radius: 0.286rem;
     transition: all 0.12s;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.286rem;
   }
   .g-top-btn:hover { background: var(--bg-card); }
   .g-top-btn.active { background: var(--bg-card); color: var(--text-primary); font-weight: 600; box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.08); }
