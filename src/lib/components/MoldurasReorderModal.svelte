@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appStore } from '$lib/stores/appStore.svelte';
-  import { buildMoldurasHtmlByTemplate, PAGE_HEIGHT, splitIntoColumns, groupMaterials, renderSingleCardHtml, getTemplateCss } from '$lib/utils/molduras';
+  import { buildMoldurasHtmlByTemplatePaged, PAGE_HEIGHT, splitIntoColumns, groupMaterials, renderSingleCardHtml, getTemplateCss } from '$lib/utils/molduras';
   import type { CardItem, CardMaterial } from '$lib/utils/molduras';
   import { invoke } from '@tauri-apps/api/core';
 
@@ -104,7 +104,7 @@
   async function handleViewPdf() {
     generatingPdf = true;
     try {
-      const html = buildMoldurasHtmlByTemplate(cards, appStore.molduraTemplate);
+      const html = buildMoldurasHtmlByTemplatePaged(cards, appStore.molduraTemplate, cardHeights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       await invoke('open_pdf', { path: pdfPath });
       appStore.showToast('PDF generado', 'success');
@@ -119,7 +119,7 @@
   async function handlePrint() {
     generatingPdf = true;
     try {
-      const html = buildMoldurasHtmlByTemplate(cards, appStore.molduraTemplate);
+      const html = buildMoldurasHtmlByTemplatePaged(cards, appStore.molduraTemplate, cardHeights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       try {
         await invoke('print_pdf', { path: pdfPath });
@@ -140,7 +140,7 @@
   async function handleSendRemote() {
     generatingPdf = true;
     try {
-      const html = buildMoldurasHtmlByTemplate(cards, appStore.molduraTemplate);
+      const html = buildMoldurasHtmlByTemplatePaged(cards, appStore.molduraTemplate, cardHeights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;

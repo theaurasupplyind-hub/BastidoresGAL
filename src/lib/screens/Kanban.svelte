@@ -6,7 +6,7 @@
   import { startPdfTimer, endPdfTimer } from '$lib/stores/pdfTimerStore.svelte';
   import type { Factura, InvoiceItem, FechasEntrega } from '$lib/types';
   import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
-  import { hasMolduraItems, parseCard, buildMoldurasHtmlByTemplate } from '$lib/utils/molduras';
+  import { hasMolduraItems, parseCard, measureCardHeights, buildMoldurasHtmlByTemplatePaged } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
   import { invoke } from '@tauri-apps/api/core';
   import InvoicePrintModal from '$lib/components/InvoicePrintModal.svelte';
@@ -598,7 +598,8 @@
         molduraStore.applyCorrectionsToCard(p);
         return { ...p, hasMoldura: hasMolduraItems(f) };
       });
-      const html = buildMoldurasHtmlByTemplate(parsed, appStore.molduraTemplate);
+      const heights = await measureCardHeights(parsed, appStore.molduraTemplate);
+      const html = buildMoldurasHtmlByTemplatePaged(parsed, appStore.molduraTemplate, heights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       genOk = true;
       if (shouldPrint) {
@@ -643,7 +644,8 @@
         molduraStore.applyCorrectionsToCard(p);
         return { ...p, hasMoldura: hasMolduraItems(f) };
       });
-      const html = buildMoldurasHtmlByTemplate(parsed, appStore.molduraTemplate);
+      const heights = await measureCardHeights(parsed, appStore.molduraTemplate);
+      const html = buildMoldurasHtmlByTemplatePaged(parsed, appStore.molduraTemplate, heights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       genOk = true;
       const u = appStore.user;
@@ -758,9 +760,9 @@
     try {
       await api.patchInvoiceField(modalFacturaId, 'items_done', JSON.stringify([...checkedItems]));
       savedItems = new Set(checkedItems);
-      const f = facturas.find(f => f.id === modalFacturaId);
-      if (f) f.items_done = JSON.stringify([...checkedItems]);
-      appStore.showToast('Cambios guardados', 'success');
+      await reloadKanban();
+      closeItemsModal();
+      appStore.showToast('Guardado', 'success');
     } catch (e: any) {
       appStore.showToast('Error al guardar: ' + (e?.message || e), 'error');
     } finally {

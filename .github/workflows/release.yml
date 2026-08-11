@@ -62,7 +62,7 @@ jobs:
           $sigFile = Get-ChildItem "*_$($version)_*.sig" | Select-Object -First 1
           if (-not $sigFile) { throw "No .sig file found in release assets" }
           $signature = (Get-Content $sigFile.FullName -Raw).Trim()
-          $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Bastidores.GAL_${version}_x64-setup.exe"
+          $url = "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/BastidoresGAL_${version}_x64-setup.exe"
           $now = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           $json = @{
             version = "v$version"

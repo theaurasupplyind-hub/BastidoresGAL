@@ -815,7 +815,18 @@
           <svg class="card-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 002 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
           <span class="card-title">ENTREGAS PENDIENTES</span>
         </div>
-        <span class="card-badge badge-white">{entregasActivasCount} entregas</span>
+        <div class="card-header-actions">
+          {#if clusterMin > 0 && planGrupos.some((g: any) => g.clienteIds.length < clusterMin)}
+            <span class="entregas-warn" title="Ajustá el máximo/mínimo en el mapa">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                <line x1="12" y1="9" x2="12" y2="13"/>
+                <line x1="12" y1="17" x2="12.01" y2="17"/>
+              </svg>
+            </span>
+          {/if}
+          <span class="card-badge badge-white">{entregasActivasCount} entregas</span>
+        </div>
       </div>
       <div class="entregas-stats">
         <div class="entregas-stat">
@@ -831,9 +842,6 @@
           <span class="stat-label">viajes</span>
         </div>
       </div>
-      {#if clusterMin > 0 && planGrupos.some((g: any) => g.clienteIds.length < clusterMin)}
-        <div class="grupo-alert-bajo-sutil" title="Ajustá el máximo/mínimo en el mapa">⚠️ {planGrupos.filter((g: any) => g.clienteIds.length < clusterMin).length} viaje(s) bajo el mínimo ({clusterMin})</div>
-      {/if}
       <div class="entregas-list">
         {#if loadingData}
           <div class="entregas-empty">Cargando...</div>
@@ -1559,6 +1567,14 @@
   .entregas-header:hover { filter: brightness(1.08); }
   .entregas-header .card-title { color: rgba(255,255,255,0.85); }
   .badge-white { background: rgba(255,255,255,0.2) !important; color: white !important; }
+  .entregas-warn {
+    display: flex;
+    color: #fbbf24;
+    flex-shrink: 0;
+    cursor: help;
+    opacity: 0.9;
+  }
+  .entregas-warn:hover { opacity: 1; }
   .entregas-stats {
     display: flex;
     gap: 1.5rem;
@@ -1631,15 +1647,6 @@
     font-size: 12px;
     color: rgba(255,255,255,0.5);
     font-weight: 500;
-  }
-  .grupo-alert-bajo-sutil {
-    margin: 0 12px 4px;
-    padding: 5px 10px;
-    font-size: 11px;
-    color: #fbbf24;
-    background: rgba(251,191,36,0.1);
-    border: 1px solid rgba(251,191,36,0.3);
-    border-radius: 6px;
   }
 
   .grupo-clientes {

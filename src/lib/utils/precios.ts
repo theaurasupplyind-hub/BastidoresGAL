@@ -466,10 +466,6 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
     const parsed = parseQuery(query);
     for (const rule of rules) {
       if (!rule.enabled) continue;
-      const matchedToken = parsed.tokens.find(t =>
-        rule.matchTokens.some(mt => t.includes(mt) || mt.includes(t))
-      );
-      if (!matchedToken) continue;
 
       const catUpper = rule.baseCategoria.toUpperCase();
       const varUpper = rule.baseVariante.toUpperCase();
@@ -596,16 +592,15 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
       const aPrio = slPriority(a.product.descripcion) ? 0 : 1;
       const bPrio = slPriority(b.product.descripcion) ? 0 : 1;
       return aPrio - bPrio;
-    })
-    .slice(0, 4);
+    });
 
   if (exactMatches.length > 0) {
-    result = exactMatches.map(pd => ({
+    result = [...exactMatches.map(pd => ({
       description: query,
       price: pd.product.precio_unitario,
       basedOn: pd.product.descripcion,
       suggested: true,
-    }));
+    })), ...result];
   } else {
     const targetPerimeter = 2 * (roundedSmall + roundedLarge);
     const sorted = [...productsWithDims].sort((a, b) => {
@@ -617,12 +612,12 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
       return da - db;
     });
 
-    result = sorted.slice(0, 4).map(pd => ({
+    result = [...sorted.slice(0, 8).map(pd => ({
       description: query,
       price: pd.product.precio_unitario,
       basedOn: pd.product.descripcion,
       suggested: true,
-    }));
+    })), ...result];
   }
 
   const estimated = calcPriceByPerimeter(dimSmall, dimLarge, productsWithDims);

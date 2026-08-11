@@ -5,7 +5,7 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { hasMolduraItems, parseCard, buildMoldurasHtmlByTemplate } from '$lib/utils/molduras';
+  import { hasMolduraItems, parseCard, measureCardHeights, buildMoldurasHtmlByTemplatePaged } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
   import { invoke } from '@tauri-apps/api/core';
 
@@ -126,7 +126,8 @@
         };
       });
 
-      const html = buildMoldurasHtmlByTemplate(cards, appStore.molduraTemplate);
+      const heights = await measureCardHeights(cards, appStore.molduraTemplate);
+      const html = buildMoldurasHtmlByTemplatePaged(cards, appStore.molduraTemplate, heights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
 
       if (shouldPrint) {
@@ -176,7 +177,8 @@
           materials: p?.materials || [],
         };
       });
-      const html = buildMoldurasHtmlByTemplate(cards, appStore.molduraTemplate);
+      const heights = await measureCardHeights(cards, appStore.molduraTemplate);
+      const html = buildMoldurasHtmlByTemplatePaged(cards, appStore.molduraTemplate, heights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;

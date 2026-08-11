@@ -57,6 +57,15 @@ export const cacheStore = {
     }
   },
 
+  updateFactura(id: number, field: string, value: unknown) {
+    for (const entry of _cache.values()) {
+      if (Array.isArray(entry.data)) {
+        const f = (entry.data as Record<string, unknown>[]).find(x => x && x.id === id);
+        if (f) f[field] = value;
+      }
+    }
+  },
+
   invalidateAll() {
     _cache = new Map();
     _pending = new Map();

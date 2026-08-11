@@ -191,6 +191,49 @@ export function splitIntoColumns<T extends { items: CardItem[]; materials: CardM
   return result;
 }
 
+function splitIntoColumnsIdx<T extends { items: CardItem[]; materials: CardMaterial[] }>(
+  cards: T[], cols: number
+): Array<Array<{ item: T; idx: number }>> {
+  const result: Array<Array<{ item: T; idx: number }>> = Array.from({ length: cols }, () => []);
+  const heights: number[] = new Array(cols).fill(0);
+  cards.forEach((item, idx) => {
+    let minIdx = 0;
+    for (let i = 1; i < cols; i++) if (heights[i] < heights[minIdx]) minIdx = i;
+    result[minIdx].push({ item, idx });
+    heights[minIdx] += colHeight(item);
+  });
+  return result;
+}
+
+export interface PageGroup<T> {
+  cards: T[];
+  height: number;
+}
+
+export function splitIntoPageGroups<T>(
+  cards: T[],
+  getHeight: (card: T) => number,
+  maxHeight: number = PAGE_HEIGHT
+): PageGroup<T>[] {
+  const groups: PageGroup<T>[] = [];
+  let cur: T[] = [];
+  let curH = 0;
+  for (const card of cards) {
+    const h = getHeight(card);
+    if (cur.length > 0 && curH + h > maxHeight) {
+      groups.push({ cards: cur, height: curH });
+      cur = [card];
+      curH = h;
+    } else {
+      cur.push(card);
+      curH += h;
+    }
+  }
+  if (cur.length > 0) groups.push({ cards: cur, height: curH });
+  if (groups.length === 0) groups.push({ cards: [], height: 0 });
+  return groups;
+}
+
 export function pageAwarePacking<T>(
   items: T[],
   getHeight: (item: T, idx: number) => number
@@ -747,11 +790,13 @@ export function renderSingleCardHtml(card: {
   num: string;
   items: CardItem[];
   materials: CardMaterial[];
-}, template: string, idx: number): string {
+}, template: string, idx: number, side: 'left' | 'right' = 'left'): string {
   const cliente = card.cliente.length > (template === 'juli' ? 30 : 25) ? card.cliente.slice(0, template === 'juli' ? 30 : 25) : card.cliente;
   const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
 
-  const square = `<div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-right:10px;'></div><div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div>`;
+  const square = side === 'right'
+    ? `<div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div><div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-left:10px;'></div>`
+    : `<div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-right:10px;'></div><div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div>`;
 
   if (template === 'juli') {
     const summaryRows = validItems.map(it => {
@@ -864,4 +909,88 @@ export function buildMoldurasHtmlByTemplate(cards: Array<{
   if (template === 'juli') return buildMoldurasHtmlJuli(cards);
   if (template === 'clasico-modificado') return buildMoldurasHtmlClasicoModificado(cards);
   return buildMoldurasHtml(cards);
+}
+
+export interface MeasurableCard {
+  cliente: string;
+  num: string;
+  items: CardItem[];
+  materials: CardMaterial[];
+}
+
+export async function measureCardHeights(
+  cards: MeasurableCard[],
+  template: string
+): Promise<number[]> {
+  if (typeof document === 'undefined') return [];
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;visibility:hidden;width:387px;left:-9999px;top:0;z-index:-1;';
+  const style = document.createElement('style');
+  style.textContent = getTemplateCss(template);
+  host.appendChild(style);
+  const body = document.createElement('div');
+  body.innerHTML = cards.map((c, i) => renderSingleCardHtml(c, template, i)).join('');
+  host.appendChild(body);
+  document.body.appendChild(host);
+  try {
+    await document.fonts.ready;
+    await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res)));
+    const els = host.querySelectorAll('.card');
+    const heights: number[] = [];
+    els.forEach(el => {
+      const idx = parseInt((el as HTMLElement).dataset.cardIdx ?? '-1');
+      if (idx >= 0) heights[idx] = (el as HTMLElement).offsetHeight;
+    });
+    return heights;
+  } finally {
+    host.remove();
+  }
+}
+
+const PAGE_SCAFFOLD_CSS = `
+@page { margin: 5px; size: A4; }
+body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; }
+.page { page-break-after: always; break-after: page; width: 100%; }
+.page:last-child { page-break-after: auto; break-after: auto; }
+.grid { display: flex; gap: 10px; width: 100%; }
+.col-left, .col-right { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
+`;
+
+function buildPagedMoldurasHtml(
+  cards: MeasurableCard[],
+  template: string,
+  heights: number[]
+): string {
+  const cols = splitIntoColumnsIdx(cards, 2);
+  const getH = (c: { item: MeasurableCard; idx: number }) => {
+    const m = heights[c.idx];
+    return (m !== undefined && m > 0 ? m : colHeight(c.item)) + 8;
+  };
+  const leftGroups = splitIntoPageGroups(cols[0], getH);
+  const rightGroups = splitIntoPageGroups(cols[1], getH);
+  const num = Math.max(leftGroups.length, rightGroups.length);
+
+  let pages = '';
+  for (let i = 0; i < num; i++) {
+    const lg = leftGroups[i] ?? { cards: [] };
+    const rg = rightGroups[i] ?? { cards: [] };
+    const leftHtml = lg.cards.map(c => renderSingleCardHtml(c.item, template, c.idx, 'left')).join('');
+    const rightHtml = rg.cards.map(c => renderSingleCardHtml(c.item, template, c.idx, 'right')).join('');
+    pages += `<div class="page"><div class="grid"><div class="col-left">${leftHtml}</div><div class="col-right">${rightHtml}</div></div></div>`;
+  }
+
+  const css = PAGE_SCAFFOLD_CSS + getTemplateCss(template);
+  return `<html><head><meta charset='utf-8'><style>${css}</style></head><body>${pages}</body></html>`;
+}
+
+export function buildMoldurasHtmlByTemplatePaged(
+  cards: MeasurableCard[],
+  template: string,
+  heights?: number[]
+): string {
+  if (heights && heights.length === cards.length) {
+    return buildPagedMoldurasHtml(cards, template, heights);
+  }
+  return buildMoldurasHtmlByTemplate(cards, template);
 }

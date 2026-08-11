@@ -1,4 +1,11 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.4': `• PDF de molduras: paginado en 2 columnas por hoja A4 con altura real de cada tarjeta
+  - Ya no se cortan tarjetas entre paginas: se acomodan por altura medida
+  - Cabeceras alternadas (caja a izquierda/derecha) para marcar las columnas
+  Corregido el guardado de items en el Kanban de proceso (recarga la lista)
+  Panel de control: aviso de viajes bajo el minimo como icono en la cabecera
+  Mas sugerencias de precio al facturar (8) y coincidencias exactas primero
+`,
   '2.3.3': `• Modulo de Gastos completo
   - Proveedores: carpetas, timeline con filtros (Todo/Financiero/Stock), movimientos de compra/pago/stock y deuda
   - Gastos con categorias, edicion y pagos divididos (transferencia/efectivo)
