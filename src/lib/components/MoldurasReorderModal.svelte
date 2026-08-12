@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appStore } from '$lib/stores/appStore.svelte';
-  import { buildMoldurasHtmlByTemplatePaged, PAGE_HEIGHT, splitIntoColumns, groupMaterials, renderSingleCardHtml, getTemplateCss } from '$lib/utils/molduras';
+  import { buildMoldurasHtmlByTemplatePaged, PAGE_HEIGHT, buildPagedLayout, columnHeight, groupMaterials, renderSingleCardHtml, getTemplateCss } from '$lib/utils/molduras';
   import type { CardItem, CardMaterial } from '$lib/utils/molduras';
   import { invoke } from '@tauri-apps/api/core';
 
@@ -19,33 +19,8 @@
 
   let generatingPdf = $state(false);
   let cardHeights = $state<number[]>([]);
+  let measured = $state(false);
   let measureRef: HTMLDivElement | undefined = $state();
-
-  function cardPxHeight(card: CardData, idx: number): number {
-    const m = cardHeights[idx];
-    if (m !== undefined && m > 0) return m + 8;
-    if (appStore.molduraTemplate === 'juli') return 81 * card.items.length + 64;
-    const g = groupMaterials(card.materials).length;
-    return 44 * card.items.length + 32 * g + 124;
-  }
-
-  $effect(() => {
-    if (!show || !measureRef || cards.length === 0) return;
-    measureRef.innerHTML = '';
-    const style = document.createElement('style');
-    style.textContent = getTemplateCss(appStore.molduraTemplate);
-    measureRef.appendChild(style);
-    measureRef.innerHTML += cards.map((c, i) => renderSingleCardHtml(c, appStore.molduraTemplate, i)).join('');
-    requestAnimationFrame(() => {
-      const els = measureRef.querySelectorAll('.card');
-      const h: number[] = [];
-      els.forEach(el => {
-        const idx = parseInt((el as HTMLElement).dataset.cardIdx ?? '-1');
-        if (idx >= 0) h[idx] = el.offsetHeight;
-      });
-      cardHeights = h;
-    });
-  });
 
   interface PageGroup {
     cards: CardData[];
@@ -59,42 +34,39 @@
     utilization: number;
   }
 
-  function splitIntoPageGroups(c: CardData[]): PageGroup[] {
-    const groups: PageGroup[] = [];
-    let cur: CardData[] = [];
-    let curH = 0;
-    for (const card of c) {
-      const idx = cards.indexOf(card);
-      const h = cardHeights[idx] > 0 ? cardHeights[idx] + 8 : cardPxHeight(card, idx);
-      if (cur.length > 0 && curH + h > PAGE_HEIGHT) {
-        groups.push({ cards: cur, height: curH });
-        cur = [card];
-        curH = h;
-      } else {
-        cur.push(card);
-        curH += h;
-      }
-    }
-    if (cur.length > 0) groups.push({ cards: cur, height: curH });
-    if (groups.length === 0) groups.push({ cards: [], height: 0 });
-    return groups;
-  }
-
   let pages = $derived.by((): PageSim[] => {
-    const [left, right] = splitIntoColumns(cards, 2);
-    const leftGroups = splitIntoPageGroups(left);
-    const rightGroups = splitIntoPageGroups(right);
-    const num = Math.max(leftGroups.length, rightGroups.length);
-    const result: PageSim[] = [];
-    for (let i = 0; i < num; i++) {
-      result.push({
-        col1: leftGroups[i] ?? { cards: [], height: 0 },
-        col2: rightGroups[i] ?? { cards: [], height: 0 },
+    const layout = buildPagedLayout(cards, cardHeights);
+    return layout.map((page, i) => {
+      const lh = columnHeight(page.left, cardHeights);
+      const rh = columnHeight(page.right, cardHeights);
+      return {
+        col1: { cards: page.left.map(c => c.item), height: lh },
+        col2: { cards: page.right.map(c => c.item), height: rh },
         pageNum: i + 1,
-        utilization: Math.round(((leftGroups[i]?.height ?? 0) + (rightGroups[i]?.height ?? 0)) / (2 * PAGE_HEIGHT) * 100),
+        utilization: Math.round((lh + rh) / (2 * PAGE_HEIGHT) * 100),
+      };
+    });
+  });
+
+  $effect(() => {
+    if (!show || !measureRef || cards.length === 0) return;
+    measured = false;
+    const ref = measureRef;
+    ref.innerHTML = '';
+    const style = document.createElement('style');
+    style.textContent = getTemplateCss(appStore.molduraTemplate);
+    ref.appendChild(style);
+    ref.innerHTML += cards.map((c, i) => renderSingleCardHtml(c, appStore.molduraTemplate, i)).join('');
+    requestAnimationFrame(() => {
+      const els = ref.querySelectorAll<HTMLElement>('.card');
+      const h: number[] = [];
+      els.forEach(el => {
+        const idx = parseInt(el.dataset.cardIdx ?? '-1');
+        if (idx >= 0) h[idx] = el.offsetHeight;
       });
-    }
-    return result;
+      cardHeights = h;
+      measured = true;
+    });
   });
 
   function handleKeydown(e: KeyboardEvent) {
@@ -255,14 +227,14 @@
           <button class="btn btn-secondary" onclick={onClose}>Cancelar</button>
         </div>
         <div class="modal-actions">
-          <button class="btn btn-primary" onclick={handleViewPdf} disabled={generatingPdf}>
+          <button class="btn btn-primary" onclick={handleViewPdf} disabled={generatingPdf || !measured}>
             {generatingPdf ? 'Generando...' : '📄 Ver PDF'}
           </button>
-          <button class="btn btn-success" onclick={handlePrint} disabled={generatingPdf}>
+          <button class="btn btn-success" onclick={handlePrint} disabled={generatingPdf || !measured}>
             🖨 Imprimir
           </button>
           {#if appStore.activeStations.length > 0}
-            <button class="btn btn-info" onclick={handleSendRemote} disabled={generatingPdf}>
+            <button class="btn btn-info" onclick={handleSendRemote} disabled={generatingPdf || !measured}>
               📤 Enviar a sucursal
             </button>
           {/if}

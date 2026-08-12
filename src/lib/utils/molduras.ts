@@ -1,6 +1,7 @@
 import type { Factura, InvoiceItem } from '$lib/types';
 
 export const PAGE_HEIGHT = 1113;
+const CARD_GAP = 8;
 
 export interface CardItem {
   cantidad: number;
@@ -170,13 +171,6 @@ export function colHeight(card: { items: CardItem[]; materials: CardMaterial[] }
   return 44 * card.items.length + 32 * g + 124;
 }
 
-function ffdColumns<T extends { items: CardItem[]; materials: CardMaterial[] }>(
-  cards: T[]
-): [T[], T[]] {
-  const sorted = [...cards].sort((a, b) => colHeight(b) - colHeight(a));
-  return splitIntoColumns(sorted, 2);
-}
-
 export function splitIntoColumns<T extends { items: CardItem[]; materials: CardMaterial[] }>(
   cards: T[], cols: number
 ): T[][] {
@@ -191,92 +185,60 @@ export function splitIntoColumns<T extends { items: CardItem[]; materials: CardM
   return result;
 }
 
-function splitIntoColumnsIdx<T extends { items: CardItem[]; materials: CardMaterial[] }>(
-  cards: T[], cols: number
-): Array<Array<{ item: T; idx: number }>> {
-  const result: Array<Array<{ item: T; idx: number }>> = Array.from({ length: cols }, () => []);
-  const heights: number[] = new Array(cols).fill(0);
-  cards.forEach((item, idx) => {
-    let minIdx = 0;
-    for (let i = 1; i < cols; i++) if (heights[i] < heights[minIdx]) minIdx = i;
-    result[minIdx].push({ item, idx });
-    heights[minIdx] += colHeight(item);
-  });
-  return result;
+export interface LayoutCard {
+  item: MeasurableCard;
+  idx: number;
 }
 
-export interface PageGroup<T> {
-  cards: T[];
-  height: number;
+export interface PagedPage {
+  left: LayoutCard[];
+  right: LayoutCard[];
 }
 
-export function splitIntoPageGroups<T>(
-  cards: T[],
-  getHeight: (card: T) => number,
-  maxHeight: number = PAGE_HEIGHT
-): PageGroup<T>[] {
-  const groups: PageGroup<T>[] = [];
-  let cur: T[] = [];
-  let curH = 0;
-  for (const card of cards) {
-    const h = getHeight(card);
-    if (cur.length > 0 && curH + h > maxHeight) {
-      groups.push({ cards: cur, height: curH });
-      cur = [card];
-      curH = h;
-    } else {
-      cur.push(card);
-      curH += h;
+function cardHeightAt(c: LayoutCard, heights: number[]): number {
+  const m = heights[c.idx];
+  return m !== undefined && m > 0 ? m : colHeight(c.item);
+}
+
+export function columnHeight(list: LayoutCard[], heights: number[]): number {
+  const sum = list.reduce((s, c) => s + cardHeightAt(c, heights), 0);
+  return sum + (list.length > 0 ? (list.length - 1) * CARD_GAP : 0);
+}
+
+export function buildPagedLayout(cards: MeasurableCard[], heights: number[]): PagedPage[] {
+  const indexed: LayoutCard[] = cards
+    .map((item, idx) => ({ item, idx }))
+    .sort((a, b) => cardHeightAt(b, heights) - cardHeightAt(a, heights) || a.idx - b.idx);
+
+  const pages: PagedPage[] = [];
+
+  for (const c of indexed) {
+    const cardH = cardHeightAt(c, heights);
+
+    if (cardH > PAGE_HEIGHT) {
+      pages.push({ left: [c], right: [] });
+      continue;
     }
-  }
-  if (cur.length > 0) groups.push({ cards: cur, height: curH });
-  if (groups.length === 0) groups.push({ cards: [], height: 0 });
-  return groups;
-}
 
-export function pageAwarePacking<T>(
-  items: T[],
-  getHeight: (item: T, idx: number) => number
-): Array<{ left: T[]; right: T[] }> {
-  const sorted = items.map((item, i) => ({ item, idx: i, h: getHeight(item, i) }))
-    .sort((a, b) => b.h - a.h);
-
-  const pages: Array<{ left: T[]; right: T[] }> = [];
-  let remaining = [...sorted];
-
-  while (remaining.length > 0) {
-    const left: T[] = [];
-    const right: T[] = [];
-    let leftH = 0, rightH = 0;
-    const used = new Set<number>();
-
-    for (const s of remaining) {
-      if (used.has(s.idx)) continue;
-      if (s.h > PAGE_HEIGHT) continue;
-
-      const fitsLeft = leftH + s.h <= PAGE_HEIGHT;
-      const fitsRight = rightH + s.h <= PAGE_HEIGHT;
-
-      if (fitsLeft && fitsRight) {
-        if (leftH <= rightH) {
-          left.push(s.item); leftH += s.h;
-        } else {
-          right.push(s.item); rightH += s.h;
+    let best: { page: PagedPage; col: 'left' | 'right'; leftover: number } | null = null;
+    for (const page of pages) {
+      for (const col of ['left', 'right'] as const) {
+        const used = columnHeight(page[col], heights);
+        const gap = page[col].length > 0 ? CARD_GAP : 0;
+        const total = used + gap + cardH;
+        if (total > PAGE_HEIGHT) continue;
+        const leftover = PAGE_HEIGHT - total;
+        if (!best || leftover < best.leftover || (leftover === best.leftover && col === 'left')) {
+          best = { page, col, leftover };
         }
-        used.add(s.idx);
-      } else if (fitsLeft) {
-        left.push(s.item); leftH += s.h;
-        used.add(s.idx);
-      } else if (fitsRight) {
-        right.push(s.item); rightH += s.h;
-        used.add(s.idx);
       }
     }
 
-    if (used.size === 0) break;
-
-    pages.push({ left, right });
-    remaining = remaining.filter(s => !used.has(s.idx));
+    if (best) {
+      best.page[best.col].push(c);
+    } else {
+      pages.push({ left: [c], right: [] });
+    }
   }
 
   return pages;
@@ -962,26 +924,16 @@ function buildPagedMoldurasHtml(
   template: string,
   heights: number[]
 ): string {
-  const cols = splitIntoColumnsIdx(cards, 2);
-  const getH = (c: { item: MeasurableCard; idx: number }) => {
-    const m = heights[c.idx];
-    return (m !== undefined && m > 0 ? m : colHeight(c.item)) + 8;
-  };
-  const leftGroups = splitIntoPageGroups(cols[0], getH);
-  const rightGroups = splitIntoPageGroups(cols[1], getH);
-  const num = Math.max(leftGroups.length, rightGroups.length);
-
-  let pages = '';
-  for (let i = 0; i < num; i++) {
-    const lg = leftGroups[i] ?? { cards: [] };
-    const rg = rightGroups[i] ?? { cards: [] };
-    const leftHtml = lg.cards.map(c => renderSingleCardHtml(c.item, template, c.idx, 'left')).join('');
-    const rightHtml = rg.cards.map(c => renderSingleCardHtml(c.item, template, c.idx, 'right')).join('');
-    pages += `<div class="page"><div class="grid"><div class="col-left">${leftHtml}</div><div class="col-right">${rightHtml}</div></div></div>`;
+  const pages = buildPagedLayout(cards, heights);
+  let pagesHtml = '';
+  for (const page of pages) {
+    const leftHtml = page.left.map(c => renderSingleCardHtml(c.item, template, c.idx, 'left')).join('');
+    const rightHtml = page.right.map(c => renderSingleCardHtml(c.item, template, c.idx, 'right')).join('');
+    pagesHtml += `<div class="page"><div class="grid"><div class="col-left">${leftHtml}</div><div class="col-right">${rightHtml}</div></div></div>`;
   }
 
   const css = PAGE_SCAFFOLD_CSS + getTemplateCss(template);
-  return `<html><head><meta charset='utf-8'><style>${css}</style></head><body>${pages}</body></html>`;
+  return `<html><head><meta charset='utf-8'><style>${css}</style></head><body>${pagesHtml}</body></html>`;
 }
 
 export function buildMoldurasHtmlByTemplatePaged(
