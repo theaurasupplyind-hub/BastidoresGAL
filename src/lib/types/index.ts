@@ -10,7 +10,6 @@ export interface AppConfig {
   hotkey_new: string;
   selected_template_name: string;
   selected_template_file: string;
-  moldura_template: string;
   selected_printer?: string | null;
   print_agent_enabled?: boolean;
   station_id?: number | null;
@@ -40,6 +39,14 @@ export interface Cliente {
   lng?: number | null;
   ultimo_tipo_entrega?: string;
   addresses?: ClientAddress[];
+}
+
+export interface TallerDireccion {
+  id: number;
+  taller: string;
+  direccion: string;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 export interface Producto {

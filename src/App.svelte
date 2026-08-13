@@ -41,7 +41,6 @@
     try {
       const cfg = await invoke<AppConfig>('get_config');
       appStore.pdfStyle = cfg.selected_template_name;
-      appStore.molduraTemplate = cfg.moldura_template;
     } catch { }
   });
 

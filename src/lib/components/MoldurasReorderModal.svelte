@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appStore } from '$lib/stores/appStore.svelte';
-  import { buildMoldurasHtmlByTemplatePaged, PAGE_HEIGHT, buildPagedLayout, columnHeight, groupMaterials, renderSingleCardHtml, getTemplateCss } from '$lib/utils/molduras';
+  import { buildMoldurasHtmlPaged, PAGE_HEIGHT, buildPagedLayout, columnHeight, groupMaterials, measureCardHeights } from '$lib/utils/molduras';
   import type { CardItem, CardMaterial } from '$lib/utils/molduras';
   import { invoke } from '@tauri-apps/api/core';
 
@@ -20,7 +20,6 @@
   let generatingPdf = $state(false);
   let cardHeights = $state<number[]>([]);
   let measured = $state(false);
-  let measureRef: HTMLDivElement | undefined = $state();
 
   interface PageGroup {
     cards: CardData[];
@@ -49,24 +48,15 @@
   });
 
   $effect(() => {
-    if (!show || !measureRef || cards.length === 0) return;
+    if (!show || cards.length === 0) return;
     measured = false;
-    const ref = measureRef;
-    ref.innerHTML = '';
-    const style = document.createElement('style');
-    style.textContent = getTemplateCss(appStore.molduraTemplate);
-    ref.appendChild(style);
-    ref.innerHTML += cards.map((c, i) => renderSingleCardHtml(c, appStore.molduraTemplate, i)).join('');
-    requestAnimationFrame(() => {
-      const els = ref.querySelectorAll<HTMLElement>('.card');
-      const h: number[] = [];
-      els.forEach(el => {
-        const idx = parseInt(el.dataset.cardIdx ?? '-1');
-        if (idx >= 0) h[idx] = el.offsetHeight;
-      });
+    let cancelled = false;
+    measureCardHeights(cards).then(h => {
+      if (cancelled) return;
       cardHeights = h;
       measured = true;
     });
+    return () => { cancelled = true; };
   });
 
   function handleKeydown(e: KeyboardEvent) {
@@ -76,7 +66,7 @@
   async function handleViewPdf() {
     generatingPdf = true;
     try {
-      const html = buildMoldurasHtmlByTemplatePaged(cards, appStore.molduraTemplate, cardHeights);
+      const html = buildMoldurasHtmlPaged(cards, cardHeights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       await invoke('open_pdf', { path: pdfPath });
       appStore.showToast('PDF generado', 'success');
@@ -91,7 +81,7 @@
   async function handlePrint() {
     generatingPdf = true;
     try {
-      const html = buildMoldurasHtmlByTemplatePaged(cards, appStore.molduraTemplate, cardHeights);
+      const html = buildMoldurasHtmlPaged(cards, cardHeights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       try {
         await invoke('print_pdf', { path: pdfPath });
@@ -112,7 +102,7 @@
   async function handleSendRemote() {
     generatingPdf = true;
     try {
-      const html = buildMoldurasHtmlByTemplatePaged(cards, appStore.molduraTemplate, cardHeights);
+      const html = buildMoldurasHtmlPaged(cards, cardHeights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;
@@ -185,8 +175,6 @@
         <span class="reorder-hint">{pages.length} página(s)</span>
         <button class="modal-close" onclick={onClose} aria-label="Cerrar">✕</button>
       </div>
-
-      <div bind:this={measureRef} style="position:absolute;visibility:hidden;width:387px;z-index:-1;left:-9999px;top:0;"></div>
 
       <div class="reorder-body">
         {#each pages as page}

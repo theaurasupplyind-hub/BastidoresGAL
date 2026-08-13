@@ -11,7 +11,6 @@ pub struct AppConfig {
     pub hotkey_new: String,
     pub selected_template_name: String,
     pub selected_template_file: String,
-    pub moldura_template: String,
     #[serde(default)]
     pub selected_printer: Option<String>,
     #[serde(default)]
@@ -33,7 +32,6 @@ impl Default for AppConfig {
             hotkey_new: "F4".into(),
             selected_template_name: "Original".into(),
             selected_template_file: "invoice_template.html".into(),
-            moldura_template: "clasico".into(),
             selected_printer: None,
             print_agent_enabled: false,
             station_id: None,

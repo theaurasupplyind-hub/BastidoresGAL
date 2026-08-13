@@ -6,7 +6,7 @@
   import { startPdfTimer, endPdfTimer } from '$lib/stores/pdfTimerStore.svelte';
   import type { Factura, InvoiceItem, FechasEntrega } from '$lib/types';
   import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
-  import { hasMolduraItems, parseCard, measureCardHeights, buildMoldurasHtmlByTemplatePaged } from '$lib/utils/molduras';
+  import { hasMolduraItems, parseCard, measureCardHeights, buildMoldurasHtmlPaged } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
   import { invoke } from '@tauri-apps/api/core';
   import InvoicePrintModal from '$lib/components/InvoicePrintModal.svelte';
@@ -248,6 +248,11 @@
     return card.fecha_entrega;
   }
 
+  function getFechaEntregaFinal(card: Factura): string {
+    const fe = parseFechasEntrega(card.fecha_entrega);
+    return fe.hasta || fe.desde;
+  }
+
   const diasAbr = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
   function shortDia(fecha: string): string {
@@ -299,9 +304,9 @@
   }
 
   function getUrgencia(f: Factura): { label: string; color: string; bg: string } | null {
-    const earliest = getFechaEntregaEarliest(f);
-    if (!earliest) return null;
-    const fe = parseFecha(earliest);
+    const final = getFechaEntregaFinal(f);
+    if (!final) return null;
+    const fe = parseFecha(final);
     if (fe.getTime() === 0) return null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -354,8 +359,8 @@
     return cards.filter(card => {
       if (f.tipo_entrega !== 'TODOS' && card.tipo_entrega !== f.tipo_entrega) return false;
       if (f.periodo !== 'TODOS') {
-        const earliest = getFechaEntregaEarliest(card);
-        const fe = earliest ? parseFecha(earliest) : null;
+        const final = getFechaEntregaFinal(card);
+        const fe = final ? parseFecha(final) : null;
         if (!matchesPeriodo(fe, f.periodo)) return false;
       }
       if (f.search && f.search.trim()) {
@@ -598,8 +603,8 @@
         molduraStore.applyCorrectionsToCard(p);
         return { ...p, hasMoldura: hasMolduraItems(f) };
       });
-      const heights = await measureCardHeights(parsed, appStore.molduraTemplate);
-      const html = buildMoldurasHtmlByTemplatePaged(parsed, appStore.molduraTemplate, heights);
+      const heights = await measureCardHeights(parsed);
+      const html = buildMoldurasHtmlPaged(parsed, heights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       genOk = true;
       if (shouldPrint) {
@@ -644,8 +649,8 @@
         molduraStore.applyCorrectionsToCard(p);
         return { ...p, hasMoldura: hasMolduraItems(f) };
       });
-      const heights = await measureCardHeights(parsed, appStore.molduraTemplate);
-      const html = buildMoldurasHtmlByTemplatePaged(parsed, appStore.molduraTemplate, heights);
+      const heights = await measureCardHeights(parsed);
+      const html = buildMoldurasHtmlPaged(parsed, heights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       genOk = true;
       const u = appStore.user;

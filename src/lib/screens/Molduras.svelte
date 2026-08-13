@@ -5,7 +5,7 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { parseCard, groupMaterials, measureCardHeights, buildMoldurasHtmlByTemplatePaged, getMolduraFormula, computeLarCm, computeTravCm } from '$lib/utils/molduras';
+  import { parseCard, groupMaterials, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
   import MoldurasReorderModal from '$lib/components/MoldurasReorderModal.svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -197,8 +197,8 @@
         items: c.items,
         materials: c.materials,
       }));
-      const heights = await measureCardHeights(data, appStore.molduraTemplate);
-      const html = buildMoldurasHtmlByTemplatePaged(data, appStore.molduraTemplate, heights);
+      const heights = await measureCardHeights(data);
+      const html = buildMoldurasHtmlPaged(data, heights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
 
       if (shouldPrint) {
@@ -246,8 +246,8 @@
         items: c.items,
         materials: c.materials,
       }));
-      const heights = await measureCardHeights(data, appStore.molduraTemplate);
-      const html = buildMoldurasHtmlByTemplatePaged(data, appStore.molduraTemplate, heights);
+      const heights = await measureCardHeights(data);
+      const html = buildMoldurasHtmlPaged(data, heights);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;

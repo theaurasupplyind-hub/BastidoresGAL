@@ -1,4 +1,11 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.5': `• Molduras PDF: layout A4 en 2 columnas con la altura real de cada tarjeta y margenes correctos (sin doble margen)
+  Reordenamiento de molduras con previsualizacion por altura medida
+  Facturacion: nueva gestion de talleres (guardar/editar/eliminar) y autocompletar taller a direccion
+  Items de retirar ya no se muestran como costo en facturas y presupuestos PDF
+  Kanban: urgencia y filtros por fecha de entrega final
+  Corregido el nombre de la regla en las sugerencias de precio
+`,
   '2.3.4': `• PDF de molduras: paginado en 2 columnas por hoja A4 con altura real de cada tarjeta
   - Ya no se cortan tarjetas entre paginas: se acomodan por altura medida
   - Cabeceras alternadas (caja a izquierda/derecha) para marcar las columnas

@@ -17,7 +17,6 @@ let _facturacionSaving = $state(false);
 let _facturacionTipo = $state<'PRESUPUESTO' | 'BORRADOR'>('PRESUPUESTO');
 let _facturacionHasId = $state(false);
 let _pdfStyle = $state('Original');
-let _molduraTemplate = $state('clasico');
 
 // Ficha Semanal filter state
 let _fsStartDate = $state('');
@@ -76,9 +75,6 @@ export const appStore = {
 
   get pdfStyle() { return _pdfStyle; },
   set pdfStyle(v: string) { _pdfStyle = v; },
-
-  get molduraTemplate() { return _molduraTemplate; },
-  set molduraTemplate(v: string) { _molduraTemplate = v; },
 
   get fsStartDate() { return _fsStartDate; },
   set fsStartDate(v: string) { _fsStartDate = v; },

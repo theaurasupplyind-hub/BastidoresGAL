@@ -4,7 +4,7 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import type { Factura, InvoiceItem, Cliente, Producto, PrecioReferencia, PricingRule, FechasEntrega } from '$lib/types';
+  import type { Factura, InvoiceItem, Cliente, Producto, PrecioReferencia, PricingRule, FechasEntrega, TallerDireccion } from '$lib/types';
 import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/types';
   import { invoke } from '@tauri-apps/api/core';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
@@ -19,6 +19,12 @@ import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } fro
 import type { ClientAddress } from '$lib/types';
 import flatpickr from 'flatpickr';
 import 'flatpickr/dist/flatpickr.min.css';
+
+type TallerApi = typeof api & {
+  listTalleres?: () => Promise<TallerDireccion[]>;
+  addTaller?: (data: { taller: string; direccion: string }) => Promise<unknown>;
+};
+const tallerApi: TallerApi = api;
 
   let loading = $state(false);
   let saving = $state(false);
@@ -131,13 +137,13 @@ import 'flatpickr/dist/flatpickr.min.css';
   let envio = $state(0);
   let tipo_entrega = $state('Retira');
   let fechasEntrega = $state<FechasEntrega>({ desde: '', hasta: '', extras: [] });
-  let pagoRapidoMonto = $state(0);
+  let pagoRapidoMonto = $state('');
   let pagoRapidoAplicado = $state(false);
   let showPagoDialog = $state(false);
   let estado_kanban = $state('');
 
   function handlePagoSaved() {
-    if (pagoRapidoMonto > 0) {
+    if (parseFloat(pagoRapidoMonto) > 0) {
       pagoRapidoAplicado = true;
     }
     refreshHistory();
@@ -157,7 +163,7 @@ import 'flatpickr/dist/flatpickr.min.css';
   }
 
   async function openPagoRapido() {
-    if (pagoRapidoMonto <= 0 || !id) return;
+    if (!(parseFloat(pagoRapidoMonto) > 0) || !id) return;
     try {
       const allPagos = await api.listPagos();
       const invPagos = allPagos.filter((p: any) => p.invoice_id === id);
@@ -292,6 +298,10 @@ import 'flatpickr/dist/flatpickr.min.css';
   let clienteSearch = $state('');
   let showClienteResults = $state(false);
   let selectedClienteIndex = $state(-1);
+  let tallerSearch = $state('');
+  let showTallerResults = $state(false);
+  let selectedTallerIndex = $state(-1);
+  let talleres = $state<TallerDireccion[]>([]);
 
   // Product autocomplete per row
   let productSearch = $state<string[]>(['']);
@@ -318,6 +328,11 @@ import 'flatpickr/dist/flatpickr.min.css';
     );
   });
 
+  function esRetirarFactura(f: Factura): boolean {
+    if ((f.total || 0) > 0.01) return false;
+    return (f.items || []).some(i => /\bretirar\b/i.test((i.descripcion || '').trim()));
+  }
+
   let filteredClientes = $derived.by(() => {
     const q = normalizeText(clienteSearch);
     if (!q) return clientes.slice(0, 10);
@@ -328,6 +343,23 @@ import 'flatpickr/dist/flatpickr.min.css';
       normalizeText(c.taller).includes(q) ||
       normalizeText(c.estudiante).includes(q)
     ).slice(0, 10);
+  });
+
+  let tallerIndex = $derived.by(() => {
+    const q = normalizeText(tallerSearch);
+    const seen = new Set<string>();
+    const entries: Array<Pick<TallerDireccion, 'taller' | 'direccion'>> = [];
+    const push = (taller: string, direccion: string) => {
+      const nombre = taller.trim();
+      if (!nombre || seen.has(nombre)) return;
+      seen.add(nombre);
+      entries.push({ taller: nombre, direccion: (direccion || '').trim() });
+    };
+    for (const t of talleres) push(t.taller, t.direccion);
+    for (const c of clientes) push(c.taller, c.domicilio);
+    for (const f of facturas) push(f.cliente_taller || '', f.cliente_domicilio || '');
+    if (!q) return entries.slice(0, 10);
+    return entries.filter(e => normalizeText(e.taller).includes(q)).slice(0, 10);
   });
 
   let totalCalculado = $derived.by(() => {
@@ -382,7 +414,7 @@ import 'flatpickr/dist/flatpickr.min.css';
   let _initialized = $state(false);
 
   onMount(async () => {
-    await Promise.all([loadClientes(), loadProductos(), loadPreciosReferencia(), loadPricingRules(), refreshHistory()]);
+    await Promise.all([loadClientes(), loadProductos(), loadPreciosReferencia(), loadPricingRules(), loadTalleres(), refreshHistory()]);
     if (appStore.pendingInvoiceId != null) {
       await loadInvoice(appStore.pendingInvoiceId);
       appStore.pendingInvoiceId = null;
@@ -416,6 +448,14 @@ import 'flatpickr/dist/flatpickr.min.css';
       clientes = await cacheStore.fetch('clientes', () => api.listClientes(), 1800000);
     } catch {
       clientes = [];
+    }
+  }
+
+  async function loadTalleres() {
+    try {
+      talleres = await cacheStore.fetch('talleres', () => tallerApi.listTalleres?.() ?? Promise.resolve([]), 1800000);
+    } catch {
+      talleres = [];
     }
   }
 
@@ -478,6 +518,7 @@ import 'flatpickr/dist/flatpickr.min.css';
     cliente_piso_depto = '';
     cliente_telefono = c.telefono;
     cliente_taller = c.taller || '';
+    tallerSearch = c.taller || '';
     clienteSearch = c.nombre;
     selectedClienteIndex = -1;
     showClienteResults = false;
@@ -492,6 +533,14 @@ import 'flatpickr/dist/flatpickr.min.css';
     if (c.ultimo_tipo_entrega && ['Retira', 'Envio', 'Retiro y Envio'].includes(c.ultimo_tipo_entrega)) {
       tipo_entrega = c.ultimo_tipo_entrega;
     }
+  }
+
+  function selectTaller(t: Pick<TallerDireccion, 'taller' | 'direccion'>) {
+    cliente_taller = t.taller;
+    cliente_domicilio = t.direccion;
+    tallerSearch = t.taller;
+    selectedTallerIndex = -1;
+    showTallerResults = false;
   }
 
   function selectProducto(index: number, prod: Producto) {
@@ -512,7 +561,9 @@ import 'flatpickr/dist/flatpickr.min.css';
     const sugBase = sug.basedOn;
     if (sugBase) {
       if (sugBase.includes(' → ')) {
-        newDesc = userQuery;
+        const ruleName = sugBase.split(' → ')[0] || '';
+        const userText = userQuery.trim();
+        newDesc = ruleName ? `${ruleName} ${userText}`.trim() : userText;
       } else {
         const cleanBase = sugBase.includes(' → ') ? sugBase.split(' → ').pop()!.trim() : sugBase;
         const userDims = userQuery.match(/\d+\s*[xX×]\s*\d+/);
@@ -599,6 +650,22 @@ import 'flatpickr/dist/flatpickr.min.css';
       selectCliente(results[selectedClienteIndex]);
     } else if (e.key === 'Escape') {
       showClienteResults = false;
+    }
+  }
+
+  function handleTallerKeydown(e: KeyboardEvent) {
+    const results = tallerIndex;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedTallerIndex = Math.min(selectedTallerIndex + 1, results.length - 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedTallerIndex = Math.max(selectedTallerIndex - 1, -1);
+    } else if (e.key === 'Enter' && selectedTallerIndex >= 0 && results[selectedTallerIndex]) {
+      e.preventDefault();
+      selectTaller(results[selectedTallerIndex]);
+    } else if (e.key === 'Escape') {
+      showTallerResults = false;
     }
   }
 
@@ -724,6 +791,7 @@ import 'flatpickr/dist/flatpickr.min.css';
     cliente_telefono = f.cliente_telefono;
     cliente_piso_depto = f.cliente_piso_depto || '';
     cliente_taller = f.cliente_taller || '';
+    tallerSearch = f.cliente_taller || '';
     envio = f.envio || 0;
     tipo_entrega = f.tipo_entrega || 'Retira';
     fechasEntrega = parseFechasEntrega(f.fecha_entrega);
@@ -733,7 +801,7 @@ import 'flatpickr/dist/flatpickr.min.css';
     showProdResults = items.map(() => false);
     productSuggestions = items.map(() => []);
     showQtyDropdown = items.map(() => false);
-    pagoRapidoMonto = 0;
+    pagoRapidoMonto = '';
     pagoRapidoAplicado = false;
     estado_kanban = f.estado_kanban || '';
     clienteSearch = f.cliente_nombre;
@@ -766,10 +834,13 @@ import 'flatpickr/dist/flatpickr.min.css';
     showProdResults = Array.from({ length: 7 }, () => false);
     productSuggestions = Array.from({ length: 7 }, () => []);
     showQtyDropdown = Array.from({ length: 7 }, () => false);
-    pagoRapidoMonto = 0;
+    pagoRapidoMonto = '';
     pagoRapidoAplicado = false;
     estado_kanban = '';
     clienteSearch = '';
+    tallerSearch = '';
+    showTallerResults = false;
+    selectedTallerIndex = -1;
     selectedClienteIndex = -1;
     showAddressDropdown = false;
     addressSuggestions = [];
@@ -949,6 +1020,12 @@ import 'flatpickr/dist/flatpickr.min.css';
         const result = await api.saveFactura(payload);
         id = result.id;
         appStore.showToast('Factura guardada', 'success');
+      }
+      const tallerNombre = cliente_taller.trim();
+      const tallerDireccion = (cliente_domicilio || '').trim();
+      if (tallerNombre && tallerDireccion && tallerDireccion.toLowerCase() !== 'retira') {
+        tallerApi.addTaller?.({ taller: tallerNombre, direccion: tallerDireccion })?.catch(() => {});
+        cacheStore.invalidate('talleres');
       }
       // Geocodificar solo cuando se fija/cambia la dirección de entrega (al crear o al
       // editar con dirección distinta). No se regeocodifica en masa al abrir el mapa.
@@ -1553,9 +1630,31 @@ import 'flatpickr/dist/flatpickr.min.css';
               </div>
             </div>
             <div class="field flex-1">
-              <div class="icon-input-wrap">
-                <input type="text" bind:value={cliente_taller} placeholder="Taller" class="input-with-icon-left" />
+              <div class="autocomplete-wrap">
+                <input
+                  type="text"
+                  bind:value={tallerSearch}
+                  oninput={() => { showTallerResults = true; cliente_taller = tallerSearch; }}
+                  onfocus={() => showTallerResults = true}
+                  onblur={() => setTimeout(() => showTallerResults = false, 200)}
+                  onkeydown={handleTallerKeydown}
+                  placeholder="Taller"
+                  class="input-with-icon-left"
+                />
                 <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 00 0 1.4l1.6 1.6a1 1 0 00 1.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+                {#if showTallerResults && tallerIndex.length > 0}
+                  <div class="autocomplete-results">
+                    {#each tallerIndex as t, i}
+                      <div
+                        class="autocomplete-item"
+                        class:selected={i === selectedTallerIndex}
+                        onmousedown={() => selectTaller(t)}
+                      >
+                        {t.taller}{t.direccion ? ` — ${t.direccion}` : ''}
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
               </div>
             </div>
           </div>
@@ -1688,11 +1787,11 @@ import 'flatpickr/dist/flatpickr.min.css';
               {#if pagoRapidoAplicado}
                 <div class="payment-applied">
                   <span class="payment-applied-label">Aplicado</span>
-                  <span class="payment-applied-value">${pagoRapidoMonto.toFixed(0)}</span>
+                  <span class="payment-applied-value">${(parseFloat(pagoRapidoMonto) || 0).toFixed(0)}</span>
                 </div>
               {:else}
                 <div class="payment-row">
-                  <input type="number" bind:value={pagoRapidoMonto} min="0" step="0.01" placeholder="Monto $" />
+                  <input type="text" inputmode="decimal" bind:value={pagoRapidoMonto} placeholder="Monto $" />
                   <button type="button" class="payment-btn" onclick={openPagoRapido}>Aplicar</button>
                 </div>
               {/if}
@@ -1700,7 +1799,7 @@ import 'flatpickr/dist/flatpickr.min.css';
             <div class="summary-divider"></div>
             <div class="summary-total">
               <span class="summary-total-label">Total</span>
-              <span class="summary-total-value">${(totalConEnvio - (pagoRapidoAplicado ? pagoRapidoMonto : 0)).toFixed(0)}</span>
+              <span class="summary-total-value">${(totalConEnvio - (pagoRapidoAplicado ? (parseFloat(pagoRapidoMonto) || 0) : 0)).toFixed(0)}</span>
               {#if id !== null}
                 <div class="summary-status">
                   {#if currentSaldo <= 0.01}
@@ -1871,12 +1970,18 @@ import 'flatpickr/dist/flatpickr.min.css';
               <span class="history-date">{f.fecha || ''}</span>
             </div>
             <div class="history-client">{f.cliente_nombre || 'Sin cliente'}</div>
-            <div class="history-total">${(f.total || 0).toFixed(0)}</div>
+            {#if esRetirarFactura(f)}
+              <div class="history-total history-total-retirar">RETIRAR</div>
+            {:else}
+              <div class="history-total">${(f.total || 0).toFixed(0)}</div>
+            {/if}
             <div class="history-status">
-              {#if (f.total || 0) - (pagoMap[f.id] || 0) <= 0.01}
-                <span class="status-paid">✓ Pagado</span>
-              {:else}
-                <span class="status-debt">Debe ${((f.total || 0) - (pagoMap[f.id] || 0)).toFixed(0)}</span>
+              {#if !esRetirarFactura(f)}
+                {#if (f.total || 0) - (pagoMap[f.id] || 0) <= 0.01}
+                  <span class="status-paid">✓ Pagado</span>
+                {:else}
+                  <span class="status-debt">Debe ${((f.total || 0) - (pagoMap[f.id] || 0)).toFixed(0)}</span>
+                {/if}
               {/if}
               {#if f.impresa_at}
                 <PrinterBadge impresaAt={f.impresa_at} impresaPor={f.impresa_por} />
@@ -1907,7 +2012,7 @@ import 'flatpickr/dist/flatpickr.min.css';
     invoiceNumero={numero_factura || numero_presupuesto}
     invoiceCliente={cliente_nombre}
     invoiceTotal={totalConEnvio}
-    initialAmount={pagoRapidoMonto}
+    initialAmount={pagoRapidoMonto ? parseFloat(pagoRapidoMonto) || 0 : 0}
     onclose={() => { showPagoDialog = false; }}
     onsaved={handlePagoSaved}
   />
@@ -3060,6 +3165,14 @@ import 'flatpickr/dist/flatpickr.min.css';
     margin-top: 0.214rem;
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+  .history-total-retirar {
+    font-size: 1.35rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #e67e22;
+    line-height: 1.15;
   }
   .history-status {
     margin-top: 0.143rem;

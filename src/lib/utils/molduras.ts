@@ -1,7 +1,12 @@
 import type { Factura, InvoiceItem } from '$lib/types';
 
-export const PAGE_HEIGHT = 1113;
+const A4_W_PX = (210 / 25.4) * 96;
+const A4_H_PX = (297 / 25.4) * 96;
+const PAGE_MARGIN_PX = 5;
 const CARD_GAP = 8;
+
+export const PAGE_HEIGHT = Math.floor(A4_H_PX - 2 * PAGE_MARGIN_PX) - 1;
+export const PDF_COLUMN_WIDTH_PX = Math.round((A4_W_PX - 2 * PAGE_MARGIN_PX - 10) / 2);
 
 export interface CardItem {
   cantidad: number;
@@ -169,20 +174,6 @@ export function groupMaterials(materials: CardMaterial[]): Array<Record<string, 
 export function colHeight(card: { items: CardItem[]; materials: CardMaterial[] }): number {
   const g = groupMaterials(card.materials).length;
   return 44 * card.items.length + 32 * g + 124;
-}
-
-export function splitIntoColumns<T extends { items: CardItem[]; materials: CardMaterial[] }>(
-  cards: T[], cols: number
-): T[][] {
-  const result: T[][] = Array.from({ length: cols }, () => []);
-  const heights: number[] = new Array(cols).fill(0);
-  for (const card of cards) {
-    let minIdx = 0;
-    for (let i = 1; i < cols; i++) if (heights[i] < heights[minIdx]) minIdx = i;
-    result[minIdx].push(card);
-    heights[minIdx] += colHeight(card);
-  }
-  return result;
 }
 
 export interface LayoutCard {
@@ -423,308 +414,8 @@ export function buildFrameSvg(items: CardItem[]): string {
   return '';
 }
 
-export function buildMoldurasHtml(cards: Array<{
-  cliente: string;
-  num: string;
-  items: CardItem[];
-  materials: CardMaterial[];
-}>): string {
-  const [left, right] = splitIntoColumns(cards, 2);
-
-  function renderCard(card: typeof cards[0], side: 'left' | 'right'): string {
-    const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
-    const summaryRows = validItems.map(it => {
-      return `
-        <tr>
-          <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
-          <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
-          <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
-        </tr>`;
-    }).join('');
-
-    const matGroups = groupMaterials(card.materials);
-    const matBody = matGroups.map(g => {
-      const cells = ['V', 'L', 'T'].map(t => {
-        const m = g[t];
-        const cls = t === 'V' ? 'td-var' : t === 'L' ? 'td-lar' : 'td-tra';
-        if (m) {
-          return `<td class='${cls} val-cell'>${m.qty}</td><td class='${cls} val-cell'>${m.cm}</td>`;
-        }
-        return `<td class='${cls} val-cell'></td><td class='${cls} val-cell'></td>`;
-      }).join('');
-      return `<tr>${cells}</tr>`;
-    }).join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
-
-    const cliente = card.cliente.length > 25 ? card.cliente.slice(0, 25) : card.cliente;
-
-    const squareLeft = side === 'left'
-      ? `<div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-right:10px;'></div><div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div>`
-      : `<div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div><div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-left:10px;'></div>`;
-
-    return `
-<div class='card'>
-  <div class='header' style='display:flex;align-items:center;justify-content:space-between;padding:4px 8px;'>
-    ${squareLeft}
-  </div>
-  <table class='summary-table'>
-    <tbody>${summaryRows}</tbody>
-  </table>
-  <table class='mat-table'>
-    <thead>
-      <tr><th colspan='2' class='th-var'>VARILLA</th><th colspan='2' class='th-lar'>LARGUERO</th><th colspan='2' class='th-tra'>TRAV.</th></tr>
-      <tr><th width='12%' class='td-var'>#</th><th width='21%' class='td-var'>CM</th><th width='12%' class='td-lar'>#</th><th width='21%' class='td-lar'>CM</th><th width='12%' class='td-tra'>#</th><th width='21%' class='td-tra'>CM</th></tr>
-    </thead>
-    <tbody>${matBody}</tbody>
-  </table>
-</div>`;
-  }
-
-  const leftHtml = left.map(c => renderCard(c, 'left')).join('');
-  const rightHtml = right.map(c => renderCard(c, 'right')).join('');
-
-  return `<html><head><meta charset='utf-8'>
-<style>
-    @page { margin: 5px; size: A4; }
-    body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; }
-    .grid { display: flex; gap: 10px; width: 100%; }
-    .col-left, .col-right { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-    .card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
-    .header { background: #000; color: #fff; text-align: center; }
-    .client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
-    .order-id { font-size: 14px; color: #ddd; }
-    .summary-table { width: 100%; border-collapse: collapse; background: #eee; border-bottom: 3px solid #000; }
-    .summary-table td { padding: 2px; border: 1px solid #444; vertical-align: middle; }
-    .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
-    .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
-    .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
-    .mat-cell { text-align: center; vertical-align: middle; padding: 1px 4px; }
-    .mat-detail { font-size: 13px; font-weight: 900; color: #000; white-space: nowrap; }
-    .mat-table { width: 100%; border-collapse: collapse; text-align: center; }
-    .mat-table th { border: 1px solid #000; padding: 2px; font-size: 18px; font-weight: 900; text-transform: uppercase; }
-    .mat-table td { border: 1px solid #000; padding: 0; height: 30px; }
-    .th-var { background: #2c3e50; color: #fff; }
-    .td-var { background: #ebf5fb; }
-    .th-lar { background: #27ae60; color: #fff; }
-    .td-lar { background: #e9f7ef; }
-    .th-tra { background: #d35400; color: #fff; }
-    .td-tra { background: #fdf2e9; }
-    .val-cell { font-weight: 900; font-size: 26px; line-height: 1; }
-</style>
-</head>
-<body>
-<div class='grid'>
-  <div class='col-left'>${leftHtml}</div>
-  <div class='col-right'>${rightHtml}</div>
-</div></body></html>`;
-}
-
-export function buildMoldurasHtmlClasicoModificado(cards: Array<{
-  cliente: string;
-  num: string;
-  items: CardItem[];
-  materials: CardMaterial[];
-}>): string {
-  const [left, right] = splitIntoColumns(cards, 2);
-
-  function renderCard(card: typeof cards[0], side: 'left' | 'right'): string {
-    const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
-    const summaryRows = validItems.map(it => {
-      return `
-        <tr>
-          <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
-          <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
-          <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
-        </tr>`;
-    }).join('');
-
-    const matItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
-    const larRows: string[] = [];
-    const travRows: string[] = [];
-    for (const item of matItems) {
-      const dims = item.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
-      if (!dims) continue;
-      const w = parseFloat(dims[1]), h = parseFloat(dims[2]);
-      const vs = (item.varilla ?? '').split(' ').filter(Boolean).map(s => {
-        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
-      });
-      const ls = (item.larguero ?? '').split(' ').filter(Boolean).map(s => {
-        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
-      });
-      const ts = (item.travesaño ?? '').split(' ').filter(Boolean).map(s => {
-        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
-      });
-      vs.forEach((v, i) => {
-        const withLonger = (w > h && i === 0) || (w < h && i === 1) || (w === h && i === 1);
-        if (!withLonger) {
-          larRows.push(`<tr>
-      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
-      <td class='td-lar val-cell'>${ls[0] ? ls[0].qty : ''}</td><td class='td-lar val-cell'>${ls[0] ? ls[0].cm : ''}</td>
-      <td class='td-tra val-cell'></td><td class='td-tra val-cell'></td>
-    </tr>`);
-        } else {
-          travRows.push(`<tr>
-      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
-      ${ts[0] ? `<td class='td-lar val-cell' colspan='2'><span style='font-size:32px;color:#000;font-weight:900;'>➡</span></td>` : `<td class='td-lar val-cell'></td><td class='td-lar val-cell'></td>`}
-      <td class='td-tra val-cell'>${ts[0] ? ts[0].qty : ''}</td><td class='td-tra val-cell'>${ts[0] ? ts[0].cm : ''}</td>
-    </tr>`);
-        }
-      });
-    }
-    const matBody = [...larRows, ...travRows].join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
-
-    const cliente = card.cliente.length > 25 ? card.cliente.slice(0, 25) : card.cliente;
-
-    const squareLeft = side === 'left'
-      ? `<div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-right:10px;'></div><div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div>`
-      : `<div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div><div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-left:10px;'></div>`;
-
-    return `
-<div class='card'>
-  <div class='header' style='display:flex;align-items:center;justify-content:space-between;padding:4px 8px;'>
-    ${squareLeft}
-  </div>
-  <table class='summary-table'>
-    <tbody>${summaryRows}</tbody>
-  </table>
-  <table class='mat-table'>
-    <thead>
-      <tr><th colspan='2' class='th-var'>VARILLA</th><th colspan='2' class='th-lar'>LARGUERO</th><th colspan='2' class='th-tra'>TRAV.</th></tr>
-      <tr><th width='12%' class='td-var'>#</th><th width='21%' class='td-var'>CM</th><th width='12%' class='td-lar'>#</th><th width='21%' class='td-lar'>CM</th><th width='12%' class='td-tra'>#</th><th width='21%' class='td-tra'>CM</th></tr>
-    </thead>
-    <tbody>${matBody}</tbody>
-  </table>
-</div>`;
-  }
-
-  const leftHtml = left.map(c => renderCard(c, 'left')).join('');
-  const rightHtml = right.map(c => renderCard(c, 'right')).join('');
-
-  return `<html><head><meta charset='utf-8'>
-<style>
-    @page { margin: 5px; size: A4; }
-    body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; }
-    .grid { display: flex; gap: 10px; width: 100%; }
-    .col-left, .col-right { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-    .card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
-    .header { background: #000; color: #fff; text-align: center; }
-    .client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
-    .order-id { font-size: 14px; color: #ddd; }
-    .summary-table { width: 100%; border-collapse: collapse; background: #eee; border-bottom: 3px solid #000; }
-    .summary-table td { padding: 2px; border: 1px solid #444; vertical-align: middle; }
-    .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
-    .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
-    .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
-    .mat-cell { text-align: center; vertical-align: middle; padding: 1px 4px; }
-    .mat-detail { font-size: 13px; font-weight: 900; color: #000; white-space: nowrap; }
-    .mat-table { width: 100%; border-collapse: collapse; text-align: center; }
-    .mat-table th { border: 1px solid #000; padding: 2px; font-size: 18px; font-weight: 900; text-transform: uppercase; }
-    .mat-table td { border: 1px solid #000; padding: 0; height: 30px; }
-    .th-var { background: #2c3e50; color: #fff; }
-    .td-var { background: #ebf5fb; }
-    .th-lar { background: #27ae60; color: #fff; }
-    .td-lar { background: #e9f7ef; }
-    .th-tra { background: #d35400; color: #fff; }
-    .td-tra { background: #fdf2e9; }
-    .val-cell { font-weight: 900; font-size: 26px; line-height: 1; }
-</style>
-</head>
-<body>
-<div class='grid'>
-  <div class='col-left'>${leftHtml}</div>
-  <div class='col-right'>${rightHtml}</div>
-</div></body></html>`;
-}
-
-export function buildMoldurasHtmlJuli(cards: Array<{
-  cliente: string;
-  num: string;
-  items: CardItem[];
-  materials: CardMaterial[];
-}>): string {
-  const [left, right] = splitIntoColumns(cards, 2);
-
-  function renderCard(card: typeof cards[0], side: 'left' | 'right'): string {
-    const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
-    const summaryRows = validItems.map(it => {
-      const lHtml = it.larguero ? `<span class='mat-detail lar'>${it.larguero}</span>` : '<span class="mat-detail lar">—</span>';
-      const tHtml = it.travesaño ? `<span class='mat-detail tra'>${it.travesaño}</span>` : '<span class="mat-detail tra">—</span>';
-      return `
-        <tr>
-          <td width='15%' rowspan='2'><span class='sum-qty'>${it.cantidad}</span></td>
-          <td width='30%' rowspan='2'><span class='sum-dim'>${it.medida}</span></td>
-          <td width='30%' rowspan='2'><span class='sum-type'>${it.tipo}</span></td>
-          <td width='25%' class='mat-cell'>${lHtml}</td>
-        </tr>
-        <tr><td class='mat-cell'>${tHtml}</td></tr>`;
-    }).join('');
-
-    const cliente = card.cliente.length > 30 ? card.cliente.slice(0, 30) : card.cliente;
-
-    const square = side === 'left'
-      ? `<div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-right:10px;'></div><div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div>`
-      : `<div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div><div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-left:10px;'></div>`;
-
-    return `
-<div class='card'>
-  <div class='header' style='display:flex;align-items:center;justify-content:space-between;padding:4px 8px;'>
-    ${square}
-  </div>
-  <table class='summary-table'>
-    <tbody>${summaryRows}</tbody>
-  </table>
-</div>`;
-  }
-
-  const leftHtml = left.map(c => renderCard(c, 'left')).join('');
-  const rightHtml = right.map(c => renderCard(c, 'right')).join('');
-
-  return `<html><head><meta charset='utf-8'>
-<style>
-    @page { margin: 5px; size: A4; }
-    body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; }
-    .grid { display: flex; gap: 10px; width: 100%; }
-    .col-left, .col-right { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-    .card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
-    .header { background: #000; color: #fff; text-align: center; }
-    .client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
-    .order-id { font-size: 14px; color: #ddd; }
-    .summary-table { width: 100%; border-collapse: collapse; background: #eee; border-bottom: 3px solid #000; }
-    .summary-table td { padding: 8px 4px; border: 1px solid #444; vertical-align: middle; }
-    .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
-    .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
-    .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
-    .mat-cell { text-align: center; vertical-align: middle; padding: 6px 8px; }
-    .mat-detail { font-size: 14px; font-weight: 700; color: #fff; padding: 3px 10px; border-radius: 4px; display: inline-block; white-space: nowrap; }
-    .mat-detail.lar { background: #27ae60; }
-    .mat-detail.tra { background: #d35400; }
-</style>
-</head>
-<body>
-<div class='grid'>
-  <div class='col-left'>${leftHtml}</div>
-  <div class='col-right'>${rightHtml}</div>
-</div></body></html>`;
-}
-
-export function getTemplateCss(template: string): string {
-  if (template === 'juli') {
-    return `
-.card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
-.header { background: #000; color: #fff; text-align: center; }
-.client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
-.order-id { font-size: 14px; color: #ddd; }
-.summary-table { width: 100%; border-collapse: collapse; background: #eee; border-bottom: 3px solid #000; }
-.summary-table td { padding: 8px 4px; border: 1px solid #444; vertical-align: middle; }
-.sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
-.sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
-.sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
-.mat-cell { text-align: center; vertical-align: middle; padding: 6px 8px; }
-.mat-detail { font-size: 14px; font-weight: 700; color: #fff; padding: 3px 10px; border-radius: 4px; display: inline-block; white-space: nowrap; }
-.mat-detail.lar { background: #27ae60; }
-.mat-detail.tra { background: #d35400; }`;
-  }
-  return `
-.card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
+const CARD_CSS = `
+.card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; font-family: Arial, sans-serif; line-height: normal; }
 .header { background: #000; color: #fff; text-align: center; }
 .client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
 .order-id { font-size: 14px; color: #ddd; }
@@ -733,8 +424,6 @@ export function getTemplateCss(template: string): string {
 .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
 .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
 .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
-.mat-cell { text-align: center; vertical-align: middle; padding: 1px 4px; }
-.mat-detail { font-size: 13px; font-weight: 900; color: #000; white-space: nowrap; }
 .mat-table { width: 100%; border-collapse: collapse; text-align: center; }
 .mat-table th { border: 1px solid #000; padding: 2px; font-size: 18px; font-weight: 900; text-transform: uppercase; }
 .mat-table td { border: 1px solid #000; padding: 0; height: 30px; }
@@ -744,105 +433,87 @@ export function getTemplateCss(template: string): string {
 .td-lar { background: #e9f7ef; }
 .th-tra { background: #d35400; color: #fff; }
 .td-tra { background: #fdf2e9; }
-.val-cell { font-weight: 900; font-size: 26px; line-height: 1; }`;
+.val-cell { font-weight: 900; font-size: 26px; line-height: 1; }
+`;
+
+const MEASURE_CSS = `
+.mol-measure { font-family: Arial, sans-serif; font-size: 16px; line-height: normal; }
+.mol-measure * { box-sizing: border-box; margin: 0; padding: 0; }
+.mol-measure .card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; font-family: Arial, sans-serif; line-height: normal; }
+.mol-measure .header { background: #000; color: #fff; text-align: center; }
+.mol-measure .client-name { font-size: 26px; font-weight: 900; line-height: 1; text-transform: uppercase; margin-bottom: 3px; }
+.mol-measure .order-id { font-size: 14px; color: #ddd; }
+.mol-measure .summary-table { width: 100%; border-collapse: collapse; background: #eee; border-bottom: 3px solid #000; }
+.mol-measure .summary-table td { padding: 2px; border: 1px solid #444; vertical-align: middle; }
+.mol-measure .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
+.mol-measure .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
+.mol-measure .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
+.mol-measure .mat-table { width: 100%; border-collapse: collapse; text-align: center; }
+.mol-measure .mat-table th { border: 1px solid #000; padding: 2px; font-size: 18px; font-weight: 900; text-transform: uppercase; }
+.mol-measure .mat-table td { border: 1px solid #000; padding: 0; height: 30px; }
+.mol-measure .th-var { background: #2c3e50; color: #fff; }
+.mol-measure .td-var { background: #ebf5fb; }
+.mol-measure .th-lar { background: #27ae60; color: #fff; }
+.mol-measure .td-lar { background: #e9f7ef; }
+.mol-measure .th-tra { background: #d35400; color: #fff; }
+.mol-measure .td-tra { background: #fdf2e9; }
+.mol-measure .val-cell { font-weight: 900; font-size: 26px; line-height: 1; }
+`;
+
+function buildMatRows(card: MeasurableCard): string {
+  const matItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
+  const larRows: string[] = [];
+  const travRows: string[] = [];
+  for (const item of matItems) {
+    const dims = item.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
+    if (!dims) continue;
+    const w = parseFloat(dims[1]), h = parseFloat(dims[2]);
+    const vs = (item.varilla ?? '').split(' ').filter(Boolean).map(s => {
+      const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+    });
+    const ls = (item.larguero ?? '').split(' ').filter(Boolean).map(s => {
+      const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+    });
+    const ts = (item.travesaño ?? '').split(' ').filter(Boolean).map(s => {
+      const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+    });
+    vs.forEach((v, i) => {
+      const withLonger = (w > h && i === 0) || (w < h && i === 1) || (w === h && i === 1);
+      if (!withLonger) {
+        larRows.push(`<tr>
+      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
+      <td class='td-lar val-cell'>${ls[0] ? ls[0].qty : ''}</td><td class='td-lar val-cell'>${ls[0] ? ls[0].cm : ''}</td>
+      <td class='td-tra val-cell'></td><td class='td-tra val-cell'></td>
+    </tr>`);
+      } else {
+        travRows.push(`<tr>
+      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
+      ${ts[0] ? `<td class='td-lar val-cell' colspan='2'><span style='font-size:32px;color:#000;font-weight:900;'>➡</span></td>` : `<td class='td-lar val-cell'></td><td class='td-lar val-cell'></td>`}
+      <td class='td-tra val-cell'>${ts[0] ? ts[0].qty : ''}</td><td class='td-tra val-cell'>${ts[0] ? ts[0].cm : ''}</td>
+    </tr>`);
+      }
+    });
+  }
+  return [...larRows, ...travRows].join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
 }
 
-export function renderSingleCardHtml(card: {
-  cliente: string;
-  num: string;
-  items: CardItem[];
-  materials: CardMaterial[];
-}, template: string, idx: number, side: 'left' | 'right' = 'left'): string {
-  const cliente = card.cliente.length > (template === 'juli' ? 30 : 25) ? card.cliente.slice(0, template === 'juli' ? 30 : 25) : card.cliente;
+export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'left' | 'right' = 'left'): string {
+  const cliente = card.cliente.length > 25 ? card.cliente.slice(0, 25) : card.cliente;
   const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
+  const summaryRows = validItems.map(it => {
+    return `
+        <tr>
+          <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
+          <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
+          <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
+        </tr>`;
+  }).join('');
 
   const square = side === 'right'
     ? `<div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div><div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-left:10px;'></div>`
     : `<div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-right:10px;'></div><div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div>`;
 
-  if (template === 'juli') {
-    const summaryRows = validItems.map(it => {
-      const lHtml = it.larguero ? `<span class='mat-detail lar'>${it.larguero}</span>` : '<span class="mat-detail lar">—</span>';
-      const tHtml = it.travesaño ? `<span class='mat-detail tra'>${it.travesaño}</span>` : '<span class="mat-detail tra">—</span>';
-      return `
-        <tr>
-          <td width='15%' rowspan='2'><span class='sum-qty'>${it.cantidad}</span></td>
-          <td width='30%' rowspan='2'><span class='sum-dim'>${it.medida}</span></td>
-          <td width='30%' rowspan='2'><span class='sum-type'>${it.tipo}</span></td>
-          <td width='25%' class='mat-cell'>${lHtml}</td>
-        </tr>
-        <tr><td class='mat-cell'>${tHtml}</td></tr>`;
-    }).join('');
-    return `
-<div class='card' data-card-idx='${idx}'>
-  <div class='header' style='display:flex;align-items:center;justify-content:space-between;padding:4px 8px;'>
-    ${square}
-  </div>
-  <table class='summary-table'>
-    <tbody>${summaryRows}</tbody>
-  </table>
-</div>`;
-  }
-
-  const summaryRows = validItems.map(it => {
-    return `
-      <tr>
-        <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
-        <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
-        <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
-      </tr>`;
-  }).join('');
-
-  let matBody: string;
-  if (template === 'clasico-modificado') {
-    const matItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
-    const larRows: string[] = [];
-    const travRows: string[] = [];
-    for (const item of matItems) {
-      const dims = item.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
-      if (!dims) continue;
-      const w = parseFloat(dims[1]), h = parseFloat(dims[2]);
-      const vs = (item.varilla ?? '').split(' ').filter(Boolean).map(s => {
-        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
-      });
-      const ls = (item.larguero ?? '').split(' ').filter(Boolean).map(s => {
-        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
-      });
-      const ts = (item.travesaño ?? '').split(' ').filter(Boolean).map(s => {
-        const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
-      });
-      vs.forEach((v, i) => {
-        const withLonger = (w > h && i === 0) || (w < h && i === 1) || (w === h && i === 1);
-        if (!withLonger) {
-          larRows.push(`<tr>
-      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
-      <td class='td-lar val-cell'>${ls[0] ? ls[0].qty : ''}</td><td class='td-lar val-cell'>${ls[0] ? ls[0].cm : ''}</td>
-      <td class='td-tra val-cell'></td><td class='td-tra val-cell'></td>
-    </tr>`);
-        } else {
-          travRows.push(`<tr>
-      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
-      ${ts[0] ? `<td class='td-lar val-cell' colspan='2'><span style='font-size:32px;color:#000;font-weight:900;'>➡</span></td>` : `<td class='td-lar val-cell'></td><td class='td-lar val-cell'></td>`}
-      <td class='td-tra val-cell'>${ts[0] ? ts[0].qty : ''}</td><td class='td-tra val-cell'>${ts[0] ? ts[0].cm : ''}</td>
-    </tr>`);
-        }
-      });
-    }
-    matBody = [...larRows, ...travRows].join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
-  } else {
-    const matGroups = groupMaterials(card.materials);
-    matBody = matGroups.map(g => {
-      const cells = ['V', 'L', 'T'].map(t => {
-        const m = g[t];
-        const cls = t === 'V' ? 'td-var' : t === 'L' ? 'td-lar' : 'td-tra';
-        if (m) {
-          return `<td class='${cls} val-cell'>${m.qty}</td><td class='${cls} val-cell'>${m.cm}</td>`;
-        }
-        return `<td class='${cls} val-cell'></td><td class='${cls} val-cell'></td>`;
-      }).join('');
-      return `<tr>${cells}</tr>`;
-    }).join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
-  }
+  const matBody = buildMatRows(card);
 
   return `
 <div class='card' data-card-idx='${idx}'>
@@ -862,17 +533,6 @@ export function renderSingleCardHtml(card: {
 </div>`;
 }
 
-export function buildMoldurasHtmlByTemplate(cards: Array<{
-  cliente: string;
-  num: string;
-  items: CardItem[];
-  materials: CardMaterial[];
-}>, template: string): string {
-  if (template === 'juli') return buildMoldurasHtmlJuli(cards);
-  if (template === 'clasico-modificado') return buildMoldurasHtmlClasicoModificado(cards);
-  return buildMoldurasHtml(cards);
-}
-
 export interface MeasurableCard {
   cliente: string;
   num: string;
@@ -880,19 +540,17 @@ export interface MeasurableCard {
   materials: CardMaterial[];
 }
 
-export async function measureCardHeights(
-  cards: MeasurableCard[],
-  template: string
-): Promise<number[]> {
+export async function measureCardHeights(cards: MeasurableCard[]): Promise<number[]> {
   if (typeof document === 'undefined') return [];
   const host = document.createElement('div');
-  host.style.cssText = 'position:absolute;visibility:hidden;width:387px;left:-9999px;top:0;z-index:-1;';
+  host.style.cssText = `position:absolute;visibility:hidden;width:${PDF_COLUMN_WIDTH_PX}px;left:-9999px;top:0;z-index:-1;`;
   const style = document.createElement('style');
-  style.textContent = getTemplateCss(template);
+  style.textContent = MEASURE_CSS;
   host.appendChild(style);
-  const body = document.createElement('div');
-  body.innerHTML = cards.map((c, i) => renderSingleCardHtml(c, template, i)).join('');
-  host.appendChild(body);
+  const wrap = document.createElement('div');
+  wrap.className = 'mol-measure';
+  wrap.innerHTML = cards.map((c, i) => renderSingleCardHtml(c, i)).join('');
+  host.appendChild(wrap);
   document.body.appendChild(host);
   try {
     await document.fonts.ready;
@@ -909,40 +567,29 @@ export async function measureCardHeights(
   }
 }
 
-const PAGE_SCAFFOLD_CSS = `
-@page { margin: 5px; size: A4; }
-body { font-family: 'Arial', sans-serif; margin: 0; padding: 0; }
-.page { page-break-after: always; break-after: page; width: 100%; }
+const PDF_BASE_CSS = `
+* { box-sizing: border-box; margin: 0; padding: 0; }
+@page { size: A4; margin: 0; }
+html, body { margin: 0; padding: 0; }
+body { font-family: Arial, sans-serif; font-size: 16px; line-height: normal; }
+.page { width: 210mm; padding: 5px; page-break-after: always; break-after: page; }
 .page:last-child { page-break-after: auto; break-after: auto; }
 .grid { display: flex; gap: 10px; width: 100%; }
 .col-left, .col-right { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.card { break-inside: avoid; page-break-inside: avoid; border: 4px solid #000; background: #fff; }
+${CARD_CSS}
 `;
 
-function buildPagedMoldurasHtml(
-  cards: MeasurableCard[],
-  template: string,
-  heights: number[]
-): string {
+function buildPagedMoldurasHtml(cards: MeasurableCard[], heights: number[]): string {
   const pages = buildPagedLayout(cards, heights);
   let pagesHtml = '';
   for (const page of pages) {
-    const leftHtml = page.left.map(c => renderSingleCardHtml(c.item, template, c.idx, 'left')).join('');
-    const rightHtml = page.right.map(c => renderSingleCardHtml(c.item, template, c.idx, 'right')).join('');
+    const leftHtml = page.left.map(c => renderSingleCardHtml(c.item, c.idx, 'left')).join('');
+    const rightHtml = page.right.map(c => renderSingleCardHtml(c.item, c.idx, 'right')).join('');
     pagesHtml += `<div class="page"><div class="grid"><div class="col-left">${leftHtml}</div><div class="col-right">${rightHtml}</div></div></div>`;
   }
-
-  const css = PAGE_SCAFFOLD_CSS + getTemplateCss(template);
-  return `<html><head><meta charset='utf-8'><style>${css}</style></head><body>${pagesHtml}</body></html>`;
+  return `<html><head><meta charset='utf-8'><style>${PDF_BASE_CSS}</style></head><body>${pagesHtml}</body></html>`;
 }
 
-export function buildMoldurasHtmlByTemplatePaged(
-  cards: MeasurableCard[],
-  template: string,
-  heights?: number[]
-): string {
-  if (heights && heights.length === cards.length) {
-    return buildPagedMoldurasHtml(cards, template, heights);
-  }
-  return buildMoldurasHtmlByTemplate(cards, template);
+export function buildMoldurasHtmlPaged(cards: MeasurableCard[], heights?: number[]): string {
+  return buildPagedMoldurasHtml(cards, heights ?? []);
 }

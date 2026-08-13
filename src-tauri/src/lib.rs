@@ -242,7 +242,7 @@ async fn generate_molduras_pdf(
         let out = output_str.clone();
         let html_wv2 = html.clone();
         let opts = pdf_webview2::Webview2PdfOptions {
-            margin_in: Some(5.0 / 96.0), // respeta @page margin:5px de molduras
+            margin_in: None, // el margen (5px) lo define @page/.page de molduras; evita doble margen
             timeout: std::time::Duration::from_secs(60),
         };
         match tokio::task::spawn_blocking(move || {

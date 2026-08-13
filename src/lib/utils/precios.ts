@@ -545,7 +545,7 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
       }
 
       result.push({
-        description: query,
+        description: rule.name,
         price,
         basedOn: `${rule.name} → ${baseProduct.variante || baseProduct.categoria} ${baseProduct.medida}`,
         suggested: true,

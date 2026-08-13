@@ -109,6 +109,11 @@ fn get_css(style: InvoiceStyle) -> String {
     format!("{}{}{}{}", css, page_css, grayscale_css, totals_css)
 }
 
+fn is_retirar_item(item: &InvoiceItem) -> bool {
+    let d = item.descripcion.trim().to_lowercase();
+    d.split(|c: char| !c.is_alphanumeric()).any(|w| w == "retirar")
+}
+
 fn build_one_half(data: &InvoiceData, style: InvoiceStyle, items_subset: &[InvoiceItem], page_subtotal: f64) -> String {
     let title = if data.is_presupuesto { "PRESUPUESTO" } else { "FACTURA" };
 
@@ -134,7 +139,9 @@ fn build_one_half(data: &InvoiceData, style: InvoiceStyle, items_subset: &[Invoi
 
     let show_detailed = data.is_presupuesto && items_subset.len() < data.items.len();
 
-    let saldo_display = if show_detailed {
+    let saldo_display = if data.total <= 0.01 {
+        String::new()
+    } else if show_detailed {
         // Formato detallado para presupuestos multi-página
         if is_pagado {
             format!(
@@ -195,9 +202,10 @@ fn build_items_rows(items: &[InvoiceItem]) -> String {
     for i in 0..row_count {
         let (qty, desc, price, total) = if i < items.len() {
             let it = &items[i];
-            let q = if it.cantidad == 0.0 { String::new() } else { format!("{}", it.cantidad as i64) };
-            let p = if it.cantidad == 0.0 { String::new() } else { format!("${:.0}", it.precio_unitario) };
-            let t = if it.cantidad == 0.0 { String::new() } else { format!("${:.0}", it.total) };
+            let hide = it.cantidad == 0.0 || is_retirar_item(it);
+            let q = if hide { String::new() } else { format!("{}", it.cantidad as i64) };
+            let p = if hide { String::new() } else { format!("${:.0}", it.precio_unitario) };
+            let t = if hide { String::new() } else { format!("${:.0}", it.total) };
             (q, it.descripcion.clone(), p, t)
         } else {
             (String::new(), String::new(), String::new(), String::new())

@@ -11,7 +11,6 @@
     hotkey_new: 'F4',
     selected_template_name: 'Original',
     selected_template_file: 'invoice_template.html',
-    moldura_template: 'clasico',
     selected_printer: null,
   });
 
@@ -79,7 +78,6 @@
     try {
       await invoke('save_config', { config });
       appStore.pdfStyle = config.selected_template_name;
-      appStore.molduraTemplate = config.moldura_template;
       appStore.showToast('Configuración guardada');
     } catch (e) {
       appStore.showToast(String(e), 'error');
@@ -126,13 +124,6 @@
 
         <label>Tecla Nueva Factura</label>
         <input type="text" bind:value={config.hotkey_new} />
-
-        <label>Estilo Molduras</label>
-        <select bind:value={config.moldura_template}>
-          <option value="clasico">Clásico (con materiales)</option>
-          <option value="clasico-modificado">Clásico (Modificado)</option>
-          <option value="juli">Juli (sin materiales)</option>
-        </select>
 
         <label>Impresora</label>
         {#if loadingPrinters}

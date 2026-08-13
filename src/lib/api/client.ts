@@ -137,6 +137,21 @@ export const api = {
   saveClientPreference: (clientId: number, tipoEntrega: string) =>
     request('PATCH', `/clients/${clientId}/preference`, { ultimo_tipo_entrega: tipoEntrega }),
 
+  // ---- Talleres (taller → dirección) ----
+  listTalleres: () =>
+    handleResponse(request<import('$lib/types').TallerDireccion[]>('GET', '/talleres', undefined, 8), []),
+
+  addTaller: (data: { taller: string; direccion?: string }) =>
+    request<{ id: number }>('POST', '/talleres', data, 5),
+
+  updateTaller: (id: number, data: { taller?: string; direccion?: string }) =>
+    request('PUT', `/talleres/${id}`, data),
+
+  deleteTaller: async (id: number) => {
+    const res = await tauriFetch(`${API_URL}/talleres/${id}`, { method: 'DELETE' });
+    if (![200, 204].includes(res.status)) throw new Error('Error al eliminar el taller');
+  },
+
   // ---- Mapa ----
   getMapaClientes: () => handleResponse(request<any[]>('GET', '/mapa/clientes', undefined, 15), []),
 
