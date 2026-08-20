@@ -64,6 +64,8 @@
   let enEsperaCards = $state<Factura[]>([]);
   let enEsperaHighlight = $state(false);
   let enEsperaOpen = $state(true);
+  let inconsistencias = $state<Factura[]>([]);
+  let inconsistenciasBannerHidden = $state(false);
   let selectedIds = $state<Set<number>>(new Set());
   let draggedCard = $state<{ id: number; colIdx: number } | null>(null);
   let showItemsModal = $state(false);
@@ -418,12 +420,21 @@
 
       // Filter last 30 days + assign kanban state
       const filtered: Factura[] = [];
+      const inconsistent: Factura[] = [];
       for (const f of all) {
         let kanban = f.estado_kanban || 'PEDIDO';
-        if ((!kanban || kanban === 'PEDIDO') && f.estado_entrega === 'ENTREGADO') {
-          kanban = 'ENTREGADO';
-        }
         if (kanban === 'ARCHIVADO') continue;
+
+        // Detect inconsistency between delivery flag and kanban column.
+        // We do NOT force the card to ENTREGADO: it stays in its real column
+        // and is reported to the UI so it can be fixed (never silently archived).
+        const isWorking = ['PEDIDO', 'NO_CONFIRMADO', 'EN_PROCESO', 'LISTO', 'EN_ESPERA'].includes(kanban);
+        if (f.estado_entrega === 'ENTREGADO' && isWorking) {
+          inconsistent.push(f);
+        } else if (kanban === 'ENTREGADO' && f.estado_entrega !== 'ENTREGADO') {
+          inconsistent.push(f);
+        }
+
         if (kanban === 'ENTREGADO' && f.fecha_entrega) {
           const earliest = getFechaEntregaEarliest(f);
           const fe = earliest ? parseFecha(earliest) : new Date(0);
@@ -448,6 +459,8 @@
           filtered.push({ ...f, estado_kanban: kanban });
         }
       }
+      inconsistencias = inconsistent;
+      if (inconsistent.length === 0) inconsistenciasBannerHidden = false;
 
       if (archivedAny) cacheStore.invalidate('facturas');
 
@@ -780,6 +793,28 @@
     await loadData();
   }
 
+  async function syncInconsistentToEntregado() {
+    if (inconsistencias.length === 0) return;
+    const todayStr = new Date().toLocaleDateString('es-AR');
+    try {
+      await Promise.all(inconsistencias.map(c =>
+        Promise.all([
+          api.patchInvoiceField(c.id, 'estado_kanban', 'ENTREGADO'),
+          api.patchInvoiceField(c.id, 'estado_entrega', 'ENTREGADO'),
+          api.patchInvoiceField(c.id, 'estado_moldura', 'DELETED'),
+          api.patchInvoiceField(c.id, 'estado_orden_tela', 'DELETED'),
+          api.patchInvoiceField(c.id, 'fecha_entrega', todayStr),
+        ])
+      ));
+      appStore.showToast(`${inconsistencias.length} factura(s) sincronizada(s) a Entregado`, 'success');
+      inconsistenciasBannerHidden = true;
+      cacheStore.invalidate('facturas');
+      await loadData();
+    } catch (e: any) {
+      appStore.alert('Error al sincronizar: ' + (e?.message || e));
+    }
+  }
+
   onMount(async () => {
     try { config = await invoke('get_config'); } catch {}
   });
@@ -887,6 +922,22 @@
       <div class="help-actions">
         <button class="help-btn" onclick={() => dismissHelp(false)}>Entendido</button>
         <button class="help-btn-dismiss" onclick={() => dismissHelp(true)}>No mostrar más</button>
+      </div>
+    </div>
+  {/if}
+
+  {#if inconsistencias.length > 0 && !inconsistenciasBannerHidden}
+    <div class="kanban-inconsistencia-banner" role="alert">
+      <div class="inc-body">
+        <span class="inc-icon">⚠️</span>
+        <div class="inc-texts">
+          <p class="inc-title"><strong>{inconsistencias.length} factura(s)</strong> con inconsistencia entre entrega y kanban</p>
+          <p class="inc-list">{inconsistencias.map(f => `${f.cliente_nombre || '?'} (${f.numero_factura || '#' + f.id})`).join(' · ')}</p>
+        </div>
+      </div>
+      <div class="inc-actions">
+        <button class="inc-btn" onclick={syncInconsistentToEntregado}>Sincronizar a Entregado</button>
+        <button class="inc-btn inc-dismiss" onclick={() => inconsistenciasBannerHidden = true}>Ignorar</button>
       </div>
     </div>
   {/if}
@@ -1275,6 +1326,53 @@
     opacity: 0.75;
   }
   .help-btn-dismiss:hover { opacity: 1; background: rgba(30,64,175,0.06); border-color: rgba(30,64,175,0.5); }
+
+  /* === Inconsistencia Banner === */
+  .kanban-inconsistencia-banner {
+    position: absolute;
+    top: 0.714rem;
+    right: 3.5rem;
+    z-index: 9;
+    display: flex;
+    flex-direction: column;
+    gap: 0.571rem;
+    padding: 0.714rem 1rem;
+    min-width: 24rem;
+    max-width: 34rem;
+    background: #fef3c7;
+    border: 1px solid #f59e0b;
+    border-radius: 0.571rem;
+    color: #92400e;
+    font-size: 0.9rem;
+    line-height: 1.45;
+    animation: helpFadeIn 0.3s ease-out;
+    box-shadow: 0 0.214rem 0.571rem rgba(0,0,0,0.1);
+  }
+  .inc-body { display: flex; gap: 0.643rem; align-items: flex-start; }
+  .inc-icon { font-size: 1.3rem; flex-shrink: 0; margin-top: 0.071rem; }
+  .inc-texts { display: flex; flex-direction: column; gap: 0.143rem; min-width: 0; }
+  .inc-title { margin: 0; }
+  .inc-list { margin: 0; opacity: 0.85; word-break: break-word; }
+  .inc-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+  .inc-btn {
+    padding: 0.357rem 0.857rem;
+    border: none;
+    border-radius: 0.357rem;
+    background: #f59e0b;
+    color: #fff;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1.4;
+    transition: background 0.12s;
+  }
+  .inc-btn:hover { background: #d97706; }
+  .inc-btn.inc-dismiss {
+    background: transparent;
+    border: 1px solid rgba(146,64,14,0.35);
+    color: #92400e;
+  }
+  .inc-btn.inc-dismiss:hover { background: rgba(245,158,11,0.12); }
 
   /* === Kanban Body (7 cols x 2 rows) === */
   .kanban-body {

@@ -5,7 +5,7 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { parseCard, groupMaterials, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm } from '$lib/utils/molduras';
+  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
   import MoldurasReorderModal from '$lib/components/MoldurasReorderModal.svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -507,11 +507,19 @@
                       <tr class:non-molding={item.isNonMolding}>
                         <td class="sm-qty">{item.cantidad}</td>
                         <td class="sm-measure">
-                          {item.medida}
-                          {#if item.hasCorrection}<span class="sm-edit" title={item.correctionInherited ? 'Heredado de corrección guardada' : 'Editado'}>{item.correctionInherited ? '↪️' : '✏️'}</span>{/if}
+                          <div class="sm-measure-top">
+                            {item.medida}
+                            {#if item.hasCorrection}<span class="sm-edit" title={item.correctionInherited ? 'Heredado de corrección guardada' : 'Editado'}>{item.correctionInherited ? '↪️' : '✏️'}</span>{/if}
+                          </div>
                           {#if item.isNonMolding}
                             <span class="sm-tag-no"> No moldura</span>
                           {:else}
+                            {@const cortes = getCortesVarilla(item)}
+                            {#if cortes && (cortes.larga > 0 || cortes.corta > 0)}
+                              <div class="sm-cortes" title="Cortes por varilla: larga {cortes.larga} · corta {cortes.corta}">
+                                <span class="sm-c-l">Larga {cortes.larga}</span> · <span class="sm-c-c">Corta {cortes.corta}</span>
+                              </div>
+                            {/if}
                             <span class="sm-tipo"> {item.tipo}</span>
                           {/if}
                         </td>
@@ -539,17 +547,20 @@
                     </tr>
                   </thead>
                   <tbody>
-                    {#each groupMaterials(card.materials) as group}
+                    {#each buildMatRowsData(card) as row}
                       <tr>
-                        {#each ['V', 'L', 'T'] as t}
-                          {#if group[t]}
-                            <td class="td-{t === 'V' ? 'var' : t === 'L' ? 'lar' : 'tra'} td-val">{group[t].qty}</td>
-                            <td class="td-{t === 'V' ? 'var' : t === 'L' ? 'lar' : 'tra'} td-val">{group[t].cm}</td>
-                          {:else}
-                            <td class="td-{t === 'V' ? 'var' : t === 'L' ? 'lar' : 'tra'}"></td>
-                            <td class="td-{t === 'V' ? 'var' : t === 'L' ? 'lar' : 'tra'}"></td>
-                          {/if}
-                        {/each}
+                        <td class="td-var td-val">{row.varilla.qty}</td>
+                        <td class="td-var td-val">{row.varilla.cm}</td>
+                        {#if row.arrow}
+                          <td class="td-lar" colspan="2"><span class="mat-arrow">➡</span></td>
+                          <td class="td-tra td-val">{row.travesano?.qty ?? ''}</td>
+                          <td class="td-tra td-val">{row.travesano?.cm ?? ''}</td>
+                        {:else}
+                          <td class="td-lar td-val">{row.larguero?.qty ?? ''}</td>
+                          <td class="td-lar td-val">{row.larguero?.cm ?? ''}</td>
+                          <td class="td-tra"></td>
+                          <td class="td-tra"></td>
+                        {/if}
                       </tr>
                     {:else}
                       <tr><td colspan="6" class="mat-empty">Sin materiales</td></tr>
@@ -696,6 +707,7 @@
           <h4>Productos</h4>
           <div class="detail-items-list">
             {#each detailCard.items as item, i}
+              {@const diCortes = getCortesVarilla(item)}
               <div
                 class="detail-item-row"
                 class:selected={detailItemIdx === i}
@@ -706,7 +718,14 @@
                 onkeydown={(e) => e.key === 'Enter' && (detailItemIdx = i)}
               >
                 <span class="di-qty">{item.cantidad}x</span>
-                <span class="di-measure">{item.medida}</span>
+                <span class="di-measure">
+                  <span class="di-medida">{item.medida}</span>
+                  {#if diCortes && (diCortes.larga > 0 || diCortes.corta > 0)}
+                    <span class="di-cortes" title="Cortes por varilla: larga {diCortes.larga} · corta {diCortes.corta}">
+                      <span class="sm-c-l">Larga {diCortes.larga}</span> · <span class="sm-c-c">Corta {diCortes.corta}</span>
+                    </span>
+                  {/if}
+                </span>
                 {#if item.hasCorrection}<span class="di-edit" title={item.correctionInherited ? 'Heredado de corrección guardada' : 'Editado'}>{item.correctionInherited ? '↪️' : '✏️'}</span>{/if}
                 <span class="di-type">{item.isNonMolding ? 'No moldura' : item.tipo}</span>
               </div>
@@ -750,6 +769,9 @@
                   </tr>
                 </tbody>
               </table>
+              <div class="detail-cortes" title="Cortes por varilla: larga = largueros · corta = filas de travesaños">
+                <span class="sm-c-l">Larga {editLargNum}</span> · <span class="sm-c-c">Corta {editTravFilas}</span>
+              </div>
             </div>
           {:else if detailItem?.isNonMolding}
             <div class="detail-no-molding">
@@ -881,8 +903,12 @@
   }
   .sm-qty { font-weight: 900; font-size: 1.15rem; width: 2.5rem; text-align: center; }
   .sm-measure { font-weight: 700; font-size: 1rem; }
+  .sm-measure-top { display: flex; align-items: center; gap: 0.286rem; }
   .sm-edit { margin-left: 0.286rem; font-size: 0.8rem; }
   .sm-tipo { font-weight: 400; color: var(--text-secondary); font-size: 0.78rem; }
+  .sm-cortes { display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); margin-top: 0.071rem; }
+  .sm-c-l { color: #27ae60; font-weight: 700; }
+  .sm-c-c { color: #d35400; font-weight: 700; }
   .sm-tag-no { font-size: 0.68rem; color: var(--text-muted); font-style: italic; }
   .mol-summary-table tr.non-molding { opacity: 0.5; }
 
@@ -911,6 +937,7 @@
   .td-lar { background: #e9f7ef; }
   .td-tra { background: #fdf2e9; }
   .td-val { font-weight: 900; font-size: 1rem; }
+  .mat-arrow { font-size: 1.15rem; font-weight: 900; color: #000; }
   .mat-empty { text-align: center; color: var(--text-muted); padding: 0.429rem; font-size: 0.72rem; }
 
   .mol-loading, .mol-empty {
@@ -950,8 +977,9 @@
   .detail-item-row.selected { background: var(--accent-light); }
   .detail-item-row.non-molding { opacity: 0.5; }
   .di-qty { font-weight: 700; min-width: 2rem; color: var(--text-primary); }
-  .di-measure { flex: 1; font-weight: 500; }
+  .di-measure { flex: 1; font-weight: 500; display: flex; flex-direction: column; }
   .di-edit { font-size: 0.78rem; margin-right: 0.286rem; }
+  .di-cortes { font-size: 0.68rem; font-weight: 600; color: var(--text-secondary); }
   .di-type { font-size: 0.72rem; color: var(--text-muted); min-width: 4.286rem; text-align: right; }
   .detail-svg { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.857rem; min-height: 12rem; }
   .detail-mat-info { width: 100%; max-width: 16rem; }
@@ -960,6 +988,7 @@
   .detail-mat-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
   .detail-mat-table th { background: var(--bg-hover); padding: 0.286rem 0.571rem; text-align: center; font-size: 0.7rem; text-transform: uppercase; color: var(--text-secondary); }
   .detail-mat-table td { padding: 0.286rem 0.571rem; text-align: center; border-bottom: 1px solid var(--border-light); }
+  .detail-cortes { font-size: 0.72rem; color: var(--text-secondary); font-weight: 600; text-align: center; margin-top: 0.571rem; }
   .detail-no-molding { text-align: center; color: var(--text-muted); padding: 2rem; }
   .dnm-icon { font-size: 2.5rem; display: block; margin-bottom: 0.571rem; }
   .dnm-desc { font-size: 0.82rem; color: var(--text-muted); margin-top: 0.286rem; }

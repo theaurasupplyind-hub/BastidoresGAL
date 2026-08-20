@@ -316,11 +316,13 @@
 
   async function toggleEntrega(row: FichaSemanalRow) {
     const newStatus = row.estado_entrega === 'ENTREGADO' ? 'PENDIENTE' : 'ENTREGADO';
+    const newKanban = newStatus === 'ENTREGADO' ? 'ENTREGADO' : 'PEDIDO';
     try {
       await Promise.all([
         api.patchInvoiceField(row.id, 'estado_entrega', newStatus),
         api.patchInvoiceField(row.id, 'estado_moldura', newStatus === 'ENTREGADO' ? 'DELETED' : 'PENDING'),
         api.patchInvoiceField(row.id, 'estado_orden_tela', newStatus === 'ENTREGADO' ? 'DELETED' : 'PENDING'),
+        api.patchInvoiceField(row.id, 'estado_kanban', newKanban),
       ]);
       confirmEntregaId = null;
       cacheStore.invalidate('facturas');

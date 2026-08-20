@@ -331,6 +331,40 @@ export function parseCard(f: Factura): {
   };
 }
 
+function parseFirstQty(s?: string): number {
+  if (!s) return 0;
+  const first = s.split(' ')[0];
+  const q = parseFloat(first.split('x')[0]);
+  return isNaN(q) ? 0 : q;
+}
+
+export function getCortesVarilla(item: {
+  medida: string;
+  cantidad: number;
+  larguero?: string;
+  travesaño?: string;
+}): { larga: number; corta: number } | null {
+  const m = item.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  const w = parseFloat(m[1]);
+  const h = parseFloat(m[2]);
+  const longer = Math.max(w, h);
+  const shorter = Math.min(w, h);
+  const qty = item.cantidad || 1;
+
+  let largueros = largueroCount(longer);
+  let filas = filaCount(shorter);
+
+  if (item.larguero !== undefined) {
+    largueros = Math.max(0, Math.round(parseFirstQty(item.larguero) / qty));
+  }
+  if (item.travesaño !== undefined) {
+    filas = largueros > 0 ? Math.max(0, Math.round(parseFirstQty(item.travesaño) / (largueros + 1) / qty)) : 0;
+  }
+
+  return { larga: largueros, corta: filas };
+}
+
 export function calcLargueros(longer: number): number {
   return largueroCount(longer);
 }
@@ -424,6 +458,9 @@ const CARD_CSS = `
 .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
 .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
 .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
+.sum-cortes { font-size: 14px; font-weight: 600; color: #555; line-height: 1.2; }
+.sum-c-l { color: #27ae60; font-weight: 700; }
+.sum-c-c { color: #d35400; font-weight: 700; }
 .mat-table { width: 100%; border-collapse: collapse; text-align: center; }
 .mat-table th { border: 1px solid #000; padding: 2px; font-size: 18px; font-weight: 900; text-transform: uppercase; }
 .mat-table td { border: 1px solid #000; padding: 0; height: 30px; }
@@ -448,6 +485,9 @@ const MEASURE_CSS = `
 .mol-measure .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
 .mol-measure .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
 .mol-measure .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
+.mol-measure .sum-cortes { font-size: 14px; font-weight: 600; color: #555; line-height: 1.2; }
+.mol-measure .sum-c-l { color: #27ae60; font-weight: 700; }
+.mol-measure .sum-c-c { color: #d35400; font-weight: 700; }
 .mol-measure .mat-table { width: 100%; border-collapse: collapse; text-align: center; }
 .mol-measure .mat-table th { border: 1px solid #000; padding: 2px; font-size: 18px; font-weight: 900; text-transform: uppercase; }
 .mol-measure .mat-table td { border: 1px solid #000; padding: 0; height: 30px; }
@@ -460,40 +500,50 @@ const MEASURE_CSS = `
 .mol-measure .val-cell { font-weight: 900; font-size: 26px; line-height: 1; }
 `;
 
-function buildMatRows(card: MeasurableCard): string {
+export interface MatRow {
+  varilla: { qty: number; cm: number };
+  larguero?: { qty: number; cm: number };
+  travesano?: { qty: number; cm: number };
+  arrow?: boolean;
+}
+
+export function buildMatRowsData(card: MeasurableCard): MatRow[] {
+  const rows: MatRow[] = [];
   const matItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
-  const larRows: string[] = [];
-  const travRows: string[] = [];
   for (const item of matItems) {
     const dims = item.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
     if (!dims) continue;
     const w = parseFloat(dims[1]), h = parseFloat(dims[2]);
-    const vs = (item.varilla ?? '').split(' ').filter(Boolean).map(s => {
-      const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
+    const parse = (s?: string) => (s ?? '').split(' ').filter(Boolean).map(x => {
+      const [q, c] = x.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
     });
-    const ls = (item.larguero ?? '').split(' ').filter(Boolean).map(s => {
-      const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
-    });
-    const ts = (item.travesaño ?? '').split(' ').filter(Boolean).map(s => {
-      const [q, c] = s.split('x'); return { qty: parseInt(q), cm: parseFloat(c) };
-    });
+    const vs = parse(item.varilla);
+    const ls = parse(item.larguero);
+    const ts = parse(item.travesaño);
     vs.forEach((v, i) => {
-      const withLonger = (w > h && i === 0) || (w < h && i === 1) || (w === h && i === 1);
-      if (!withLonger) {
-        larRows.push(`<tr>
-      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
-      <td class='td-lar val-cell'>${ls[0] ? ls[0].qty : ''}</td><td class='td-lar val-cell'>${ls[0] ? ls[0].cm : ''}</td>
-      <td class='td-tra val-cell'></td><td class='td-tra val-cell'></td>
-    </tr>`);
+      const isLongerVar = (w > h && i === 0) || (w < h && i === 1) || (w === h && i === 1);
+      if (isLongerVar) {
+        rows.push({ varilla: v, larguero: ls[0] });
       } else {
-        travRows.push(`<tr>
-      <td class='td-var val-cell'>${v.qty}</td><td class='td-var val-cell'>${v.cm}</td>
-      ${ts[0] ? `<td class='td-lar val-cell' colspan='2'><span style='font-size:32px;color:#000;font-weight:900;'>➡</span></td>` : `<td class='td-lar val-cell'></td><td class='td-lar val-cell'></td>`}
-      <td class='td-tra val-cell'>${ts[0] ? ts[0].qty : ''}</td><td class='td-tra val-cell'>${ts[0] ? ts[0].cm : ''}</td>
-    </tr>`);
+        rows.push({ varilla: v, travesano: ts[0], arrow: true });
       }
     });
   }
+  return rows;
+}
+
+function buildMatRows(card: MeasurableCard): string {
+  const rows = buildMatRowsData(card);
+  const larRows = rows.filter(r => !r.arrow).map(r => `<tr>
+      <td class='td-var val-cell'>${r.varilla.qty}</td><td class='td-var val-cell'>${r.varilla.cm}</td>
+      <td class='td-lar val-cell'>${r.larguero ? r.larguero.qty : ''}</td><td class='td-lar val-cell'>${r.larguero ? r.larguero.cm : ''}</td>
+      <td class='td-tra val-cell'></td><td class='td-tra val-cell'></td>
+    </tr>`);
+  const travRows = rows.filter(r => r.arrow).map(r => `<tr>
+      <td class='td-var val-cell'>${r.varilla.qty}</td><td class='td-var val-cell'>${r.varilla.cm}</td>
+      ${r.travesano ? `<td class='td-lar val-cell' colspan='2'><span style='font-size:32px;color:#000;font-weight:900;'>➡</span></td>` : `<td class='td-lar val-cell'></td><td class='td-lar val-cell'></td>`}
+      <td class='td-tra val-cell'>${r.travesano ? r.travesano.qty : ''}</td><td class='td-tra val-cell'>${r.travesano ? r.travesano.cm : ''}</td>
+    </tr>`);
   return [...larRows, ...travRows].join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
 }
 
@@ -501,10 +551,14 @@ export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'l
   const cliente = card.cliente.length > 25 ? card.cliente.slice(0, 25) : card.cliente;
   const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
   const summaryRows = validItems.map(it => {
+    const cortes = getCortesVarilla(it);
+    const cortesHtml = cortes && (cortes.larga > 0 || cortes.corta > 0)
+      ? `<div class='sum-cortes'><span class='sum-c-l'>Larga ${cortes.larga}</span> · <span class='sum-c-c'>Corta ${cortes.corta}</span></div>`
+      : '';
     return `
         <tr>
           <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
-          <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
+          <td width='35%'><span class='sum-dim'>${it.medida}</span>${cortesHtml}</td>
           <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
         </tr>`;
   }).join('');

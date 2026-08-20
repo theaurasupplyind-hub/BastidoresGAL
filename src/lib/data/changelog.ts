@@ -1,4 +1,10 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.6': `• Molduras: detalle de cortes por varilla (larga/corta) en cards, PDF y modal de detalle
+  PDF y cards: varilla larga muestra larguero, varilla corta muestra travesaño con flecha ➡
+  Corregida la asociación larguero/travesaño según dónde se incrustan en las varillas
+  Kanban: detección de inconsistencias entre estado de entrega y columna kanban con banner de aviso
+  Ficha Semanal: sincroniza estado kanban al marcar entrega
+`,
   '2.3.5': `• Molduras PDF: layout A4 en 2 columnas con la altura real de cada tarjeta y margenes correctos (sin doble margen)
   Reordenamiento de molduras con previsualizacion por altura medida
   Facturacion: nueva gestion de talleres (guardar/editar/eliminar) y autocompletar taller a direccion
