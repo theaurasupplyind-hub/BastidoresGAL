@@ -14,6 +14,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import PagoDialog from '$lib/components/PagoDialog.svelte';
   import PriceListModal from '$lib/components/PriceListModal.svelte';
   import PrinterBadge from '$lib/components/PrinterBadge.svelte';
+  import BuscarLugar from '$lib/components/BuscarLugar.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, type PriceSuggestion } from '$lib/utils/precios';
 import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
 import type { ClientAddress } from '$lib/types';
@@ -1622,6 +1623,9 @@ const tallerApi: TallerApi = api;
                   </div>
                 {/if}
               </div>
+            </div>
+            <div class="field" style="flex:0 0 auto; display:flex; align-items:flex-end;">
+              <BuscarLugar query={cliente_domicilio || clienteSearch} label="Buscar en Maps" />
             </div>
             <div class="field flex-1">
               <div class="icon-input-wrap">

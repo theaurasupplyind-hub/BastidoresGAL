@@ -1,4 +1,8 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.7': `• Facturación: botón Buscar en Maps abre Google Maps en ventana hija dockeada a la derecha, vacío abre Maps genérico
+  Ventana hija reutilizable (componente BuscarLugar) — precarga la búsqueda del domicilio
+  Fix: vacío ya no busca "Buscar en Maps"
+  `,
   '2.3.6': `• Molduras: detalle de cortes por varilla (larga/corta) en cards, PDF y modal de detalle
   PDF y cards: varilla larga muestra larguero, varilla corta muestra travesaño con flecha ➡
   Corregida la asociación larguero/travesaño según dónde se incrustan en las varillas

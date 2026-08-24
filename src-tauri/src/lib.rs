@@ -408,6 +408,121 @@ fn paste_and_send_to_whatsapp(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn open_maps_picker(app: tauri::AppHandle, query: String) -> Result<(), String> {
+    eprintln!("[maps-picker] open query='{}'", query);
+    let q = query.trim().to_string();
+    let url_str = if q.is_empty() {
+        eprintln!("[maps-picker] query vacia -> maps vacio");
+        "https://www.google.com/maps".to_string()
+    } else {
+        let encoded = urlencoding_simple(&q);
+        eprintln!("[maps-picker] encoded='{}'", encoded);
+        format!(
+            "https://www.google.com/maps/search/?api=1&query={}",
+            encoded
+        )
+    };
+    eprintln!("[maps-picker] url={}", url_str);
+    if let Some(win) = app.get_webview_window("maps-picker") {
+        eprintln!("[maps-picker] reusing existing window");
+        let js = format!("window.location.href = '{}';", url_str.replace('\'', "%27"));
+        if let Err(e) = win.eval(&js) {
+            eprintln!("[maps-picker] eval FAILED: {}", e);
+        }
+        let _ = win.show();
+        let _ = win.set_focus();
+        eprintln!("[maps-picker] reused window shown");
+        return Ok(());
+    }
+    eprintln!("[maps-picker] creating new window...");
+    let parsed: tauri::Url = url_str.parse().map_err(|e| {
+        let msg = format!("URL invalida: {e} (url={})", url_str);
+        eprintln!("[maps-picker] parse FAILED: {}", msg);
+        msg
+    })?;
+    // Dockeada estatica a la derecha del main para UX mayores — ancho fijo 420
+    let mut inner_w = 420.0;
+    let mut inner_h = 700.0;
+    let mut pos_x: Option<f64> = None;
+    let mut pos_y: Option<f64> = None;
+    if let Some(main) = app.get_webview_window("main") {
+        if let (Ok(pos), Ok(size), Ok(scale)) =
+            (main.outer_position(), main.outer_size(), main.scale_factor())
+        {
+            // Altura = altura del main (inner aprox), posicion = borde derecho del main
+            let main_w = size.width as f64 / scale;
+            let main_h = size.height as f64 / scale;
+            inner_h = main_h - 40.0; // margen
+            if inner_h < 500.0 { inner_h = 500.0; }
+            pos_x = Some((pos.x as f64 / scale) + main_w);
+            pos_y = Some(pos.y as f64 / scale);
+            eprintln!(
+                "[maps-picker] docking derecha x={:?} y={:?} h={} main_w={} main_h={}",
+                pos_x, pos_y, inner_h, main_w, main_h
+            );
+        }
+    }
+    let mut builder = tauri::WebviewWindowBuilder::new(
+        &app,
+        "maps-picker",
+        tauri::WebviewUrl::External(parsed),
+    )
+    .title("Google Maps - Buscar lugar")
+    .inner_size(inner_w, inner_h)
+    .resizable(true)
+    .decorations(true)
+    .focused(true)
+    .visible(false);
+
+    if let (Some(x), Some(y)) = (pos_x, pos_y) {
+        builder = builder.position(x, y);
+    }
+
+    let win = builder.build().map_err(|e| {
+        let msg = format!("No se pudo abrir Maps (build): {e}");
+        eprintln!("[maps-picker] build FAILED: {}", msg);
+        msg
+    })?;
+    eprintln!("[maps-picker] build OK, showing...");
+    win.show().map_err(|e| {
+        let msg = format!("No se pudo mostrar Maps: {e}");
+        eprintln!("[maps-picker] show FAILED: {}", msg);
+        msg
+    })?;
+    let _ = win.set_focus();
+    eprintln!("[maps-picker] shown and focused");
+    Ok(())
+}
+
+fn urlencoding_simple(s: &str) -> String {
+    let mut out = String::new();
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b' ' => out.push_str("%20"),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+#[tauri::command]
+fn close_maps_picker(app: tauri::AppHandle) -> Result<(), String> {
+    eprintln!("[maps-picker] close requested");
+    if let Some(win) = app.get_webview_window("maps-picker") {
+        win.close().map_err(|e| {
+            let msg = format!("Error al cerrar Maps: {e}");
+            eprintln!("[maps-picker] close FAILED: {}", msg);
+            msg
+        })?;
+        eprintln!("[maps-picker] closed");
+    } else {
+        eprintln!("[maps-picker] no window to close");
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn show_whatsapp_helper(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(win) = app.get_webview_window("whatsapp-helper") {
         let _ = win.set_always_on_top(true);
@@ -1023,6 +1138,8 @@ pub fn run() {
             show_whatsapp_helper,
             close_whatsapp_helper,
             paste_and_send_to_whatsapp,
+            open_maps_picker,
+            close_maps_picker,
             start_print_agent,
             stop_print_agent,
             get_print_agent_status,
