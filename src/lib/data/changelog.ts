@@ -1,4 +1,11 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.71': `• Molduras: "Tajos:N" en azul en lugar de flecha/vacío (referencia varilla), quitado Larga/Corta bajo medida — PDF y cards
+• PanelControl: lista tareas ordenable recientes arriba/abajo con botón 2 flechas (estética papelera), tachadas siempre al fondo — aplica a papelera, orden backend por antigüedad
+• Historial Facturación: filtro "No Confirmadas" ve todas (fetch server ?estado_kanban con with_items:false), chip naranja con contador, combinado con búsqueda
+• Backend: GET /invoices filtra por estado_kanban, GET /tasks ordena por done/antigüedad
+• Updater: check automático al abrir la app con botón flotante abajo-derecha (versión/notes, "Más tarde" recuerda)
+• Fix release: carrera local vs CI corregida (workflow_dispatch), v2.3.7 re-firmado
+  `,
   '2.3.7': `• Facturación: botón Buscar en Maps abre Google Maps en ventana hija dockeada a la derecha, vacío abre Maps genérico
   Ventana hija reutilizable (componente BuscarLugar) — precarga la búsqueda del domicilio
   Fix: vacío ya no busca "Buscar en Maps"

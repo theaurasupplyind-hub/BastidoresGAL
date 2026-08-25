@@ -86,6 +86,53 @@ $signature = (Get-Content $sigFile.FullName -Raw).Trim()
 gh release upload $Tag $exeFile.FullName $sigFile.FullName --clobber
 ```
 
+### 8. Carrera local `release.ps1` vs CI `release.yml` — `signature verification failed` persistente (v2.3.7)
+
+**Síntoma**: App `v2.3.6` detecta `v2.3.7` (el check encuentra versión) pero al instalar falla `✗ Error: The signature verification failed`. El `exe` local `v2.3.7` manual funciona. `GET /latest.json` y `GET .../BastidoresGAL_2.3.7_x64-setup.exe.sig` coinciden (`len 424`), `pubkey 2758D35578273AD3` coincide con `galv2.key.pub` y `tauri.conf.json`, pero la verificación sigue fallando.
+
+**Evidencia** (diagnóstico Fase A):
+```powershell
+Invoke-RestMethod https://api-bastidores.onrender.com/latest.json # sig len 424
+Invoke-RestMethod https://github.com/theaurasupplyind-hub/BastidoresGAL/releases/download/v2.3.7/BastidoresGAL_2.3.7_x64-setup.exe.sig # len 424, MATCH backend
+gh api repos/theaurasupplyind-hub/BastidoresGAL/releases/tags/v2.3.7 # .sig createdAt 04:38:05Z vs .exe 04:47:33Z (9 min desfasados)
+# Re-firmar el exe descargado con galv2.key:
+npx tauri signer sign BastidoresGAL_2.3.7_x64-setup.exe # file-sig RUTTOid4VdNYJyQ+... != RUTTOid4VdNYJ+d2... del .sig hosteado
+```
+
+**Causa raíz — doble builder**:
+- `release.ps1` hace `git push origin Tag` → dispara `release.yml:3` `on: push tags: v*` → `tauri-action@v1` (`uploadUpdaterJson/Signatures: true`) compila en `windows-latest` y sube `exe`+`sig` del runner a las `04:38:05Z`.
+- 9 min después `release.ps1:78` hace `gh release upload --clobber` con el `exe`+`sig` locales (`npm run tauri build` en tu PC) → sobrescribe solo el `.exe` a las `04:47:33Z`; el `.sig` queda el del runner. Par `exe/sig` cruzado → `minisign` falla aunque `latest.json` apunte al `.sig` “correcto”.
+- `release.yml:82` además hace `curl.exe POST /updater/manifest` con el sig del runner, mientras `release.ps1:68` hace `Invoke-RestMethod POST` con el sig local → el último POST gana en Render, pero nunca coincide con el par final de GitHub si hubo overwrite parcial.
+
+**Fix Opción A (elegida, local manda)** — `release.yml` desactivado para tags:
+```yaml
+# release.yml:3 antes
+on:
+  push:
+    tags: ['v*']
+# después
+on:
+  workflow_dispatch:  # local release.ps1 es el único builder/firmante (galv2.key, jesus90)
+```
+`release.ps1` queda como único responsable: `build + sign + gh release upload --clobber ambos + POST manifest` en un solo flujo atómico. Para release manual desde CI, disparar `Run workflow` manualmente.
+
+**Parche inmediato v2.3.7** (ya aplicado 2026-08-25):
+```powershell
+$tmp="$env:TEMP\fix237"; gh release download v2.3.7 --pattern "BastidoresGAL_2.3.7_x64-setup.exe" --clobber --dir $tmp
+$env:TAURI_SIGNING_PRIVATE_KEY=(Get-Content $env:USERPROFILE\.tauri\galv2.key -Raw).Trim()
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD="jesus90"
+npx tauri signer sign "$tmp\BastidoresGAL_2.3.7_x64-setup.exe"
+$sig=(Get-Content "$tmp\BastidoresGAL_2.3.7_x64-setup.exe.sig" -Raw).Trim()
+gh release upload v2.3.7 "$tmp\BastidoresGAL_2.3.7_x64-setup.exe.sig" --clobber
+$latestJson='{"version":"v2.3.7","notes":"Actualizacion v2.3.7","pub_date":"' + (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ") + '","platforms":{"windows-x86_64":{"signature":"' + $sig + '","url":"https://github.com/theaurasupplyind-hub/BastidoresGAL/releases/download/v2.3.7/BastidoresGAL_2.3.7_x64-setup.exe"}}}'
+Invoke-RestMethod -Uri "https://api-bastidores.onrender.com/updater/manifest" -Method Post -Headers @{Authorization="Bearer de0cc63994894c43a3f21a96281ccfc5";"Content-Type"="application/json"} -Body $latestJson
+# Verificado: re-sign posterior da MATCH, backend sig == gh sig, 2.3.6 ya puede instalar
+```
+
+**Prevención**: Siempre subir `exe` y `sig` juntos `--clobber` y POSTear el sig de ese mismo build; verificar antes de cerrar `Invoke-RestMethod latest.json` vs `gh download sig` y `re-sign` del exe.
+
+---
+
 ### 7. URL con punto + firma desincronizada (v2.2.11)
 
 **Síntomas**: Primero `Download request failed with status: 404 Not Found`, luego de corregir la URL aparece `signature verification failed`.

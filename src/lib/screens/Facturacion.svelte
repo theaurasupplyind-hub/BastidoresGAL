@@ -289,6 +289,7 @@ const tallerApi: TallerApi = api;
   // UI state
   let sharingWhatsApp = $state(false);
   let searchHistory = $state('');
+  let filterNoConfirmadoOnly = $state(false);
   let selectedHistoryIds = $state<Set<number>>(new Set());
   let showMoldurasModal = $state(false);
   let showPriceList = $state(false);
@@ -319,14 +320,29 @@ const tallerApi: TallerApi = api;
   const tiposEntrega = ['Retira', 'Envio', 'Retiro y Envio'];
   const cantidades = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20];
 
+  // Historial no confirmadas: dedicado server-side (ver todas, no solo 2000 cargadas)
+  let noConfirmadasAll = $state<Factura[]>([]);
+  let loadingNoConfirmadas = $state(false);
+
   let filteredHistory = $derived.by(() => {
-    const q = searchHistory.toLowerCase();
-    if (!q) return facturas;
-    return facturas.filter(f =>
+    const base = filterNoConfirmadoOnly ? noConfirmadasAll : facturas;
+    const q = searchHistory.toLowerCase().trim();
+    if (!q) return base;
+    return base.filter(f =>
       (f.cliente_nombre || '').toLowerCase().includes(q) ||
       (f.numero_factura || '').toLowerCase().includes(q) ||
       (f.numero_presupuesto || '').toLowerCase().includes(q)
     );
+  });
+
+  $effect(() => {
+    if (!filterNoConfirmadoOnly) return;
+    if (noConfirmadasAll.length > 0 || loadingNoConfirmadas) return;
+    loadingNoConfirmadas = true;
+    cacheStore.fetch('facturas:no_confirmado', () => api.listFacturas({ estado_kanban: 'NO_CONFIRMADO', limit: 2000, with_items: false }), 120000)
+      .then(r => { noConfirmadasAll = r as Factura[]; })
+      .catch(() => { noConfirmadasAll = []; })
+      .finally(() => { loadingNoConfirmadas = false; });
   });
 
   function esRetirarFactura(f: Factura): boolean {
@@ -506,6 +522,8 @@ const tallerApi: TallerApi = api;
 
   function invalidateCache() {
     cacheStore.invalidate('facturas');
+    cacheStore.invalidate('facturas:no_confirmado');
+    noConfirmadasAll = [];
     cacheStore.invalidate('clientes');
     cacheStore.invalidate('productos');
     cacheStore.invalidate('preciosReferencia');
@@ -1275,8 +1293,17 @@ const tallerApi: TallerApi = api;
 
   async function forceRefreshHistory() {
     cacheStore.invalidate('facturas');
+    cacheStore.invalidate('facturas:no_confirmado');
+    noConfirmadasAll = [];
     cacheStore.invalidate('pagos');
     await refreshHistory();
+    if (filterNoConfirmadoOnly) {
+      // refrescar también la vista no confirmadas
+      loadingNoConfirmadas = true;
+      try {
+        noConfirmadasAll = await cacheStore.fetch('facturas:no_confirmado', () => api.listFacturas({ estado_kanban: 'NO_CONFIRMADO', limit: 2000, with_items: false }), 120000) as Factura[];
+      } catch { noConfirmadasAll = []; } finally { loadingNoConfirmadas = false; }
+    }
   }
 
   function prevInvoice() {
@@ -1944,12 +1971,18 @@ const tallerApi: TallerApi = api;
         />
       </div>
       <div class="history-actions">
+        <button class="top-btn top-btn-filter" class:active={filterNoConfirmadoOnly} onclick={() => filterNoConfirmadoOnly = !filterNoConfirmadoOnly} title={filterNoConfirmadoOnly ? 'Mostrar todas' : 'Mostrar solo no confirmadas'}>
+          <span class="filter-icon">⏳</span> No Confirmadas {#if filterNoConfirmadoOnly && !loadingNoConfirmadas}<span class="filter-count">{filteredHistory.length}</span>{/if}
+        </button>
         <span class="history-sel-count">{selectedHistoryIds.size > 0 ? `${selectedHistoryIds.size} selec.` : ''}</span>
         <button class="top-btn top-btn-molduras" onclick={() => showMoldurasModal = true} disabled={selectedHistoryIds.size === 0}>
           🖼 Molduras
         </button>
       </div>
       <div class="history-list">
+        {#if filterNoConfirmadoOnly && loadingNoConfirmadas}
+          <div class="history-loading">Cargando no confirmadas…</div>
+        {/if}
         {#each filteredHistory as f}
           <div
             class="history-item"
@@ -1993,7 +2026,7 @@ const tallerApi: TallerApi = api;
             </div>
           </div>
         {:else}
-          <div class="history-empty">Sin facturas</div>
+          <div class="history-empty">{filterNoConfirmadoOnly ? 'Sin facturas no confirmadas' : 'Sin facturas'}</div>
         {/each}
       </div>
     </div>
@@ -3103,6 +3136,13 @@ const tallerApi: TallerApi = api;
   }
   .top-btn-molduras:hover { background: var(--bg-hover); border-color: var(--accent); }
   .top-btn-molduras:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+  .top-btn-filter { display:inline-flex; align-items:center; gap:.35rem; font-weight:600; font-size:.78rem; padding:.28rem .6rem; border:1px solid #fde68a; background:#fffbeb; color:#92400e; border-radius:999px; transition:all .15s; }
+  .top-btn-filter:hover { background:#fef3c7; border-color:#f59e0b; transform:translateY(-1px); box-shadow:0 2px 6px rgba(245,158,11,.15); }
+  .top-btn-filter.active { background:#f59e0b; border-color:#d97706; color:#fff; box-shadow:0 2px 8px rgba(245,158,11,.3); }
+  .top-btn-filter .filter-icon { font-size:.85rem; }
+  .top-btn-filter .filter-count { background:#fff; color:#92400e; font-size:.7rem; padding:.1rem .4rem; border-radius:999px; font-weight:800; min-width:1.1rem; text-align:center; }
+  .top-btn-filter.active .filter-count { background:rgba(255,255,255,.95); }
+  .history-loading { padding:.714rem; text-align:center; font-size:.78rem; color:#92400e; background:#fffbeb; border:1px dashed #fde68a; border-radius:var(--radius-sm); margin:0 .571rem .429rem; }
 
   .history-list {
     flex: 1;

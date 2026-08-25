@@ -8,7 +8,7 @@
 
   // ── Task List (API) ──
   type TaskImageRef = { id: number; created_at?: string | null; url?: string | null };
-  let tasks = $state<Array<{ id: number; text: string; done: boolean; position: number; assigned_by: string | null; images: TaskImageRef[] }>>([]);
+  let tasks = $state<Array<{ id: number; text: string; done: boolean; position: number; created_at?: string | null; assigned_by: string | null; images: TaskImageRef[] }>>([]);
   let loadingTasks = $state(false);
   let newTaskText = $state('');
   let imageFileInput = $state<HTMLInputElement>();
@@ -18,8 +18,30 @@
   let pastedImage = $state<Uint8Array | null>(null);
   let pastedImageUrl = $state<string | null>(null);
   let showTaskTrash = $state(false);
-  let trashTasks = $state<Array<{ id: number; text: string; done: boolean; position: number; assigned_by: string | null; images: TaskImageRef[] }>>([]);
+  let trashTasks = $state<Array<{ id: number; text: string; done: boolean; position: number; created_at?: string | null; deleted_at?: string | null; assigned_by: string | null; images: TaskImageRef[] }>>([]);
   let loadingTrash = $state(false);
+
+  let taskSortRecentFirst = $state(true);
+
+  let sortedTasks = $derived([...tasks].sort((a, b) => {
+    if (a.done !== b.done) return Number(a.done) - Number(b.done);
+    const ta = a.created_at ?? null;
+    const tb = b.created_at ?? null;
+    let cmp: number;
+    if (ta && tb && ta !== tb) cmp = tb.localeCompare(ta);
+    else if (ta || tb) cmp = tb ? 1 : -1;
+    else cmp = b.id - a.id;
+    return taskSortRecentFirst ? cmp : -cmp;
+  }));
+  let sortedTrash = $derived([...trashTasks].sort((a, b) => {
+    if (a.done !== b.done) return Number(a.done) - Number(b.done);
+    const ta = (a as any).deleted_at ?? a.created_at ?? null;
+    const tb = (b as any).deleted_at ?? b.created_at ?? null;
+    let cmp: number;
+    if (ta && tb && ta !== tb) cmp = tb.localeCompare(ta);
+    else cmp = b.id - a.id;
+    return taskSortRecentFirst ? cmp : -cmp;
+  }));
 
   async function loadTasks() {
     loadingTasks = true;
@@ -670,6 +692,7 @@
   }
 
   onMount(() => {
+    try { const v = localStorage.getItem('panel_tasks_recent_first'); if (v !== null) taskSortRecentFirst = v !== 'false'; } catch {}
     loadTasks();
     loadNotes();
     cacheStore.invalidate('mapa-base');
@@ -698,6 +721,9 @@
           <span class="card-title">LISTA DE TAREAS</span>
         </div>
         <div class="card-header-actions">
+          <button class="task-sort-btn" onclick={() => { taskSortRecentFirst = !taskSortRecentFirst; try{ localStorage.setItem('panel_tasks_recent_first', String(taskSortRecentFirst)); }catch{} }} title={taskSortRecentFirst ? 'Recientes arriba — cambiar a abajo' : 'Recientes abajo — cambiar a arriba'} aria-label="Cambiar orden">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="10" x2="12" y2="3"/><polyline points="8 7 12 3 16 7"/><line x1="12" y1="14" x2="12" y2="21"/><polyline points="8 17 12 21 16 17"/></svg>
+          </button>
           <button class="card-trash-btn" onclick={toggleTaskTrash} aria-label="Papelera de tareas">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
           </button>
@@ -717,7 +743,7 @@
           {:else if trashTasks.length === 0}
             <div class="task-empty">La papelera está vacía</div>
           {:else}
-            {#each trashTasks as task (task.id)}
+            {#each sortedTrash as task (task.id)}
               <div class="task-item" class:done={task.done}>
                 <div class="task-content">
                   <span class="task-text">{task.text}</span>
@@ -743,7 +769,7 @@
         </div>
       {:else}
         <div class="task-list">
-        {#each tasks as task (task.id)}
+        {#each sortedTasks as task (task.id)}
           <div class="task-item" class:done={task.done}>
             <button class="task-check" onclick={() => toggleTask(task.id)} aria-label="Marcar tarea">
               {#if task.done}
@@ -1318,6 +1344,8 @@
   }
   .card-trash-btn:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
   .card-back-btn:hover { color: var(--text-primary, #111827); background: var(--bg-hover, #f3f4f6); }
+  .task-sort-btn { flex-shrink:0; background:none; border:none; color:var(--text-muted, #9ca3af); padding:.143rem; border-radius:.214rem; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:color .12s, background .12s; }
+  .task-sort-btn:hover { color:var(--text-primary, #374151); background:var(--bg-hover, #f3f4f6); }
   .task-restore-btn {
     flex-shrink: 0;
     background: none;

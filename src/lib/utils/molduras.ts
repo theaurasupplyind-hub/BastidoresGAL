@@ -471,6 +471,8 @@ const CARD_CSS = `
 .th-tra { background: #d35400; color: #fff; }
 .td-tra { background: #fdf2e9; }
 .val-cell { font-weight: 900; font-size: 26px; line-height: 1; }
+.tajos { color: #2c3e50; font-weight: 800; font-size: 15px; }
+.tajos-cell { background: #ebf5fb; }
 `;
 
 const MEASURE_CSS = `
@@ -498,6 +500,8 @@ const MEASURE_CSS = `
 .mol-measure .th-tra { background: #d35400; color: #fff; }
 .mol-measure .td-tra { background: #fdf2e9; }
 .mol-measure .val-cell { font-weight: 900; font-size: 26px; line-height: 1; }
+.mol-measure .tajos { color: #2c3e50; font-weight: 800; font-size: 15px; }
+.mol-measure .tajos-cell { background: #ebf5fb; }
 `;
 
 export interface MatRow {
@@ -505,6 +509,7 @@ export interface MatRow {
   larguero?: { qty: number; cm: number };
   travesano?: { qty: number; cm: number };
   arrow?: boolean;
+  tajos?: number;
 }
 
 export function buildMatRowsData(card: MeasurableCard): MatRow[] {
@@ -520,12 +525,15 @@ export function buildMatRowsData(card: MeasurableCard): MatRow[] {
     const vs = parse(item.varilla);
     const ls = parse(item.larguero);
     const ts = parse(item.travesaño);
+    const cortes = getCortesVarilla(item);
+    const tajosLarga = cortes?.larga ?? 0;
+    const tajosCorta = cortes?.corta ?? 0;
     vs.forEach((v, i) => {
       const isLongerVar = (w > h && i === 0) || (w < h && i === 1) || (w === h && i === 1);
       if (isLongerVar) {
-        rows.push({ varilla: v, larguero: ls[0] });
+        rows.push({ varilla: v, larguero: ls[0], tajos: tajosLarga });
       } else {
-        rows.push({ varilla: v, travesano: ts[0], arrow: true });
+        rows.push({ varilla: v, travesano: ts[0], arrow: true, tajos: tajosCorta });
       }
     });
   }
@@ -534,14 +542,15 @@ export function buildMatRowsData(card: MeasurableCard): MatRow[] {
 
 function buildMatRows(card: MeasurableCard): string {
   const rows = buildMatRowsData(card);
+  const tajosCell = (n?: number) => (n !== undefined && n > 0 ? `<span class='tajos'>Tajos:${n}</span>` : ``);
   const larRows = rows.filter(r => !r.arrow).map(r => `<tr>
       <td class='td-var val-cell'>${r.varilla.qty}</td><td class='td-var val-cell'>${r.varilla.cm}</td>
       <td class='td-lar val-cell'>${r.larguero ? r.larguero.qty : ''}</td><td class='td-lar val-cell'>${r.larguero ? r.larguero.cm : ''}</td>
-      <td class='td-tra val-cell'></td><td class='td-tra val-cell'></td>
+      <td class='td-tra tajos-cell' colspan='2'>${tajosCell(r.tajos)}</td>
     </tr>`);
   const travRows = rows.filter(r => r.arrow).map(r => `<tr>
       <td class='td-var val-cell'>${r.varilla.qty}</td><td class='td-var val-cell'>${r.varilla.cm}</td>
-      ${r.travesano ? `<td class='td-lar val-cell' colspan='2'><span style='font-size:32px;color:#000;font-weight:900;'>➡</span></td>` : `<td class='td-lar val-cell'></td><td class='td-lar val-cell'></td>`}
+      <td class='td-lar tajos-cell' colspan='2'>${tajosCell(r.tajos)}</td>
       <td class='td-tra val-cell'>${r.travesano ? r.travesano.qty : ''}</td><td class='td-tra val-cell'>${r.travesano ? r.travesano.cm : ''}</td>
     </tr>`);
   return [...larRows, ...travRows].join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
@@ -551,14 +560,10 @@ export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'l
   const cliente = card.cliente.length > 25 ? card.cliente.slice(0, 25) : card.cliente;
   const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
   const summaryRows = validItems.map(it => {
-    const cortes = getCortesVarilla(it);
-    const cortesHtml = cortes && (cortes.larga > 0 || cortes.corta > 0)
-      ? `<div class='sum-cortes'><span class='sum-c-l'>Larga ${cortes.larga}</span> · <span class='sum-c-c'>Corta ${cortes.corta}</span></div>`
-      : '';
     return `
         <tr>
           <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
-          <td width='35%'><span class='sum-dim'>${it.medida}</span>${cortesHtml}</td>
+          <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
           <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
         </tr>`;
   }).join('');

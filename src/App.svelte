@@ -14,6 +14,7 @@
   import PreciosReferenciaModal from '$lib/components/PreciosReferenciaModal.svelte';
   import PricingRulesModal from '$lib/components/PricingRulesModal.svelte';
   import PdfTimerWidget from '$lib/components/PdfTimerWidget.svelte';
+  import UpdatePrompt from '$lib/components/UpdatePrompt.svelte';
 
   let view = $state<'login' | 'splash' | 'dashboard'>('login');
 
@@ -84,6 +85,7 @@
 
 <Toast />
 <PdfTimerWidget />
+<UpdatePrompt />
 {#if appStore.showSettings}
   <SettingsModal />
 {/if}

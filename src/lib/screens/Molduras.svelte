@@ -514,12 +514,6 @@
                           {#if item.isNonMolding}
                             <span class="sm-tag-no"> No moldura</span>
                           {:else}
-                            {@const cortes = getCortesVarilla(item)}
-                            {#if cortes && (cortes.larga > 0 || cortes.corta > 0)}
-                              <div class="sm-cortes" title="Cortes por varilla: larga {cortes.larga} · corta {cortes.corta}">
-                                <span class="sm-c-l">Larga {cortes.larga}</span> · <span class="sm-c-c">Corta {cortes.corta}</span>
-                              </div>
-                            {/if}
                             <span class="sm-tipo"> {item.tipo}</span>
                           {/if}
                         </td>
@@ -552,14 +546,13 @@
                         <td class="td-var td-val">{row.varilla.qty}</td>
                         <td class="td-var td-val">{row.varilla.cm}</td>
                         {#if row.arrow}
-                          <td class="td-lar" colspan="2"><span class="mat-arrow">➡</span></td>
+                          <td class="td-lar tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos:{row.tajos}</span>{/if}</td>
                           <td class="td-tra td-val">{row.travesano?.qty ?? ''}</td>
                           <td class="td-tra td-val">{row.travesano?.cm ?? ''}</td>
                         {:else}
                           <td class="td-lar td-val">{row.larguero?.qty ?? ''}</td>
                           <td class="td-lar td-val">{row.larguero?.cm ?? ''}</td>
-                          <td class="td-tra"></td>
-                          <td class="td-tra"></td>
+                          <td class="td-tra tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos:{row.tajos}</span>{/if}</td>
                         {/if}
                       </tr>
                     {:else}
@@ -938,6 +931,8 @@
   .td-tra { background: #fdf2e9; }
   .td-val { font-weight: 900; font-size: 1rem; }
   .mat-arrow { font-size: 1.15rem; font-weight: 900; color: #000; }
+  .tajos-cell { background: #ebf5fb !important; }
+  .mat-tajos { color: #2c3e50; font-weight: 800; font-size: 0.82rem; }
   .mat-empty { text-align: center; color: var(--text-muted); padding: 0.429rem; font-size: 0.72rem; }
 
   .mol-loading, .mol-empty {

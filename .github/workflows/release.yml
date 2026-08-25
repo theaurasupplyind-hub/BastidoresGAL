@@ -1,9 +1,12 @@
 name: Release
 
+# Desactivado para Opción A: el release se hace local con release.ps1 (C:\Users\jesus\.tauri\release.ps1)
+# que compila, firma con galv2.key y sube exe+sig+latest.json. Si se deja activo,
+# el runner compila otro exe y sobrescribe el asset dejando exe/sig desparejados
+# (v2.3.7: exe 04:47 vs sig 04:38) y provoca "signature verification failed".
+# Para release manual desde CI, disparar manualmente via workflow_dispatch.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
