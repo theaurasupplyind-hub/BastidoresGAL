@@ -14,9 +14,9 @@
     selected_printer: null,
   });
 
-  let darkMode = $state(false);
   let zoomLevel = $state(1);
   let zoomPercent = $state(100);
+  let initialZoomPercent = 100;
   let loading = $state(true);
   let printers = $state<string[]>([]);
   let loadingPrinters = $state(true);
@@ -34,9 +34,6 @@
     }
     loadingPrinters = false;
 
-    const saved = localStorage.getItem('theme-dark');
-    darkMode = saved === 'true';
-    applyTheme();
     const savedZoom = localStorage.getItem('zoom-level');
     if (savedZoom) {
       const f = parseFloat(savedZoom);
@@ -45,17 +42,8 @@
         zoomPercent = Math.round(f * 100);
       }
     }
+    initialZoomPercent = zoomPercent;
   });
-
-  function applyTheme() {
-    document.documentElement.setAttribute('data-theme', darkMode ? 'dark' : 'light');
-  }
-
-  function toggleDark() {
-    darkMode = !darkMode;
-    localStorage.setItem('theme-dark', String(darkMode));
-    applyTheme();
-  }
 
   function applyZoom() {
     const factor = zoomPercent / 100;
@@ -66,7 +54,6 @@
     } else {
       document.documentElement.setAttribute('data-zoom', 'true');
     }
-    localStorage.setItem('zoom-level', String(factor));
   }
 
   function handleZoom(e: Event) {
@@ -74,11 +61,20 @@
     applyZoom();
   }
 
+  function cancel() {
+    zoomPercent = initialZoomPercent;
+    applyZoom();
+    appStore.showSettings = false;
+  }
+
   async function save() {
     try {
+      localStorage.setItem('zoom-level', String(zoomLevel));
       await invoke('save_config', { config });
       appStore.pdfStyle = config.selected_template_name;
+      initialZoomPercent = zoomPercent;
       appStore.showToast('Configuración guardada');
+      appStore.showSettings = false;
     } catch (e) {
       appStore.showToast(String(e), 'error');
     }
@@ -86,33 +82,25 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-<div class="overlay" role="dialog">
+<div class="overlay" role="dialog" onclick={cancel}>
   <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
   <div class="modal" onclick={(e) => e.stopPropagation()} role="document">
     <div class="modal-header">
       <h2>Configuración</h2>
-      <button class="close" onclick={() => appStore.showSettings = false}>✕</button>
+      <button class="close" onclick={cancel}>✕</button>
     </div>
 
     {#if loading}
       <p class="loading">Cargando...</p>
     {:else}
       <div class="form-grid">
-        <label>Tema Oscuro</label>
-        <button class="toggle-btn" class:active={darkMode} onclick={toggleDark} type="button">
-          <span class="toggle-track">
-            <span class="toggle-thumb"></span>
-          </span>
-          <span class="toggle-label">{darkMode ? 'On' : 'Off'}</span>
-        </button>
-
         <label>Zoom</label>
         <div class="zoom-row">
           <input type="range" min="100" max="250" value={zoomPercent} oninput={handleZoom} class="zoom-slider" />
           <span class="zoom-pct">{zoomPercent}%</span>
         </div>
 
-<label>Diseño Factura</label>
+        <label>Diseño Factura</label>
         <select bind:value={config.selected_template_name}>
           <option value="Original">Original</option>
           <option value="Moderno">Moderno</option>
@@ -142,7 +130,7 @@
 
       <div class="modal-actions">
         <button class="btn-primary" onclick={save}>Guardar</button>
-        <button class="btn-secondary" onclick={() => appStore.showSettings = false}>Cancelar</button>
+        <button class="btn-secondary" onclick={cancel}>Cancelar</button>
       </div>
     {/if}
   </div>

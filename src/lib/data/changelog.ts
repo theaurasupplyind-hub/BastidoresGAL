@@ -1,4 +1,12 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.72': `☀️ Modo oscuro ahora en la barra superior, más a mano
+🔍 Zoom se puede probar y cancelar sin guardar — al cerrar vuelve como estaba
+👥 Buscar cliente ahora encuentra mejor por nombre (prioridad al nombre exacto)
+📄 Facturación: arrastrá una fila para duplicarla en varias, con vista previa y desplazamiento automático
+➕ Agregá una fila vacía donde quieras con el botón + o Shift+Enter
+💰 Costo de envío y totales más confiables
+📋 Panel: tocá la flecha de una factura para ver sus productos sin abrir Facturación
+✂️ Molduras: detalle "Tajos: N" más claro`,
   '2.3.71': `• Molduras: "Tajos:N" en azul en lugar de flecha/vacío (referencia varilla), quitado Larga/Corta bajo medida — PDF y cards
 • PanelControl: lista tareas ordenable recientes arriba/abajo con botón 2 flechas (estética papelera), tachadas siempre al fondo — aplica a papelera, orden backend por antigüedad
 • Historial Facturación: filtro "No Confirmadas" ve todas (fetch server ?estado_kanban con with_items:false), chip naranja con contador, combinado con búsqueda

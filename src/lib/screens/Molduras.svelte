@@ -546,13 +546,13 @@
                         <td class="td-var td-val">{row.varilla.qty}</td>
                         <td class="td-var td-val">{row.varilla.cm}</td>
                         {#if row.arrow}
-                          <td class="td-lar tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos:{row.tajos}</span>{/if}</td>
+                          <td class="td-lar tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
                           <td class="td-tra td-val">{row.travesano?.qty ?? ''}</td>
                           <td class="td-tra td-val">{row.travesano?.cm ?? ''}</td>
                         {:else}
                           <td class="td-lar td-val">{row.larguero?.qty ?? ''}</td>
                           <td class="td-lar td-val">{row.larguero?.cm ?? ''}</td>
-                          <td class="td-tra tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos:{row.tajos}</span>{/if}</td>
+                          <td class="td-tra tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
                         {/if}
                       </tr>
                     {:else}

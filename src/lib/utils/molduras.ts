@@ -542,7 +542,7 @@ export function buildMatRowsData(card: MeasurableCard): MatRow[] {
 
 function buildMatRows(card: MeasurableCard): string {
   const rows = buildMatRowsData(card);
-  const tajosCell = (n?: number) => (n !== undefined && n > 0 ? `<span class='tajos'>Tajos:${n}</span>` : ``);
+  const tajosCell = (n?: number) => (n !== undefined && n > 0 ? `<span class='tajos'>Tajos: ${n}</span>` : ``);
   const larRows = rows.filter(r => !r.arrow).map(r => `<tr>
       <td class='td-var val-cell'>${r.varilla.qty}</td><td class='td-var val-cell'>${r.varilla.cm}</td>
       <td class='td-lar val-cell'>${r.larguero ? r.larguero.qty : ''}</td><td class='td-lar val-cell'>${r.larguero ? r.larguero.cm : ''}</td>

@@ -136,6 +136,7 @@ const tallerApi: TallerApi = api;
   let selectedNominatimLng = $state<number | null>(null);
   let domicilioOriginal = $state('');
   let envio = $state(0);
+  function envioNorm(v: any): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
   let tipo_entrega = $state('Retira');
   let fechasEntrega = $state<FechasEntrega>({ desde: '', hasta: '', extras: [] });
   let pagoRapidoMonto = $state('');
@@ -315,6 +316,14 @@ const tallerApi: TallerApi = api;
   let dragStartIndex = $state<number | null>(null);
   let dragHighlightedSet = $state<Set<number>>(new Set());
   let isDragging = $state(false);
+  let dragOriginalLength = $state(0);
+  let dragCursor = $state<{ x: number; y: number } | null>(null);
+  const DRAG_MAX_NEW = 50;
+  const DRAG_ROW_H = 42;
+  let dragInsertIdx = $derived.by(() => {
+    if (!isDragging || dragHighlightedSet.size === 0) return null;
+    return Math.max(...dragHighlightedSet) + 1;
+  });
 
   // Combo options
   const tiposEntrega = ['Retira', 'Envio', 'Retiro y Envio'];
@@ -353,13 +362,29 @@ const tallerApi: TallerApi = api;
   let filteredClientes = $derived.by(() => {
     const q = normalizeText(clienteSearch);
     if (!q) return clientes.slice(0, 10);
-    return clientes.filter(c =>
-      normalizeText(c.nombre).includes(q) ||
-      c.telefono?.includes(q) ||
-      normalizeText(c.domicilio).includes(q) ||
-      normalizeText(c.taller).includes(q) ||
-      normalizeText(c.estudiante).includes(q)
-    ).slice(0, 10);
+    const scored: Array<[number, Cliente]> = [];
+    for (const c of clientes) {
+      const nombreNorm = normalizeText(c.nombre);
+      let score = 0;
+      if (nombreNorm === q) score += 1000;
+      else if (nombreNorm.startsWith(q)) score += 500;
+      else if (nombreNorm.includes(q)) {
+        score += 300;
+        // boost si coincide al inicio de palabra (ej: "nic" en "nic something")
+        if (nombreNorm.split(/\s+/).some(w => w.startsWith(q))) score += 100;
+      } else if (nombreNorm.split(/\s+/).some(w => w.startsWith(q))) {
+        score += 200;
+      } else {
+        // matches secundarios con peso muy bajo para no tapar coincidencias por nombre
+        if (normalizeText(c.domicilio).includes(q)) score += 20;
+        if (normalizeText(c.taller).includes(q)) score += 10;
+        if (normalizeText(c.estudiante).includes(q)) score += 10;
+        if (c.telefono?.includes(q)) score += 5;
+      }
+      if (score > 0) scored.push([score, c]);
+    }
+    scored.sort((a, b) => b[0] - a[0]);
+    return scored.slice(0, 10).map(([, c]) => c);
   });
 
   let tallerIndex = $derived.by(() => {
@@ -387,7 +412,7 @@ const tallerApi: TallerApi = api;
     return sum;
   });
 
-  let totalConEnvio = $derived(totalCalculado + envio);
+  let totalConEnvio = $derived(totalCalculado + envioNorm(envio));
   let currentSaldo = $derived(id !== null ? totalConEnvio - (pagoMap[id] || 0) : totalConEnvio);
 
   function loadDiscountFromItems() {
@@ -578,15 +603,18 @@ const tallerApi: TallerApi = api;
     const userQuery = productSearch[index];
     let newDesc = sug.description;
     const sugBase = sug.basedOn;
+    const userDims = userQuery.match(/\d+(?:[.,]\d+)?\s*[xX×]\s*\d+(?:[.,]\d+)?(?:\s*[xX×]\s*\d+(?:[.,]\d+)?)?/);
     if (sugBase) {
       if (sugBase.includes(' → ')) {
-        const ruleName = sugBase.split(' → ')[0] || '';
-        const userText = userQuery.trim();
-        newDesc = ruleName ? `${ruleName} ${userText}`.trim() : userText;
+        const ruleName = (sugBase.split(' → ')[0] || '').trim();
+        if (userDims) {
+          newDesc = `${ruleName} ${userDims[0]}`.trim();
+        } else {
+          newDesc = ruleName || sug.description;
+        }
       } else {
         const cleanBase = sugBase.includes(' → ') ? sugBase.split(' → ').pop()!.trim() : sugBase;
-        const userDims = userQuery.match(/\d+\s*[xX×]\s*\d+/);
-        newDesc = userDims ? cleanBase.replace(/\d+\s*[xX×]\s*\d+/i, userDims[0]) : cleanBase;
+        newDesc = userDims ? cleanBase.replace(/\d+(?:[.,]\d+)?\s*[xX×]\s*\d+(?:[.,]\d+)?(?:\s*[xX×]\s*\d+(?:[.,]\d+)?)?/i, userDims[0]) : cleanBase;
       }
     }
     items[index].descripcion = newDesc;
@@ -697,6 +725,23 @@ const tallerApi: TallerApi = api;
     showQtyDropdown = [...showQtyDropdown, false];
   }
 
+  function insertItemAt(idx: number) {
+    const at = Math.max(0, Math.min(idx, items.length));
+    items.splice(at, 0, { cantidad: 1, descripcion: '', precio_unitario: 0, total: 0 });
+    productSearch.splice(at, 0, '');
+    selectedProdIndex.splice(at, 0, -1);
+    showProdResults.splice(at, 0, false);
+    productSuggestions.splice(at, 0, []);
+    showQtyDropdown.splice(at, 0, false);
+    items = items;
+    productSearch = productSearch;
+    selectedProdIndex = selectedProdIndex;
+    showProdResults = showProdResults;
+    productSuggestions = productSuggestions;
+    showQtyDropdown = showQtyDropdown;
+    setTimeout(() => focusRowInput(at), 30);
+  }
+
   function removeItem(index: number) {
     if (items.length <= 1) return;
     items = items.filter((_, i) => i !== index);
@@ -730,36 +775,74 @@ const tallerApi: TallerApi = api;
     updateItemTotal(targetIdx);
   }
 
+  const DRAG_EDGE = 32;
+  const DRAG_SCROLL_SPEED = 14;
+  function autoScrollBody(body: HTMLElement, e: MouseEvent) {
+    const rect = body.getBoundingClientRect();
+    const distBottom = rect.bottom - e.clientY;
+    const distTop = e.clientY - rect.top;
+    if (distBottom < DRAG_EDGE && distBottom >= 0) {
+      const f = (DRAG_EDGE - distBottom) / DRAG_EDGE;
+      body.scrollTop += Math.ceil(DRAG_SCROLL_SPEED * (0.4 + 0.6 * f));
+    } else if (distTop < DRAG_EDGE && distTop >= 0) {
+      const f = (DRAG_EDGE - distTop) / DRAG_EDGE;
+      body.scrollTop = Math.max(0, body.scrollTop - Math.ceil(DRAG_SCROLL_SPEED * (0.4 + 0.6 * f)));
+    } else if (e.clientY > rect.bottom) {
+      body.scrollTop += DRAG_SCROLL_SPEED;
+    }
+  }
+
   function dragStart(index: number, e: MouseEvent) {
     e.preventDefault();
     dragStartIndex = index;
+    dragOriginalLength = items.length;
     isDragging = true;
     dragHighlightedSet = new Set();
+    dragCursor = { x: e.clientX, y: e.clientY };
   }
 
   function dragMove(e: MouseEvent) {
     if (dragStartIndex === null) return;
+    dragCursor = { x: e.clientX, y: e.clientY };
+    const body = document.querySelector('.items-body') as HTMLElement;
+    if (!body) return;
+    autoScrollBody(body, e);
+    const bodyRect = body.getBoundingClientRect();
+    const lastRow = body.querySelector('.items-row:not(.ghost-row):last-child') as HTMLElement | null;
+    const lastBottom = lastRow ? lastRow.getBoundingClientRect().bottom : bodyRect.bottom;
+    // Prioridad: si arrastras por debajo de la última fila, crear fantasmas (no esperar al bottom del body vacío)
+    if (e.clientY > lastBottom + 4) {
+      const extra = Math.floor((e.clientY - lastBottom) / DRAG_ROW_H) + 1;
+      const idx = items.length - 1 + extra;
+      const maxIdx = Math.min(idx, dragStartIndex + DRAG_MAX_NEW);
+      const targets = new Set<number>();
+      for (let j = dragStartIndex + 1; j <= maxIdx; j++) targets.add(j);
+      dragHighlightedSet = targets;
+      return;
+    }
+    if (e.clientY < bodyRect.top) {
+      dragHighlightedSet = new Set();
+      return;
+    }
+    // Dentro del body: intentar hit por elementFromPoint
     const el = document.elementFromPoint(e.clientX, e.clientY);
     let idx = -1;
     if (el) {
-      const row = (el as HTMLElement).closest('.items-row') as HTMLElement | null;
+      const row = (el as HTMLElement).closest('.items-row:not(.ghost-row)') as HTMLElement | null;
       if (row) {
         idx = parseInt(row.dataset.index ?? '');
       }
     }
     if (isNaN(idx) || idx < 0) {
-      const body = document.querySelector('.items-body') as HTMLElement;
-      if (!body) return;
-      const bodyRect = body.getBoundingClientRect();
-      const my = e.clientY - bodyRect.top + body.scrollTop;
-      const rh = body.scrollHeight > 0 && items.length > 0 ? body.scrollHeight / items.length : 30;
-      idx = Math.floor(my / rh);
+      // vacío dentro del body: usar ROW_H fijo, no scrollHeight/len (distorsiona con 1 fila y 20rem de vacío)
+      const firstTop = (body.querySelector('.items-row:not(.ghost-row)') as HTMLElement | null)?.getBoundingClientRect().top ?? bodyRect.top;
+      idx = Math.floor((e.clientY - firstTop) / DRAG_ROW_H);
     }
-    if (idx <= dragStartIndex) {
+    if (isNaN(idx) || idx <= dragStartIndex) {
       dragHighlightedSet = new Set();
       return;
     }
-    const maxIdx = Math.min(idx, dragStartIndex + 5);
+    const maxIdx = Math.min(idx, dragStartIndex + DRAG_MAX_NEW);
     const targets = new Set<number>();
     for (let j = dragStartIndex + 1; j <= maxIdx; j++) targets.add(j);
     dragHighlightedSet = targets;
@@ -767,21 +850,56 @@ const tallerApi: TallerApi = api;
 
   function dragEnd(_e: MouseEvent) {
     if (dragStartIndex === null) return;
-    const src = items[dragStartIndex];
     const targets = [...dragHighlightedSet].sort((a, b) => a - b);
+    if (targets.length === 0) {
+      dragCursor = null;
+      dragStartIndex = null;
+      dragHighlightedSet = new Set();
+      isDragging = false;
+      return;
+    }
+    const src = items[dragStartIndex];
+    const srcSearch = productSearch[dragStartIndex];
+    let created = 0;
+    let overwritten = 0;
     for (const idx of targets) {
+      const isNew = idx >= items.length;
       while (idx >= items.length) addItem();
-      items[idx].cantidad = src.cantidad;
-      items[idx].descripcion = src.descripcion;
-      items[idx].precio_unitario = src.precio_unitario ?? 0;
-      productSearch[idx] = productSearch[dragStartIndex];
+      if (isNew) created++;
+      else overwritten++;
+      // sobrescribe siempre (incluido duplicada)
+      items[idx] = { cantidad: src.cantidad, descripcion: src.descripcion, precio_unitario: src.precio_unitario ?? 0, total: 0 };
+      productSearch[idx] = srcSearch;
+      // sincronizar auxiliares
+      productSuggestions[idx] = [];
+      selectedProdIndex[idx] = -1;
+      showProdResults[idx] = false;
+      showQtyDropdown[idx] = false;
       updateItemTotal(idx);
     }
     items = items;
-    appStore.showToast('Filas duplicadas', 'success');
+    productSearch = productSearch;
+    productSuggestions = productSuggestions;
+    selectedProdIndex = selectedProdIndex;
+    showProdResults = showProdResults;
+    showQtyDropdown = showQtyDropdown;
+    const totalDup = targets.length;
+    const detail = created > 0 ? `${overwritten} rellenada(s) + ${created} nueva(s)` : `${overwritten} rellenada(s)`;
+    appStore.showToast(`${totalDup} fila(s) duplicada(s) (${detail})`, 'success');
+    dragCursor = null;
     dragStartIndex = null;
     dragHighlightedSet = new Set();
     isDragging = false;
+    // scroll sigue a la última fila creada
+    requestAnimationFrame(() => {
+      const body = document.querySelector('.items-body') as HTMLElement | null;
+      const last = body?.querySelector('.items-row:not(.ghost-row):last-child') as HTMLElement | null;
+      if (body && last) {
+        // si se crearon filas nuevas, ir al fondo; si no, a la última destacada
+        if (created > 0) body.scrollTop = body.scrollHeight;
+        else last.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    });
   }
 
   export async function loadInvoice(id: number) {
@@ -811,7 +929,7 @@ const tallerApi: TallerApi = api;
     cliente_piso_depto = f.cliente_piso_depto || '';
     cliente_taller = f.cliente_taller || '';
     tallerSearch = f.cliente_taller || '';
-    envio = f.envio || 0;
+    envio = envioNorm(f.envio);
     tipo_entrega = f.tipo_entrega || 'Retira';
     fechasEntrega = parseFechasEntrega(f.fecha_entrega);
     items = f.items?.length ? f.items.map(i => ({ ...i })) : [{ cantidad: 1, descripcion: '', precio_unitario: 0, total: 0 }];
@@ -1023,7 +1141,7 @@ const tallerApi: TallerApi = api;
           total: i.total || (i.cantidad * (i.precio_unitario ?? 0)),
         })),
         total: totalConEnvio,
-        envio,
+        envio: envioNorm(envio),
         tipo,
         user_id: appStore.user?.user_id || 0,
         tipo_entrega,
@@ -1345,7 +1463,7 @@ const tallerApi: TallerApi = api;
           total: i.total || (i.cantidad * (i.precio_unitario ?? 0)),
         })),
         total: totalConEnvio,
-        envio,
+        envio: envioNorm(envio),
         saldo: currentSaldo,
         isPresupuesto: true,
         styleName: appStore.pdfStyle,
@@ -1412,7 +1530,7 @@ const tallerApi: TallerApi = api;
           total: i.total || (i.cantidad * (i.precio_unitario ?? 0)),
         })),
         total: totalConEnvio,
-        envio,
+        envio: envioNorm(envio),
         saldo: currentSaldo,
         isPresupuesto: true,
         styleName: appStore.pdfStyle,
@@ -1464,7 +1582,7 @@ const tallerApi: TallerApi = api;
           total: i.total || i.cantidad * (i.precio_unitario ?? 0),
         })),
         total: totalConEnvio,
-        envio,
+        envio: envioNorm(envio),
         mode: tipo,
         ...(tipo === 'PRESUPUESTO' ? { saldo: currentSaldo } : {}),
       });
@@ -1701,6 +1819,7 @@ const tallerApi: TallerApi = api;
               <span class="col-price">P. Unit.</span>
               <span class="col-total">Total</span>
               <span class="col-drag"></span>
+              <span class="col-insert"></span>
               <span class="col-del"></span>
             </div>
             <div class="items-body">
@@ -1749,8 +1868,12 @@ const tallerApi: TallerApi = api;
                     }}
                     onfocus={() => { selectedProdIndex[i] = -1; selectedProdIndex = selectedProdIndex; showProdResults[i] = true; showProdResults = showProdResults; }}
                     onblur={() => setTimeout(() => { showProdResults[i] = false; showProdResults = showProdResults; }, 300)}
-                    onkeydown={(e) => { if (e.key === 'Enter' && !e.shiftKey && i === items.length - 1 && selectedProdIndex[i] < 0) { e.preventDefault(); addItem(); } else { handleProdKeydown(e, i); } }}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); e.stopPropagation(); insertItemAt(i + 1); return; }
+                      if (e.key === 'Enter' && !e.shiftKey && i === items.length - 1 && selectedProdIndex[i] < 0) { e.preventDefault(); addItem(); } else { handleProdKeydown(e, i); }
+                    }}
                     placeholder="Buscar producto..."
+                    title="Shift+Enter: insertar fila debajo"
                   />
                   {#if showProdResults[i]}
                     <div class="autocomplete-results">
@@ -1797,17 +1920,42 @@ const tallerApi: TallerApi = api;
                 <button type="button" class="col-drag btn-drag" onmousedown={(e) => dragStart(i, e)} title="Arrastrar para duplicar" tabindex="-1">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="5" y1="9" x2="19" y2="9"/><line x1="5" y1="15" x2="19" y2="15"/><line x1="9" y1="5" x2="9" y2="19"/><line x1="15" y1="5" x2="15" y2="19"/></svg>
                 </button>
+                <button type="button" class="col-insert btn-insert" onclick={() => insertItemAt(i + 1)} title="Insertar fila vacía debajo (Shift+Enter)" aria-label="Insertar fila vacía" tabindex="-1">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
                 <button class="col-del btn-del" onclick={() => removeItem(i)} disabled={items.length <= 1} aria-label="Eliminar fila">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
             {/each}
+            {#if isDragging && dragInsertIdx !== null}
+              <div class="insert-line" aria-hidden="true">
+                <span class="insert-dot"></span>
+                <span class="insert-bar"></span>
+              </div>
+            {/if}
+            {#if isDragging && dragStartIndex !== null && dragHighlightedSet.size > 0}
+              {#each [...dragHighlightedSet].filter(idx => idx >= dragOriginalLength) as gi, gIdx}
+                <div class="items-row ghost-row" data-index={gi} style="animation-delay: {gIdx * 22}ms">
+                  <span class="col-qty ghost-qty">{items[dragStartIndex!].cantidad}</span>
+                  <span class="col-desc ghost-desc" title={productSearch[dragStartIndex!] || items[dragStartIndex!].descripcion}>{productSearch[dragStartIndex!] || items[dragStartIndex!].descripcion || '—'}</span>
+                  <span class="col-price ghost-price">${(items[dragStartIndex!].precio_unitario ?? 0).toFixed(0)}</span>
+                  <span class="col-total ghost-total">${(items[dragStartIndex!].cantidad * (items[dragStartIndex!].precio_unitario ?? 0)).toFixed(0)}</span>
+                  <span class="col-drag"></span><span class="col-insert"></span><span class="col-del"></span>
+                </div>
+              {/each}
+            {/if}
             </div>
+            {#if isDragging && dragCursor && dragHighlightedSet.size > 0}
+              <div class="drag-badge" style="left: {dragCursor.x + 16}px; top: {dragCursor.y - 28}px">
+                +{dragHighlightedSet.size}
+              </div>
+            {/if}
           </div>
           <div class="summary-sidebar">
             <div class="field">
               <label>Costo Envío</label>
-              <input type="number" bind:value={envio} min="0" step="0.01" />
+              <input type="number" bind:value={envio} min="0" step="0.01" onblur={() => envio = envioNorm(envio)} placeholder="0" />
             </div>
             <div class="summary-divider"></div>
             <div class="rapid-payment">
@@ -2387,7 +2535,7 @@ const tallerApi: TallerApi = api;
   }
   .items-header {
     display: grid;
-    grid-template-columns: 3.8rem 1fr 5.714rem 6.429rem 2rem 2rem;
+    grid-template-columns: 3.8rem 1fr 5.714rem 6.429rem 1.8rem 1.8rem 1.8rem;
     gap: 0.571rem;
     background: var(--bg-hover);
     padding: 0.571rem 0.857rem;
@@ -2400,7 +2548,7 @@ const tallerApi: TallerApi = api;
   }
   .items-row {
     display: grid;
-    grid-template-columns: 3.8rem 1fr 5.714rem 6.429rem 2rem 2rem;
+    grid-template-columns: 3.8rem 1fr 5.714rem 6.429rem 1.8rem 1.8rem 1.8rem;
     gap: 0.571rem;
     align-items: center;
     padding: 0.429rem 0.857rem;
@@ -2514,6 +2662,81 @@ const tallerApi: TallerApi = api;
     outline-offset: -0.071rem;
   }
   .items-row.dragging { background: #e8f5e9; }
+  .items-row.ghost-row {
+    border: 1.5px dashed #90caf9;
+    background: repeating-linear-gradient( -45deg, #f0f7ff, #f0f7ff 6px, #e3f2fd 6px, #e3f2fd 12px);
+    background-size: 24px 24px;
+    animation: ghostStripe 600ms linear infinite, ghostIn 180ms cubic-bezier(.2,.9,.3,1) both;
+    opacity: 0.85;
+    pointer-events: none;
+  }
+  @keyframes ghostIn {
+    from { opacity: 0; transform: translateY(6px) scale(0.98); }
+    to { opacity: 0.85; transform: translateY(0) scale(1); }
+  }
+  @keyframes ghostStripe { to { background-position: 24px 0; } }
+  .ghost-row .ghost-qty,
+  .ghost-row .ghost-price,
+  .ghost-row .ghost-total {
+    font-size: var(--text-sm);
+    font-family: var(--font-mono);
+    text-align: center;
+    color: var(--text-muted);
+  }
+  .ghost-row .ghost-desc {
+    font-size: var(--text-sm);
+    color: var(--text-secondary);
+    font-style: italic;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .ghost-row .ghost-total { font-weight: 600; text-align: right; }
+  .items-row.drag-target {
+    transition: background 140ms cubic-bezier(.4,0,.2,1), outline-color 140ms, transform 140ms cubic-bezier(.2,.9,.3,1);
+  }
+  .insert-line {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    height: 0.5rem;
+    margin: 0.15rem 0.857rem;
+    pointer-events: none;
+  }
+  .insert-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 4px rgba(37,99,235,0.18);
+    animation: dotPulse 900ms ease-in-out infinite;
+  }
+  .insert-bar {
+    flex: 1;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), #60a5fa);
+    border-radius: 1px;
+    transform-origin: left;
+    animation: barGrow 160ms cubic-bezier(.2,.9,.3,1) both;
+    box-shadow: 0 0 8px rgba(37,99,235,0.35);
+  }
+  @keyframes barGrow { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+  @keyframes dotPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+  .drag-badge {
+    position: fixed;
+    z-index: 9999;
+    pointer-events: none;
+    background: var(--accent);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 0.18rem 0.5rem;
+    border-radius: 999px;
+    box-shadow: 0 4px 14px rgba(37,99,235,0.35);
+    transform: translate(0, 0) scale(1);
+    animation: badgePop 180ms cubic-bezier(.2,.9,.3,1);
+  }
+  @keyframes badgePop { 0% { transform: scale(0.7); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
   .items-row.desc-only {
     color: var(--text-muted);
   }
@@ -2561,6 +2784,24 @@ const tallerApi: TallerApi = api;
   .btn-del:hover { color: var(--danger); background: rgba(220,38,38,0.08); }
   .btn-del:disabled { opacity: 0.15; pointer-events: none; }
 
+  .col-insert { display: flex; align-items: center; justify-content: center; }
+  .btn-insert {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0.286rem;
+    border-radius: 0.286rem;
+    transition: all 0.12s;
+    opacity: 0.6;
+  }
+  .items-row:hover .btn-insert { opacity: 1; }
+  .btn-insert:hover { color: var(--accent); background: var(--bg-hover); opacity: 1; }
+  .btn-insert:active { transform: scale(0.92); }
+
   /* ===== ITEMS + SUMMARY LAYOUT ===== */
   .items-section { padding: 0; overflow: hidden; }
   .items-layout {
@@ -2579,6 +2820,7 @@ const tallerApi: TallerApi = api;
     overflow-y: auto;
     max-height: 20rem;
     flex: 1;
+    scroll-behavior: smooth;
   }
   .items-header {
     flex-shrink: 0;

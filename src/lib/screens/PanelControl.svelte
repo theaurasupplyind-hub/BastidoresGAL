@@ -264,6 +264,45 @@
     }
   }
 
+  // ── Factura detalle expandible (solo panel) ──
+  let expandedFacturas = $state<Set<number>>(new Set());
+  let facturaItemsCache = $state<Map<number, any[]>>(new Map());
+  let loadingFacturas = $state<Set<number>>(new Set());
+
+  function isExpanded(id: number): boolean {
+    return expandedFacturas.has(id);
+  }
+
+  async function toggleFactura(f: any) {
+    const fid = f.id as number;
+    if (expandedFacturas.has(fid)) {
+      expandedFacturas.delete(fid);
+      expandedFacturas = new Set(expandedFacturas);
+      return;
+    }
+    expandedFacturas.add(fid);
+    expandedFacturas = new Set(expandedFacturas);
+    if (facturaItemsCache.has(fid) || loadingFacturas.has(fid)) return;
+    if (Array.isArray(f.items) && f.items.length > 0) {
+      facturaItemsCache.set(fid, f.items);
+      facturaItemsCache = new Map(facturaItemsCache);
+      return;
+    }
+    loadingFacturas.add(fid);
+    loadingFacturas = new Set(loadingFacturas);
+    try {
+      const { items } = await api.getFactura(fid);
+      facturaItemsCache.set(fid, items ?? []);
+      facturaItemsCache = new Map(facturaItemsCache);
+    } catch {
+      expandedFacturas.delete(fid);
+      expandedFacturas = new Set(expandedFacturas);
+    } finally {
+      loadingFacturas.delete(fid);
+      loadingFacturas = new Set(loadingFacturas);
+    }
+  }
+
   const entregasActivasCount = $derived(entregas.filter((e: any) =>
     e.estado_kanban !== 'NO_CONFIRMADO' && e.estado_kanban !== 'ENTREGADO' && e.estado_kanban !== 'ARCHIVADO'
   ).length);
@@ -917,16 +956,42 @@
                           {#if facts.length > 0}
                             <div class="cliente-facturas">
                               {#each facts as f}
-                                <span
-                                  class="factura-chip"
-                                  onmousedown={(e) => e.preventDefault()}
-                                  title="Doble clic para abrir en Facturación"
-                                  ondblclick={(e) => { e.stopPropagation(); irAFacturacion(f.id); }}
-                                >
-                                  <span class="factura-num">{f.numero_factura}</span>
-                                  <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
-                                  <span class="factura-date">{f.fecha || ''}</span>
-                                </span>
+                                <div class="factura-row">
+                                  <span
+                                    class="factura-chip"
+                                    onmousedown={(e) => e.preventDefault()}
+                                    title="Doble clic para abrir en Facturación"
+                                    ondblclick={(e) => { e.stopPropagation(); irAFacturacion(f.id); }}
+                                  >
+                                    <span class="factura-num">{f.numero_factura}</span>
+                                    <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
+                                    <span class="factura-date">{f.fecha || ''}</span>
+                                  </span>
+                                  <button class="factura-expand-btn" onclick={(e) => { e.stopPropagation(); toggleFactura(f); }} aria-expanded={isExpanded(f.id)} aria-label={isExpanded(f.id) ? 'Ocultar productos' : 'Ver productos'} title={isExpanded(f.id) ? 'Ocultar productos' : 'Ver productos'}>
+                                    {#if loadingFacturas.has(f.id)}
+                                      <span class="factura-expand-spinner"></span>
+                                    {:else}
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points={isExpanded(f.id) ? "18 15 12 9 6 15" : "6 9 12 15 18 9"}></polyline></svg>
+                                    {/if}
+                                  </button>
+                                </div>
+                                {#if isExpanded(f.id)}
+                                  <div class="factura-detalle">
+                                    {#if loadingFacturas.has(f.id)}
+                                      <span class="factura-detalle-loading">Cargando productos…</span>
+                                    {:else if (facturaItemsCache.get(f.id)?.length ?? 0) === 0}
+                                      <span class="factura-detalle-empty">Sin productos</span>
+                                    {:else}
+                                      {#each facturaItemsCache.get(f.id) ?? [] as it}
+                                        <div class="detalle-linea">
+                                          <span class="detalle-cant">{it.cantidad}×</span>
+                                          <span class="detalle-desc">{it.descripcion}</span>
+                                          <span class="detalle-total">${(it.total ?? (it.cantidad * (it.precio_unitario ?? 0))).toLocaleString('es-AR')}</span>
+                                        </div>
+                                      {/each}
+                                    {/if}
+                                  </div>
+                                {/if}
                               {/each}
                             </div>
                           {/if}
@@ -971,16 +1036,42 @@
                       {#if facts.length > 0}
                         <div class="cliente-facturas">
                           {#each facts as f}
-                            <span
-                              class="factura-chip"
-                              onmousedown={(e) => e.preventDefault()}
-                              title="Doble clic para abrir en Facturación"
-                              ondblclick={(e) => { e.stopPropagation(); irAFacturacion(f.id); }}
-                            >
-                              <span class="factura-num">{f.numero_factura}</span>
-                              <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
-                              <span class="factura-date">{f.fecha || ''}</span>
-                            </span>
+                            <div class="factura-row">
+                              <span
+                                class="factura-chip"
+                                onmousedown={(e) => e.preventDefault()}
+                                title="Doble clic para abrir en Facturación"
+                                ondblclick={(e) => { e.stopPropagation(); irAFacturacion(f.id); }}
+                              >
+                                <span class="factura-num">{f.numero_factura}</span>
+                                <span class="factura-total">${(f.total || 0).toLocaleString('es-AR')}</span>
+                                <span class="factura-date">{f.fecha || ''}</span>
+                              </span>
+                              <button class="factura-expand-btn" onclick={(e) => { e.stopPropagation(); toggleFactura(f); }} aria-expanded={isExpanded(f.id)} aria-label={isExpanded(f.id) ? 'Ocultar productos' : 'Ver productos'} title={isExpanded(f.id) ? 'Ocultar productos' : 'Ver productos'}>
+                                {#if loadingFacturas.has(f.id)}
+                                  <span class="factura-expand-spinner"></span>
+                                {:else}
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points={isExpanded(f.id) ? "18 15 12 9 6 15" : "6 9 12 15 18 9"}></polyline></svg>
+                                {/if}
+                              </button>
+                            </div>
+                            {#if isExpanded(f.id)}
+                              <div class="factura-detalle">
+                                {#if loadingFacturas.has(f.id)}
+                                  <span class="factura-detalle-loading">Cargando productos…</span>
+                                {:else if (facturaItemsCache.get(f.id)?.length ?? 0) === 0}
+                                  <span class="factura-detalle-empty">Sin productos</span>
+                                {:else}
+                                  {#each facturaItemsCache.get(f.id) ?? [] as it}
+                                    <div class="detalle-linea">
+                                      <span class="detalle-cant">{it.cantidad}×</span>
+                                      <span class="detalle-desc">{it.descripcion}</span>
+                                      <span class="detalle-total">${(it.total ?? (it.cantidad * (it.precio_unitario ?? 0))).toLocaleString('es-AR')}</span>
+                                    </div>
+                                  {/each}
+                                {/if}
+                              </div>
+                            {/if}
                           {/each}
                         </div>
                       {/if}
@@ -1741,7 +1832,7 @@
   }
   .cliente-facturas {
     display: flex;
-    flex-wrap: wrap;
+    flex-direction: column;
     gap: 6px;
     margin-top: 6px;
   }
@@ -1772,6 +1863,76 @@
     font-size: 11px;
     color: rgba(255,255,255,0.5);
   }
+
+  .factura-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+  }
+  .factura-row .factura-chip { flex: 1; min-width: 0; }
+  .factura-expand-btn {
+    width: 22px;
+    height: 22px;
+    min-width: 22px;
+    border: none;
+    border-radius: 6px;
+    background: rgba(255,255,255,0.10);
+    color: rgba(255,255,255,0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    transition: background 0.12s, transform 0.12s;
+    padding: 0;
+  }
+  .factura-expand-btn:hover { background: rgba(255,255,255,0.18); }
+  .factura-expand-btn:active { transform: scale(0.94); }
+  .factura-expand-spinner {
+    width: 10px;
+    height: 10px;
+    border: 1.5px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: task-spin 0.6s linear infinite;
+  }
+  .factura-detalle {
+    width: 100%;
+    margin: 2px 0 4px;
+    padding: 8px 10px;
+    background: rgba(0,0,0,0.18);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 180px;
+    overflow-y: auto;
+  }
+  .factura-detalle-loading, .factura-detalle-empty {
+    font-size: 11px;
+    color: rgba(255,255,255,0.6);
+    font-style: italic;
+  }
+  .detalle-linea {
+    display: flex;
+    gap: 8px;
+    font-size: 11px;
+    color: rgba(255,255,255,0.9);
+    line-height: 1.3;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+    padding-bottom: 3px;
+  }
+  .detalle-linea:last-child { border-bottom: none; padding-bottom: 0; }
+  .detalle-cant {
+    min-width: 22px;
+    font-weight: 700;
+    color: rgba(255,255,255,0.7);
+    flex-shrink: 0;
+  }
+  .detalle-desc { flex: 1; min-width: 0; word-break: break-word; }
+  .detalle-total { font-weight: 700; color: #fff; white-space: nowrap; flex-shrink: 0; }
 
   .cliente-remove {
     width: 18px;
