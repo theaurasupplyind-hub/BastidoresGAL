@@ -1,4 +1,7 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.73': `○ Círculos en molduras: productos con "círculo/circulo/circular" (con/sin tilde, plural) ahora entran a molduras y al PDF como producto a hacer, sin varilla/larguero/travesaño — solo fila resumen Ø30
+• Promos en molduras: si la descripción trae "Promo N x M" (ej. 4 x 3, 10 x 8), N se usa como cantidad de bastidores por unidad y se multiplica por cantidad del item (2 promos 4x3 = 8 bastidores) — busca la medida real del bastidor en cualquier token de la descripción
+• Fix: promo ya no duplica "PROMO 4X3 · PROMO 4X3 ..." en tarjeta/PDF, ahora "PROMO 4X3 · LIENZO PROFESIONAL"`,
   '2.3.72': `☀️ Modo oscuro ahora en la barra superior, más a mano
 🔍 Zoom se puede probar y cancelar sin guardar — al cerrar vuelve como estaba
 👥 Buscar cliente ahora encuentra mejor por nombre (prioridad al nombre exacto)

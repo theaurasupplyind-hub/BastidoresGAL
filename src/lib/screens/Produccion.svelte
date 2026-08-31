@@ -35,12 +35,12 @@
       const desc = it.descripcion || '';
       if (/rollo/i.test(desc)) continue;
 
-      if (/circular/i.test(desc)) {
+      if (/c[ií]rcul[oa]s?\b/i.test(desc) || /circular/i.test(desc)) {
         const m = desc.match(/(\d+(?:[.,]\d+)?)/);
         result.push({
           cantidad: it.cantidad,
-          measure: m ? `Ø${m[1].replace(',', '.')}` : 'Circular',
-          desc: 'Circular',
+          measure: m ? `Ø${m[1].replace(',', '.')}` : 'Círculo',
+          desc: 'Círculo',
         });
         continue;
       }

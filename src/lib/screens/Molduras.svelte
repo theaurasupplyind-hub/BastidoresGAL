@@ -766,6 +766,12 @@
                 <span class="sm-c-l">Larga {editLargNum}</span> · <span class="sm-c-c">Corta {editTravFilas}</span>
               </div>
             </div>
+          {:else if detailItem?.isCirculo}
+            <div class="detail-no-molding">
+              <span class="dnm-icon">○</span>
+              <p>Círculo {detailItem.medida} — sin materiales</p>
+              <p class="dnm-desc">Cantidad: {detailItem.cantidad} · No requiere varilla/larguero/travesaño</p>
+            </div>
           {:else if detailItem?.isNonMolding}
             <div class="detail-no-molding">
               <span class="dnm-icon">🖼️</span>

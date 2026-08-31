@@ -17,8 +17,37 @@ export interface CardItem {
   travesaño?: string;
   isNonMolding?: boolean;
   isTapacanto?: boolean;
+  isCirculo?: boolean;
   hasCorrection?: boolean;
   correctionInherited?: boolean;
+}
+
+// ── Círculos ──
+export function isCirculoDesc(desc: string): boolean {
+  return /c[ií]rcul[oa]s?\b/i.test(desc) || /circular/i.test(desc);
+}
+
+export function parseCirculoMedida(desc: string): string {
+  const m = desc.match(/(\d+(?:[.,]\d+)?)/);
+  return m ? `Ø${m[1].replace(',', '.')}` : 'Círculo';
+}
+
+// ── Promo ──
+export function parsePromoBastidores(desc: string, itemCantidad: number): number | null {
+  const m = desc.match(/promo[^0-9]*(\d+)\s*[xX×]\s*(\d+)/i);
+  if (!m) return null;
+  const perUnit = parseInt(m[1], 10);
+  if (isNaN(perUnit) || perUnit <= 0) return null;
+  return perUnit * (itemCantidad || 1);
+}
+
+export function extractBastidorDimsFromDesc(desc: string): { w: number; h: number } | null {
+  const all = [...desc.matchAll(/(\d+(?:[.,]\d+)?)\s*[xX]\s*(\d+(?:[.,]\d+)?)/g)];
+  const real = all
+    .map(c => ({ w: parseFloat(c[1].replace(',', '.')), h: parseFloat(c[2].replace(',', '.')) }))
+    .filter(d => Math.max(d.w, d.h) >= 15);
+  if (real.length > 0) return real[real.length - 1];
+  return null;
 }
 
 export interface CardMaterial {
@@ -247,7 +276,8 @@ export function hasMolduraItems(f: Factura): boolean {
     const it = f.items[i];
     const desc = it.descripcion || '';
     if (/rollo/i.test(desc)) continue;
-    if (/circular/i.test(desc)) return true;
+    if (isCirculoDesc(desc)) return true;
+    if (/promo/i.test(desc) && /promo[^0-9]*\d+\s*[xX×]\s*\d+/i.test(desc)) return true;
     if (parse2DItem(desc)) return true;
   }
   return false;
@@ -286,14 +316,50 @@ export function parseCard(f: Factura): {
       continue;
     }
 
-    if (/circular/i.test(desc)) {
-      const dm = desc.match(/(\d+(?:[.,]\d+)?)/);
+    if (isCirculoDesc(desc)) {
       items.push({
         cantidad: it.cantidad,
-        medida: dm ? `Ø${dm[1].replace(',', '.')}` : 'Circular',
-        tipo: 'Circular',
+        medida: parseCirculoMedida(desc),
+        tipo: 'Círculo',
+        isCirculo: true,
       });
       continue;
+    }
+
+    // Promo: promo siempre es N x M + medida de bastidor en cualquier token de la descripción
+    if (/promo/i.test(desc)) {
+      const promoM = desc.match(/promo[^0-9]*(\d+)\s*[xX×]\s*(\d+)/i);
+      const effQty = parsePromoBastidores(desc, it.cantidad);
+      const dims = extractBastidorDimsFromDesc(desc);
+      if (effQty !== null && dims) {
+        const mats = calcMaterials(dims.w, dims.h, effQty);
+        const promoLabel = promoM ? `Promo ${promoM[1]}x${promoM[2]}` : 'Promo';
+        let cleaned = desc.replace(/promo[^0-9]*\d+\s*[xX×]\s*\d+/gi, ' ');
+        cleaned = cleaned.replace(new RegExp(`${dims.w}\\s*[xX]\\s*${dims.h}`, 'i'), ' ');
+        cleaned = cleaned.replace(/bastidor|cm|["]/gi, ' ').replace(/\s+/g, ' ').trim();
+        const tipoLabel = cleaned ? `${promoLabel} · ${cleaned}` : promoLabel;
+        items.push({
+          cantidad: effQty,
+          medida: `${dims.w}x${dims.h}`,
+          tipo: tipoLabel,
+          varilla: mats.filter(m => m.type === 'V').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined,
+          larguero: mats.filter(m => m.type === 'L').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined,
+          travesaño: mats.filter(m => m.type === 'T').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined,
+        });
+        allMats.push(...mats);
+        continue;
+      }
+      if (effQty !== null) {
+        // Promo sin medida bastidor válida: mostrar como producto a hacer sin materiales pero con cantidad efectiva
+        const promoLabel2 = promoM ? `Promo ${promoM[1]}x${promoM[2]}` : 'Promo';
+        items.push({
+          cantidad: effQty,
+          medida: desc,
+          tipo: promoLabel2,
+          isNonMolding: true,
+        });
+        continue;
+      }
     }
 
     const parsed = parse2DItem(desc);
@@ -514,7 +580,7 @@ export interface MatRow {
 
 export function buildMatRowsData(card: MeasurableCard): MatRow[] {
   const rows: MatRow[] = [];
-  const matItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
+  const matItems = card.items.filter(it => (!it.isNonMolding && !it.isCirculo) || it.isTapacanto);
   for (const item of matItems) {
     const dims = item.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
     if (!dims) continue;
@@ -542,6 +608,13 @@ export function buildMatRowsData(card: MeasurableCard): MatRow[] {
 
 function buildMatRows(card: MeasurableCard): string {
   const rows = buildMatRowsData(card);
+  if (rows.length === 0) {
+    const hasOnlyCirculos = card.items.some(it => it.isCirculo) && card.items.filter(it => !it.isNonMolding || it.isTapacanto || it.isCirculo).every(it => it.isCirculo);
+    if (hasOnlyCirculos) {
+      return `<tr><td colspan='6' style='padding:6px;font-size:14px;color:#666;text-align:center;'>Círculo — sin materiales</td></tr>`;
+    }
+    return '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
+  }
   const tajosCell = (n?: number) => (n !== undefined && n > 0 ? `<span class='tajos'>Tajos: ${n}</span>` : ``);
   const larRows = rows.filter(r => !r.arrow).map(r => `<tr>
       <td class='td-var val-cell'>${r.varilla.qty}</td><td class='td-var val-cell'>${r.varilla.cm}</td>
@@ -553,12 +626,12 @@ function buildMatRows(card: MeasurableCard): string {
       <td class='td-lar tajos-cell' colspan='2'>${tajosCell(r.tajos)}</td>
       <td class='td-tra val-cell'>${r.travesano ? r.travesano.qty : ''}</td><td class='td-tra val-cell'>${r.travesano ? r.travesano.cm : ''}</td>
     </tr>`);
-  return [...larRows, ...travRows].join('') || '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
+  return [...larRows, ...travRows].join('');
 }
 
 export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'left' | 'right' = 'left'): string {
   const cliente = card.cliente.length > 25 ? card.cliente.slice(0, 25) : card.cliente;
-  const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto);
+  const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto || it.isCirculo);
   const summaryRows = validItems.map(it => {
     return `
         <tr>
