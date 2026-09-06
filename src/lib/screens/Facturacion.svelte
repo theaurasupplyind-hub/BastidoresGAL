@@ -17,6 +17,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import BuscarLugar from '$lib/components/BuscarLugar.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, type PriceSuggestion } from '$lib/utils/precios';
 import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
+import { diasRestantesNoConfirmada } from '$lib/utils/facturas';
 import type { ClientAddress } from '$lib/types';
 import flatpickr from 'flatpickr';
 import 'flatpickr/dist/flatpickr.min.css';
@@ -457,6 +458,8 @@ const tallerApi: TallerApi = api;
 
   onMount(async () => {
     await Promise.all([loadClientes(), loadProductos(), loadPreciosReferencia(), loadPricingRules(), loadTalleres(), refreshHistory()]);
+    // Purga local de respaldo si App.svelte no la ejecutó (throttled 12h, no duplicada)
+    import('$lib/utils/purgeNoConfirmadas').then(m => m.purgeNoConfirmadasVencidas({ silent: true }).catch(() => {})).catch(() => {});
     if (appStore.pendingInvoiceId != null) {
       await loadInvoice(appStore.pendingInvoiceId);
       appStore.pendingInvoiceId = null;
@@ -2150,7 +2153,8 @@ const tallerApi: TallerApi = api;
             <div class="history-item-header">
               <span class="history-num">{f.numero_factura || f.numero_presupuesto || `#${f.id}`}</span>
               {#if f.estado_kanban === 'NO_CONFIRMADO'}
-                <span class="history-nc-badge">⏳ No Confirmado</span>
+                {@const diasRest = diasRestantesNoConfirmada(f)}
+                <span class="history-nc-badge" title={diasRest !== null ? (diasRest <= 0 ? 'Vencida: se enviará a papelera' : `Se elimina en ${diasRest} día(s)`) : ''}>⏳ No Confirmado{#if diasRest !== null && diasRest <= 3} · {diasRest <= 0 ? 'vencida' : `${diasRest}d`}{/if}</span>
               {/if}
               <span class="history-date">{f.fecha || ''}</span>
             </div>
@@ -2172,6 +2176,14 @@ const tallerApi: TallerApi = api;
                 <PrinterBadge impresaAt={f.impresa_at} impresaPor={f.impresa_por} />
               {/if}
             </div>
+            {#if f.estado_kanban === 'NO_CONFIRMADO'}
+              {@const diasRestRow = diasRestantesNoConfirmada(f)}
+              {#if diasRestRow !== null}
+                <div class="history-purge-row">
+                  <span class="purge-ttl" title={diasRestRow <= 0 ? 'Vencida: se enviará a papelera' : `Se elimina en ${diasRestRow} día(s)`}>{diasRestRow <= 0 ? 'vencida' : `${diasRestRow}d`}</span>
+                </div>
+              {/if}
+            {/if}
           </div>
         {:else}
           <div class="history-empty">{filterNoConfirmadoOnly ? 'Sin facturas no confirmadas' : 'Sin facturas'}</div>
@@ -3485,6 +3497,24 @@ const tallerApi: TallerApi = api;
   .summary-status .status-debt {
     font-size: var(--text-sm);
   }
+  .history-purge-row {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.12rem;
+    line-height: 1;
+    min-height: 0;
+  }
+  .purge-ttl {
+    font-size: 0.58rem;
+    color: var(--text-muted);
+    opacity: 0.5;
+    font-weight: 400;
+    letter-spacing: 0.015em;
+    white-space: nowrap;
+    user-select: none;
+  }
+  .history-item:hover .purge-ttl { opacity: 0.75; }
+
   .history-empty {
     padding: 1.714rem 1.143rem;
     text-align: center;

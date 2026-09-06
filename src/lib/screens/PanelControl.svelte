@@ -8,22 +8,36 @@
 
   // ── Task List (API) ──
   type TaskImageRef = { id: number; created_at?: string | null; url?: string | null };
-  let tasks = $state<Array<{ id: number; text: string; done: boolean; position: number; created_at?: string | null; assigned_by: string | null; images: TaskImageRef[] }>>([]);
+  type TaskReply = { id: number; task_id: number; text: string; done: boolean; assigned_by: string | null; created_at: string | null; images: TaskImageRef[] };
+  let tasks = $state<Array<{ id: number; text: string; done: boolean; position: number; pinned: boolean; created_at?: string | null; assigned_by: string | null; images: TaskImageRef[]; reply_count?: number }>>([]);
   let loadingTasks = $state(false);
   let newTaskText = $state('');
   let imageFileInput = $state<HTMLInputElement>();
+  let replyImageFileInput = $state<HTMLInputElement>();
   let pendingUploadTaskId = $state<number | null>(null);
+  let pendingReplyUpload = $state<{ taskId: number; replyId: number } | null>(null);
   let uploadingTaskId = $state<number | null>(null);
+  let uploadingReplyKey = $state<string | null>(null);
+  let pinningTaskId = $state<number | null>(null);
   let selectedImageUrl = $state<string | null>(null);
   let pastedImage = $state<Uint8Array | null>(null);
   let pastedImageUrl = $state<string | null>(null);
   let showTaskTrash = $state(false);
-  let trashTasks = $state<Array<{ id: number; text: string; done: boolean; position: number; created_at?: string | null; deleted_at?: string | null; assigned_by: string | null; images: TaskImageRef[] }>>([]);
+  let trashTasks = $state<Array<{ id: number; text: string; done: boolean; position: number; pinned: boolean; created_at?: string | null; deleted_at?: string | null; assigned_by: string | null; images: TaskImageRef[] }>>([]);
   let loadingTrash = $state(false);
+  // Replies (1 nivel, cloud)
+  let taskReplies = $state<Map<number, TaskReply[]>>(new Map());
+  let replyDraft = $state<Record<number, string>>({});
+  let replyOpen = $state<Set<number>>(new Set());
+  let loadingReplies = $state<Set<number>>(new Set());
 
   let taskSortRecentFirst = $state(true);
 
+  let pinnedCount = $derived(tasks.filter(t => t.pinned).length);
   let sortedTasks = $derived([...tasks].sort((a, b) => {
+    const aPinned = !!(a as any).pinned;
+    const bPinned = !!(b as any).pinned;
+    if (aPinned !== bPinned) return Number(bPinned) - Number(aPinned);
     if (a.done !== b.done) return Number(a.done) - Number(b.done);
     const ta = a.created_at ?? null;
     const tb = b.created_at ?? null;
@@ -70,6 +84,27 @@
       await loadTasks();
     } catch {}
   }
+  async function togglePin(id: number) {
+    const task = tasks.find(t => t.id === id);
+    if (!task || pinningTaskId !== null) return;
+    const willPin = !(task as any).pinned;
+    if (willPin && pinnedCount >= 3) {
+      appStore.showToast('Máximo 3 tareas fijadas', 'error');
+      return;
+    }
+    pinningTaskId = id;
+    try {
+      await api.updateTask(id, { pinned: willPin });
+      await loadTasks();
+      appStore.showToast(willPin ? 'Tarea fijada ★' : 'Tarea desfijada', 'success');
+    } catch (e: any) {
+      const msg = e?.message || String(e);
+      if (msg.includes('Máximo 3')) appStore.showToast('Máximo 3 tareas fijadas', 'error');
+      else appStore.showToast('Error al fijar: ' + msg, 'error');
+    } finally {
+      pinningTaskId = null;
+    }
+  }
   async function removeTask(id: number) {
     try {
       await api.deleteTask(id);
@@ -115,6 +150,84 @@
       await api.deleteTaskImage(taskId, imageId);
       await loadTasks();
     } catch {}
+  }
+
+  // ── Replies helpers ──
+  async function loadReplies(taskId: number) {
+    if (loadingReplies.has(taskId)) return;
+    loadingReplies.add(taskId);
+    loadingReplies = new Set(loadingReplies);
+    try {
+      const replies = await api.listTaskReplies(taskId);
+      taskReplies.set(taskId, replies);
+      taskReplies = new Map(taskReplies);
+    } catch {} finally {
+      loadingReplies.delete(taskId);
+      loadingReplies = new Set(loadingReplies);
+    }
+  }
+  function toggleReplyThread(taskId: number) {
+    if (replyOpen.has(taskId)) {
+      replyOpen.delete(taskId);
+      replyOpen = new Set(replyOpen);
+    } else {
+      replyOpen.add(taskId);
+      replyOpen = new Set(replyOpen);
+      loadReplies(taskId);
+    }
+  }
+  async function sendReply(taskId: number) {
+    const text = (replyDraft[taskId] || '').trim();
+    if (!text) return;
+    try {
+      await api.createTaskReply(taskId, { text, assigned_by: appStore.user?.user_name || null });
+      replyDraft[taskId] = '';
+      replyDraft = { ...replyDraft };
+      await loadReplies(taskId);
+      await loadTasks();
+    } catch (e:any) { appStore.showToast('Error: '+(e.message||e), 'error'); }
+  }
+  async function toggleReplyDone(taskId: number, replyId: number) {
+    const list = taskReplies.get(taskId) || [];
+    const r = list.find(x=> x.id===replyId);
+    if (!r) return;
+    try {
+      await api.updateTaskReply(taskId, replyId, { done: !r.done });
+      await loadReplies(taskId);
+    } catch {}
+  }
+  async function removeReply(taskId: number, replyId: number) {
+    try {
+      await api.deleteTaskReply(taskId, replyId);
+      await loadReplies(taskId);
+      await loadTasks();
+    } catch {}
+  }
+  function triggerReplyImageUpload(taskId: number, replyId: number) {
+    pendingReplyUpload = { taskId, replyId };
+    replyImageFileInput?.click();
+  }
+  async function handleReplyFileSelected(e: Event) {
+    const target = e.target as HTMLInputElement;
+    const file = target.files?.[0];
+    const pending = pendingReplyUpload;
+    pendingReplyUpload = null;
+    if (!file || !pending) return;
+    const key = `${pending.taskId}:${pending.replyId}`;
+    try {
+      uploadingReplyKey = key;
+      const buf = await file.arrayBuffer();
+      const data = new Uint8Array(buf);
+      await api.uploadTaskReplyImage(pending.taskId, pending.replyId, data, file.name);
+      await loadReplies(pending.taskId);
+    } catch (err:any) { appStore.alert('Error al subir imagen: '+(err.message||err)); }
+    finally { uploadingReplyKey = null; target.value=''; }
+  }
+  async function removeReplyImage(taskId: number, replyId: number, imageId: number) {
+    try { await api.deleteTaskReplyImage(taskId, replyId, imageId); await loadReplies(taskId); } catch {}
+  }
+  function openReplyImage(taskId: number, replyId: number, imageId: number, url?: string|null) {
+    selectedImageUrl = url ?? api.getTaskReplyImageViewUrl(taskId, replyId, imageId);
   }
 
   function handleTaskPaste(e: ClipboardEvent) {
@@ -767,7 +880,7 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
           </button>
           {#if !showTaskTrash}
-            <span class="card-badge">{taskDone}/{taskCount} · {taskPct}%</span>
+            <span class="card-badge">{#if pinnedCount}<span class="badge-pin">★ {pinnedCount}/3</span> · {/if}{taskDone}/{taskCount} · {taskPct}%</span>
           {:else}
             <button class="card-back-btn" onclick={toggleTaskTrash} aria-label="Volver">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
@@ -809,12 +922,23 @@
       {:else}
         <div class="task-list">
         {#each sortedTasks as task (task.id)}
-          <div class="task-item" class:done={task.done}>
+          {@const hasReplies = (task.reply_count ?? 0) > 0 || (taskReplies.get(task.id)?.length ?? 0) > 0}
+          {@const rc = hasReplies ? (task.reply_count ?? taskReplies.get(task.id)?.length ?? 0) : 0}
+          <div class="task-item" class:done={task.done} class:pinned={(task as any).pinned}>
             <button class="task-check" onclick={() => toggleTask(task.id)} aria-label="Marcar tarea">
               {#if task.done}
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="#22c55e" stroke="none"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
               {:else}
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ccc" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+              {/if}
+            </button>
+            <button class="task-pin-btn" class:pinned={(task as any).pinned} class:pinning={pinningTaskId === task.id} onclick={() => togglePin(task.id)} aria-pressed={(task as any).pinned} aria-label={(task as any).pinned ? 'Desfijar tarea' : 'Fijar tarea'} title={(task as any).pinned ? 'Desfijar ★' : pinnedCount >= 3 ? 'Máximo 3 fijadas' : 'Fijar como importante ★'} disabled={pinningTaskId === task.id}>
+              {#if pinningTaskId === task.id}
+                <span class="task-upload-spinner" />
+              {:else if (task as any).pinned}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="#f59e0b" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              {:else}
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
               {/if}
             </button>
             <div class="task-content">
@@ -833,6 +957,12 @@
                 </div>
               {/if}
             </div>
+            <button class="task-reply-btn" class:has-replies={hasReplies} onclick={() => toggleReplyThread(task.id)} aria-expanded={replyOpen.has(task.id)} aria-label="Responder" title={hasReplies ? `${rc} respuestas — click para ver` : 'Responder'}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+              {#if hasReplies}
+                <span class="reply-count">{rc > 99 ? "99+" : rc}</span>
+              {/if}
+            </button>
             <button class="task-image-add" onclick={() => triggerImageUpload(task.id)} aria-label="Agregar imagen">
               {#if uploadingTaskId === task.id}
                 <span class="task-upload-spinner" />
@@ -842,6 +972,54 @@
             </button>
             <button class="task-remove" onclick={() => removeTask(task.id)} aria-label="Eliminar tarea">✕</button>
           </div>
+          {#if replyOpen.has(task.id)}
+            <div class="task-thread">
+              {#if loadingReplies.has(task.id)}
+                <div class="thread-loading">Cargando respuestas...</div>
+              {:else}
+                {#each taskReplies.get(task.id) ?? [] as reply (reply.id)}
+                  <div class="thread-reply" class:done={reply.done}>
+                    <button class="thread-check" onclick={() => toggleReplyDone(task.id, reply.id)} aria-label="Marcar respuesta">
+                      {#if reply.done}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#6366f1" stroke="none"><circle cx="12" cy="12" r="10"/><polyline points="8 12 11 15 16 9" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                      {:else}
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#bbb" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+                      {/if}
+                    </button>
+                    <div class="thread-body">
+                      <span class="thread-text">{reply.text}</span>
+                      <span class="thread-meta">{reply.assigned_by ?? ''}{reply.assigned_by ? ' · ' : ''}{reply.created_at ? shortTime(reply.created_at) : ''}</span>
+                      {#if reply.images?.length}
+                        <div class="task-thumbs">
+                          {#each reply.images as img}
+                            <button class="task-thumb" onclick={() => openReplyImage(task.id, reply.id, img.id, img.url)} aria-label="Ver imagen">
+                              <img src={img.url ?? api.getTaskReplyImageViewUrl(task.id, reply.id, img.id)} alt="" loading="lazy" />
+                              <span class="thumb-remove" onclick={(e)=>{e.stopPropagation(); removeReplyImage(task.id, reply.id, img.id);}} role="button" aria-label="Eliminar imagen">✕</span>
+                            </button>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                    <button class="thread-img-add" onclick={() => triggerReplyImageUpload(task.id, reply.id)} aria-label="Agregar imagen a respuesta">
+                      {#if uploadingReplyKey === `${task.id}:${reply.id}`}
+                        <span class="task-upload-spinner" />
+                      {:else}
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                      {/if}
+                    </button>
+                    <button class="thread-del" onclick={() => removeReply(task.id, reply.id)} aria-label="Eliminar respuesta">✕</button>
+                  </div>
+                {/each}
+                {#if (taskReplies.get(task.id)?.length ?? 0) === 0}
+                  <div class="thread-empty">Sin respuestas</div>
+                {/if}
+              {/if}
+              <div class="thread-input-row">
+                <input class="thread-input" type="text" placeholder="Responder..." bind:value={replyDraft[task.id]} onkeydown={(e)=> { if(e.key==='Enter') sendReply(task.id); }} />
+                <button class="thread-send" onclick={() => sendReply(task.id)} aria-label="Enviar respuesta">Enviar</button>
+              </div>
+            </div>
+          {/if}
         {/each}
         {#if tasks.length === 0}
           <div class="task-empty">Sin tareas pendientes</div>
@@ -865,6 +1043,8 @@
 
     <input type="file" accept="image/png,image/jpeg,image/webp" bind:this={imageFileInput}
       onchange={handleFileSelected} class="task-file-input" />
+    <input type="file" accept="image/png,image/jpeg,image/webp" bind:this={replyImageFileInput}
+      onchange={handleReplyFileSelected} class="task-file-input" />
 
     {#if selectedImageUrl}
       <div class="image-preview-overlay" onclick={closeImagePreview} role="dialog" aria-label="Vista previa de imagen">
@@ -1449,6 +1629,15 @@
     transition: color 0.12s, background 0.12s;
   }
   .task-restore-btn:hover { color: #3b82f6; background: rgba(59,130,246,0.08); }
+  .badge-pin { color: #b45309; font-weight: 800; }
+  .task-pin-btn { flex-shrink:0; background:none; border:1px solid transparent; border-radius:.35rem; width:1.65rem; height:1.5rem; display:flex; align-items:center; justify-content:center; color:var(--text-muted,#b0b5c0); cursor:pointer; opacity:0; pointer-events:none; transition:opacity .14s, color .12s, background .12s, border-color .12s; padding:0; }
+  .task-item:hover .task-pin-btn, .task-pin-btn:focus-visible, .task-pin-btn.pinning { opacity:1; pointer-events:auto; }
+  .task-pin-btn:hover:not(:disabled) { border-color:#f59e0b; color:#f59e0b; background:rgba(245,158,11,.08); }
+  .task-pin-btn.pinned { opacity:1; pointer-events:auto; border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.12); }
+  .task-pin-btn.pinned:hover { background:rgba(245,158,11,.18); }
+  .task-pin-btn:disabled { opacity:.6; cursor:default; }
+  .task-item.pinned { border-left:2px solid rgba(245,158,11,.55); background:rgba(245,158,11,.04); margin-left:-.35rem; padding-left:.35rem; border-radius:.25rem; }
+  @media (hover:none) { .task-pin-btn { opacity:1; pointer-events:auto; border-color:var(--border,#e5e7eb); } }
 
   /* ── TAREAS ── */
   .task-list {
@@ -1642,6 +1831,46 @@
     transition: background 0.12s;
   }
   .task-add-btn:hover { background: #16a34a; }
+
+  /* ── Responder / Thread ── */
+  .task-reply-btn {
+    flex-shrink:0; background:none; border:1px solid var(--border, #e5e7eb); border-radius:.35rem; width:1.65rem; height:1.5rem; display:flex; align-items:center; justify-content:center; color:var(--text-muted,#9ca3af); cursor:pointer; opacity:0; transition:opacity .12s, border-color .12s, color .12s; position:relative; padding:0;
+  }
+  .task-item:hover .task-reply-btn { opacity:1; }
+  .task-reply-btn:hover { border-color:#6366f1; color:#6366f1; background:rgba(99,102,241,.06); }
+  .task-reply-btn.has-replies { opacity:1; border-color:#6366f1; color:#6366f1; background:rgba(99,102,241,.08); }
+  .task-reply-btn.has-replies:hover { background:rgba(99,102,241,.14); }
+  /* B — badge sutil premium, perfectamente centrado */
+  .reply-count {
+    position:absolute; top:-0.28rem; right:-0.28rem;
+    display:flex; align-items:center; justify-content:center;
+    min-width:.92rem; height:.92rem; padding:0 .16rem;
+    border-radius:999px; background:#4f46e5; color:#fff; border:1px solid #fff;
+    font-size:.52rem; font-weight:800; letter-spacing:-.02em; line-height:1;
+    box-shadow:0 1px 2px rgba(0,0,0,.16); pointer-events:none;
+  }
+  .reply-count[data-count="1"] { min-width:.92rem; }
+  .task-reply-btn:not(.has-replies) .reply-count { display:none; }
+  .task-thread {
+    margin:0 0 .5rem 1.85rem; padding:.45rem .6rem .5rem; border-left:2.5px solid #6366f1; background:#f8fafc; border-radius:0 .4rem .4rem 0; display:flex; flex-direction:column; gap:.35rem;
+  }
+  .thread-loading, .thread-empty { font-size:.75rem; color:var(--text-muted,#9ca3af); font-style:italic; padding:.2rem 0; }
+  .thread-reply { display:flex; align-items:center; gap:.4rem; padding:.3rem .45rem; background:#fff; border:1px solid #eef2f7; border-radius:.4rem; }
+  .thread-reply.done { opacity:.62; }
+  .thread-reply.done .thread-text { text-decoration:line-through; color:var(--text-muted,#9ca3af); }
+  .thread-check { flex-shrink:0; background:none; border:none; cursor:pointer; padding:0; display:flex; align-items:center; }
+  .thread-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:.15rem; }
+  .thread-text { font-size:.82rem; color:var(--text-primary,#111827); word-break:break-word; }
+  .thread-meta { font-size:.65rem; color:var(--text-muted,#9ca3af); }
+  .thread-img-add, .thread-del { flex-shrink:0; background:none; border:none; cursor:pointer; padding:.15rem .25rem; border-radius:.25rem; color:var(--text-muted,#9ca3af); font-size:.7rem; opacity:0; transition:opacity .12s; }
+  .thread-reply:hover .thread-img-add, .thread-reply:hover .thread-del { opacity:1; }
+  .thread-img-add:hover { color:#6366f1; background:rgba(99,102,241,.08); }
+  .thread-del:hover { color:#ef4444; background:rgba(239,68,68,.08); }
+  .thread-input-row { display:flex; gap:.35rem; margin-top:.15rem; }
+  .thread-input { flex:1; padding:.35rem .5rem; border:1.5px solid var(--border,#e5e7eb); border-radius:.35rem; font-size:.82rem; outline:none; background:#fff; }
+  .thread-input:focus { border-color:#6366f1; }
+  .thread-send { padding:.35rem .7rem; border:none; border-radius:.35rem; background:#6366f1; color:#fff; font-size:.75rem; font-weight:600; cursor:pointer; }
+  .thread-send:hover { background:#4f46e5; }
 
   .image-preview-overlay {
     position: fixed;

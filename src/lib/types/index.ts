@@ -235,6 +235,9 @@ export interface Factura {
   impresa_at?: string | null;
   impresa_por?: string | null;
   impresa_count?: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+  deleted_at?: string | null;
 }
 
 export interface OnlineUser {

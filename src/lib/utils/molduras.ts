@@ -22,6 +22,14 @@ export interface CardItem {
   correctionInherited?: boolean;
 }
 
+// ── Helpers materiales ──
+export function hasMaterialItems(card: { items: CardItem[] }): boolean {
+  return card.items.some(it => !it.isNonMolding && !it.isCirculo && !it.isTapacanto);
+}
+export function shouldHideMaterialsTable(card: { items: CardItem[] }): boolean {
+  return !hasMaterialItems(card);
+}
+
 // ── Círculos ──
 export function isCirculoDesc(desc: string): boolean {
   return /c[ií]rcul[oa]s?\b/i.test(desc) || /circular/i.test(desc);
@@ -77,7 +85,9 @@ export function parse2DItem(desc: string): { w: number; h: number; label: string
   return { w, h, label: rest || 'Marco' };
 }
 
-function largueroCount(longer: number): number {
+function largueroCount(longer: number, shorter?: number): number {
+  // Regla especial: lado corto >=50 y lado largo 75..79 (inclusivo continuo) => 1 larguero, 0 travesaños
+  if (shorter !== undefined && shorter >= 50 && longer >= 75 && longer <= 79) return 1;
   if (longer < 90) return 0;
   if (longer >= 90 && longer <= 129) return 1;
   if (longer >= 130 && longer < 201) return 2;
@@ -114,7 +124,7 @@ export interface MolduraFormula {
 export function getMolduraFormula(w: number, h: number, qty: number = 1): MolduraFormula {
   const longer = Math.max(w, h);
   const shorter = Math.min(w, h);
-  const largueros = largueroCount(longer);
+  const largueros = largueroCount(longer, shorter);
   const filas = filaCount(shorter);
   const larguero_cm = computeLarCm(shorter);
 
@@ -418,7 +428,7 @@ export function getCortesVarilla(item: {
   const shorter = Math.min(w, h);
   const qty = item.cantidad || 1;
 
-  let largueros = largueroCount(longer);
+  let largueros = largueroCount(longer, shorter);
   let filas = filaCount(shorter);
 
   if (item.larguero !== undefined) {
@@ -431,8 +441,8 @@ export function getCortesVarilla(item: {
   return { larga: largueros, corta: filas };
 }
 
-export function calcLargueros(longer: number): number {
-  return largueroCount(longer);
+export function calcLargueros(longer: number, shorter?: number): number {
+  return largueroCount(longer, shorter);
 }
 
 export function calcFilas(shorter: number): number {
@@ -442,7 +452,7 @@ export function calcFilas(shorter: number): number {
 export function buildFrameSvgForDim(w: number, h: number): string {
   const longer = Math.max(w, h);
   const shorter = Math.min(w, h);
-  const largueros = calcLargueros(longer);
+  const largueros = calcLargueros(longer, shorter);
   const filas = calcFilas(shorter);
   const sLarge = Math.max(largueros, 1);
 
@@ -645,7 +655,17 @@ export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'l
     ? `<div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div><div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-left:10px;'></div>`
     : `<div style='background:#fff;width:54px;height:45px;border-radius:4px;flex-shrink:0;margin-right:10px;'></div><div style='flex:1;'><div class='client-name'>${cliente}</div><div class='order-id'>${card.num}</div></div>`;
 
-  const matBody = buildMatRows(card);
+  const hasOnlyCirculosForPdf = card.items.some(it => it.isCirculo) && card.items.filter(it => !it.isNonMolding || it.isTapacanto || it.isCirculo).every(it => it.isCirculo);
+  const hideMaterials = shouldHideMaterialsTable(card) && !hasOnlyCirculosForPdf;
+  const matSection = hideMaterials
+    ? ''
+    : `<table class='mat-table'>
+    <thead>
+      <tr><th colspan='2' class='th-var'>VARILLA</th><th colspan='2' class='th-lar'>LARGUERO</th><th colspan='2' class='th-tra'>TRAV.</th></tr>
+      <tr><th width='12%' class='td-var'>#</th><th width='21%' class='td-var'>CM</th><th width='12%' class='td-lar'>#</th><th width='21%' class='td-lar'>CM</th><th width='12%' class='td-tra'>#</th><th width='21%' class='td-tra'>CM</th></tr>
+    </thead>
+    <tbody>${buildMatRows(card)}</tbody>
+  </table>`;
 
   return `
 <div class='card' data-card-idx='${idx}'>
@@ -655,13 +675,7 @@ export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'l
   <table class='summary-table'>
     <tbody>${summaryRows}</tbody>
   </table>
-  <table class='mat-table'>
-    <thead>
-      <tr><th colspan='2' class='th-var'>VARILLA</th><th colspan='2' class='th-lar'>LARGUERO</th><th colspan='2' class='th-tra'>TRAV.</th></tr>
-      <tr><th width='12%' class='td-var'>#</th><th width='21%' class='td-var'>CM</th><th width='12%' class='td-lar'>#</th><th width='21%' class='td-lar'>CM</th><th width='12%' class='td-tra'>#</th><th width='21%' class='td-tra'>CM</th></tr>
-    </thead>
-    <tbody>${matBody}</tbody>
-  </table>
+  ${matSection}
 </div>`;
 }
 

@@ -586,9 +586,29 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
   const slPriority = (desc: string): boolean =>
     /(?:^|[ (])[SL][a-záéíóúñ]{2,}/i.test(desc);
 
+  // Token relevance: word-start (do->doble) vale más que substring dentro de otra palabra (bastidor contiene do)
+  const tokenScore = (queryBase: string, desc: string): number => {
+    const q = normalizeText(queryBase).trim();
+    if (!q) return 0;
+    const qTokens = q.split(/\s+/).filter(t => t.length >= 2);
+    if (qTokens.length === 0) return 0;
+    const dNorm = normalizeText(desc);
+    const dWords = dNorm.split(/\s+/);
+    let score = 0;
+    for (const qt of qTokens) {
+      if (dWords.some(w => w.startsWith(qt))) score += 10;
+      else if (dWords.some(w => w.includes(qt))) score += 5;
+      else if (dNorm.includes(qt)) score += 1;
+    }
+    return score;
+  };
+
   const exactMatches = productsWithDims
     .filter(pd => pd.dimSmall === roundedSmall && pd.dimLarge === roundedLarge)
     .sort((a, b) => {
+      const sa = tokenScore(base, a.product.descripcion);
+      const sb = tokenScore(base, b.product.descripcion);
+      if (sa !== sb) return sb - sa;
       const aPrio = slPriority(a.product.descripcion) ? 0 : 1;
       const bPrio = slPriority(b.product.descripcion) ? 0 : 1;
       return aPrio - bPrio;
@@ -604,6 +624,9 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
   } else {
     const targetPerimeter = 2 * (roundedSmall + roundedLarge);
     const sorted = [...productsWithDims].sort((a, b) => {
+      const sa = tokenScore(base, a.product.descripcion);
+      const sb = tokenScore(base, b.product.descripcion);
+      if (sa !== sb) return sb - sa;
       const aPrio = slPriority(a.product.descripcion) ? 0 : 1;
       const bPrio = slPriority(b.product.descripcion) ? 0 : 1;
       if (aPrio !== bPrio) return aPrio - bPrio;

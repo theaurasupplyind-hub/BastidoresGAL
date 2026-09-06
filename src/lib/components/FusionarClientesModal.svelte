@@ -60,15 +60,18 @@
     if (!targetId || sourceIds.length === 0) return;
     if (!confirm(`¿Fusionar ${sourceIds.length} cliente(s) en "${targetCliente?.nombre}"?\n\nSe transferirán todas sus facturas y direcciones.\nLos clientes origen serán eliminados.`)) return;
     merging = true;
-    stepText = 'Buscando facturas...';
+    stepText = 'Reasignando facturas y direcciones...';
     try {
       await api.mergeClients(sourceIds, targetId);
       appStore.showToast(`Fusionados ${sourceIds.length} cliente(s) en "${targetCliente?.nombre}"`, 'success');
       sourceIds = [];
       targetId = null;
       onsaved?.();
-    } catch (e) {
-      appStore.showToast(String(e), 'error');
+    } catch (e: any) {
+      const raw = e?.message || String(e);
+      // Mensaje ya viene legible desde client.ts (detail extraído + dirección)
+      const msg = raw.replace(/^Error \d+:\s*/, '').trim() || raw;
+      appStore.showToast(msg.length > 500 ? msg.slice(0, 500) : msg, 'error');
     } finally {
       merging = false;
       stepText = '';

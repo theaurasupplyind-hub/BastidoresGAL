@@ -1,4 +1,8 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.74': `🧹 Presupuestos sin confirmar se archivan solos a los 15 días
+📌 Tareas con chincheta y respuestas con fotos
+🧩 Fusionar clientes más seguro, sin duplicar direcciones
+📐 Molduras más prolijas y precios sugeridos más precisos`,
   '2.3.73': `○ Círculos en molduras: productos con "círculo/circulo/circular" (con/sin tilde, plural) ahora entran a molduras y al PDF como producto a hacer, sin varilla/larguero/travesaño — solo fila resumen Ø30
 • Promos en molduras: si la descripción trae "Promo N x M" (ej. 4 x 3, 10 x 8), N se usa como cantidad de bastidores por unidad y se multiplica por cantidad del item (2 promos 4x3 = 8 bastidores) — busca la medida real del bastidor en cualquier token de la descripción
 • Fix: promo ya no duplica "PROMO 4X3 · PROMO 4X3 ..." en tarjeta/PDF, ahora "PROMO 4X3 · LIENZO PROFESIONAL"`,

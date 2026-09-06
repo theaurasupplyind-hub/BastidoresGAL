@@ -5,7 +5,7 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData } from '$lib/utils/molduras';
+  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData, hasMaterialItems } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
   import MoldurasReorderModal from '$lib/components/MoldurasReorderModal.svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -523,44 +523,46 @@
                 </table>
               </div>
 
-              <div class="mol-materials">
-                <table class="mol-materials-table">
-                  <thead>
-                    <tr>
-                      <th colspan="2" class="th-var">VARILLA</th>
-                      <th colspan="2" class="th-lar">LARGUERO</th>
-                      <th colspan="2" class="th-tra">TRAV.</th>
-                    </tr>
-                    <tr>
-                      <th class="td-var">#</th>
-                      <th class="td-var">CM</th>
-                      <th class="td-lar">#</th>
-                      <th class="td-lar">CM</th>
-                      <th class="td-tra">#</th>
-                      <th class="td-tra">CM</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {#each buildMatRowsData(card) as row}
+              {#if hasMaterialItems(card)}
+                <div class="mol-materials">
+                  <table class="mol-materials-table">
+                    <thead>
                       <tr>
-                        <td class="td-var td-val">{row.varilla.qty}</td>
-                        <td class="td-var td-val">{row.varilla.cm}</td>
-                        {#if row.arrow}
-                          <td class="td-lar tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
-                          <td class="td-tra td-val">{row.travesano?.qty ?? ''}</td>
-                          <td class="td-tra td-val">{row.travesano?.cm ?? ''}</td>
-                        {:else}
-                          <td class="td-lar td-val">{row.larguero?.qty ?? ''}</td>
-                          <td class="td-lar td-val">{row.larguero?.cm ?? ''}</td>
-                          <td class="td-tra tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
-                        {/if}
+                        <th colspan="2" class="th-var">VARILLA</th>
+                        <th colspan="2" class="th-lar">LARGUERO</th>
+                        <th colspan="2" class="th-tra">TRAV.</th>
                       </tr>
-                    {:else}
-                      <tr><td colspan="6" class="mat-empty">Sin materiales</td></tr>
-                    {/each}
-                  </tbody>
-                </table>
-              </div>
+                      <tr>
+                        <th class="td-var">#</th>
+                        <th class="td-var">CM</th>
+                        <th class="td-lar">#</th>
+                        <th class="td-lar">CM</th>
+                        <th class="td-tra">#</th>
+                        <th class="td-tra">CM</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each buildMatRowsData(card) as row}
+                        <tr>
+                          <td class="td-var td-val">{row.varilla.qty}</td>
+                          <td class="td-var td-val">{row.varilla.cm}</td>
+                          {#if row.arrow}
+                            <td class="td-lar tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
+                            <td class="td-tra td-val">{row.travesano?.qty ?? ''}</td>
+                            <td class="td-tra td-val">{row.travesano?.cm ?? ''}</td>
+                          {:else}
+                            <td class="td-lar td-val">{row.larguero?.qty ?? ''}</td>
+                            <td class="td-lar td-val">{row.larguero?.cm ?? ''}</td>
+                            <td class="td-tra tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
+                          {/if}
+                        </tr>
+                      {:else}
+                        <tr><td colspan="6" class="mat-empty">Sin materiales</td></tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
             </div>
           </div>
         {/each}
@@ -627,6 +629,7 @@
           <h4 style="color:#27ae60;">Largueros (L)</h4>
           <p>Cantidad según el lado <strong>más largo</strong>:</p>
           <ul>
+            <li><strong>Regla especial:</strong> lado corto ≥ 50 cm y lado largo 75 – 79 cm → 1 larguero (0 travesaños)</li>
             <li>90 – 129 cm → 1 larguero</li>
             <li>130 cm – &lt; 201 cm → 2 largueros</li>
             <li>≥ 201 cm → 3 largueros</li>

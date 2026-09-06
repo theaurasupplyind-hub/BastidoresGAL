@@ -54,6 +54,9 @@
     cacheStore.fetch('productos', () => api.listProductos(), 1800000).catch(() => {});
     cacheStore.fetch('pagos', () => api.listPagos(), 120000).catch(() => {});
     cacheStore.fetch('preciosReferencia', () => api.getPreciosReferencia(), 1800000).catch(() => {});
+    // Purga automática de NO_CONFIRMADO >15 días (soft-delete a papelera, throttled 12h)
+    // Fire-and-forget; no bloquea login. Usa backend si existe, si no fallback local.
+    import('$lib/utils/purgeNoConfirmadas').then(m => m.purgeNoConfirmadasVencidas({ silent: false }).catch(() => {})).catch(() => {});
   }
 
   function handleLogin(user: { user_id: number; user_name: string }) {

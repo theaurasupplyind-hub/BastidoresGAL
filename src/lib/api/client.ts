@@ -29,7 +29,18 @@ async function request<T>(
 
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
+      let detail = text;
+      try {
+        const j = JSON.parse(text);
+        if (j?.detail) {
+          if (Array.isArray(j.detail)) {
+            detail = j.detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join(' | ');
+          } else if (typeof j.detail === 'string') detail = j.detail;
+          else detail = JSON.stringify(j.detail);
+        } else if (j?.message) detail = j.message;
+      } catch {}
+      const short = detail.length > 400 ? detail.slice(0, 400) : detail;
+      throw new Error(short ? `Error ${res.status}: ${short}` : `Error ${res.status}`);
     }
 
     if (res.status === 204) return undefined as T;
@@ -80,39 +91,87 @@ export const api = {
 
   mergeClients: async (sourceIds: number[], targetId: number) => {
     const facturas = await api.listFacturas({ limit: 2000 });
-    const addressesCache = new Map<number, import('$lib/types').ClientAddress[]>();
+    const errors: string[] = [];
+    // Cache de direcciones del destino para dedup (idénticas = mismo address+extra+label normalizados)
+    const targetAddrs = await api.listAddresses(targetId);
+    const norm = (v: any) => (v == null ? '' : String(v).trim());
+    const keyOf = (a: { address: string; extra?: string | null; label?: string | null }) =>
+      `${norm(a.address).toLowerCase()}|${norm(a.extra).toLowerCase()}|${norm(a.label).toLowerCase()}`;
+    const targetKeys = new Set(targetAddrs.map(keyOf));
+    const targetHasDefault = targetAddrs.some(a => a.is_default);
 
     for (const sid of sourceIds) {
       const srcFacturas = facturas.filter(f => f.cliente_id === sid);
       for (const inv of srcFacturas) {
-        await request('PATCH', `/invoices/${inv.id}`, { cliente_id: targetId });
+        try {
+          await request('PATCH', `/invoices/${inv.id}`, { cliente_id: targetId });
+        } catch (e: any) {
+          errors.push(`Factura ${inv.numero_factura || inv.id}: ${e.message || String(e)}`);
+        }
       }
 
-      if (!addressesCache.has(sid)) {
-        addressesCache.set(sid, await api.listAddresses(sid));
+      let dirs: import('$lib/types').ClientAddress[] = [];
+      try {
+        dirs = await api.listAddresses(sid);
+      } catch (e: any) {
+        errors.push(`No se pudieron leer direcciones de cliente ${sid}: ${e.message || String(e)}`);
+        dirs = [];
       }
-      const dirs = addressesCache.get(sid)!;
+
       for (const d of dirs) {
-        await api.addAddress(targetId, {
-          address: d.address,
-          extra: d.extra,
-          label: d.label,
-          is_default: d.is_default,
-          lat: d.lat,
-          lng: d.lng,
-        });
-        await api.deleteAddress(sid, d.id);
+        const address = norm(d.address);
+        if (!address) {
+          try { await api.deleteAddress(sid, d.id); } catch {}
+          continue;
+        }
+        const extra = norm(d.extra);
+        const label = norm(d.label);
+        const key = `${address.toLowerCase()}|${extra.toLowerCase()}|${label.toLowerCase()}`;
+        if (targetKeys.has(key)) {
+          // Idéntica -> deduplicar, solo borrar origen
+          try { await api.deleteAddress(sid, d.id); } catch (e: any) {
+            errors.push(`Dirección duplicada '${address}' no se pudo eliminar del origen: ${e.message || String(e)}`);
+          }
+          continue;
+        }
+        // Diferente -> acumular en destino, siempre is_default false para no robar default
+        try {
+          await api.addAddress(targetId, {
+            address,
+            extra: extra || undefined,
+            label: label || undefined,
+            is_default: false,
+            lat: d.lat ?? null,
+            lng: d.lng ?? null,
+          });
+          targetKeys.add(key);
+          await api.deleteAddress(sid, d.id);
+        } catch (e: any) {
+          const msg = e.message || String(e);
+          errors.push(`Dirección '${address}${extra ? ' - ' + extra : ''}': ${msg}`);
+          // No borrar origen si falló el copiado, para no perder datos
+        }
       }
 
       try {
         await api.deleteCliente(sid);
       } catch {
-        // If it still fails, force-delete via raw fetch
-        const res = await tauriFetch(`${API_URL}/clients/${sid}?force=true`, { method: 'DELETE' });
-        if (![200, 204].includes(res.status)) {
-          throw new Error(`No se pudo eliminar el cliente ${sid} incluso después de reasignar sus datos.`);
+        try {
+          const res = await tauriFetch(`${API_URL}/clients/${sid}?force=true`, { method: 'DELETE' });
+          if (![200, 204].includes(res.status)) {
+            const t = await res.text().catch(() => '');
+            errors.push(`No se pudo eliminar cliente ${sid}: ${t || res.status}`);
+          }
+        } catch (e: any) {
+          errors.push(`No se pudo eliminar cliente ${sid}: ${e.message || String(e)}`);
         }
       }
+    }
+
+    // Si el destino no tenía default y se copiaron direcciones, no promovemos automáticamente para respetar el default de Claudio Quiroga
+
+    if (errors.length > 0) {
+      throw new Error(errors.join(' | '));
     }
   },
 
@@ -280,6 +339,9 @@ export const api = {
 
   patchInvoiceField: (id: number, field: string, value: string) =>
     request('PATCH', `/invoices/${id}`, { [field]: value }),
+
+  cleanupNoConfirmadas: (days = 15) =>
+    request<{ deleted: number; ids: number[] }>('POST', `/invoices/cleanup-no-confirmado?days=${days}`, undefined, 25).catch(() => ({ deleted: 0, ids: [] as number[] })),
 
   setImpresas: (ids: number[], mark: boolean, user_name?: string) =>
     request<{ status: string; count: number }>('POST', '/invoices/print/batch', {
@@ -476,19 +538,19 @@ export const api = {
 
   // ---- Tasks ----
   listTasks: () =>
-    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: TaskImageRef[] }[]>('GET', '/tasks', undefined, 10), [] as any[]),
+    handleResponse(request<{ id: number; text: string; done: boolean; position: number; pinned: boolean; created_at: string | null; assigned_by: string | null; images: TaskImageRef[]; reply_count?: number }[]>('GET', '/tasks', undefined, 10), [] as any[]),
 
-  createTask: (data: { text: string; assigned_by?: string }) =>
-    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: TaskImageRef[] }>('POST', '/tasks', data),
+  createTask: (data: { text: string; assigned_by?: string; pinned?: boolean }) =>
+    request<{ id: number; text: string; done: boolean; position: number; pinned: boolean; created_at: string | null; assigned_by: string | null; images: TaskImageRef[] }>('POST', '/tasks', data),
 
-  updateTask: (id: number, data: { text?: string; done?: boolean; position?: number }) =>
-    request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; assigned_by: string | null; images: TaskImageRef[] }>('PUT', `/tasks/${id}`, data),
+  updateTask: (id: number, data: { text?: string; done?: boolean; position?: number; pinned?: boolean }) =>
+    request<{ id: number; text: string; done: boolean; position: number; pinned: boolean; created_at: string | null; assigned_by: string | null; images: TaskImageRef[] }>('PUT', `/tasks/${id}`, data),
 
   deleteTask: (id: number) =>
     request<{ status: string }>('DELETE', `/tasks/${id}`),
 
-listTaskTrash: () =>
-    handleResponse(request<{ id: number; text: string; done: boolean; position: number; created_at: string | null; deleted_at: string | null; assigned_by: string | null; images: TaskImageRef[] }[]>('GET', '/tasks/trash'), [] as any[]),
+ listTaskTrash: () =>
+    handleResponse(request<{ id: number; text: string; done: boolean; position: number; pinned: boolean; created_at: string | null; deleted_at: string | null; assigned_by: string | null; images: TaskImageRef[] }[]>('GET', '/tasks/trash'), [] as any[]),
 
   restoreTask: (id: number) =>
     request<{ status: string }>('POST', '/tasks/' + id + '/restore'),
@@ -510,6 +572,34 @@ listTaskTrash: () =>
 
   deleteTaskImage: (taskId: number, imageId: number) =>
     request<{ status: string }>('DELETE', `/tasks/${taskId}/images/${imageId}`),
+
+  // ---- Task Replies (1 nivel, múltiples por tarea) ----
+  listTaskReplies: (taskId: number) =>
+    handleResponse(request<{ id: number; task_id: number; text: string; done: boolean; assigned_by: string | null; created_at: string | null; images: TaskImageRef[] }[]>('GET', `/tasks/${taskId}/replies`, undefined, 10), [] as any[]),
+
+  createTaskReply: (taskId: number, data: { text: string; assigned_by?: string | null }) =>
+    request<{ id: number; task_id: number; text: string; done: boolean; assigned_by: string | null; created_at: string | null; images: TaskImageRef[] }>('POST', `/tasks/${taskId}/replies`, data),
+
+  updateTaskReply: (taskId: number, replyId: number, data: { text?: string; done?: boolean }) =>
+    request<{ id: number; task_id: number; text: string; done: boolean; assigned_by: string | null; created_at: string | null; images: TaskImageRef[] }>('PUT', `/tasks/${taskId}/replies/${replyId}`, data),
+
+  deleteTaskReply: (taskId: number, replyId: number) =>
+    request<{ status: string }>('DELETE', `/tasks/${taskId}/replies/${replyId}`),
+
+  async uploadTaskReplyImage(taskId: number, replyId: number, file: Uint8Array, name: string) {
+    const formData = new FormData();
+    formData.append('file', new Blob([file], { type: 'image/webp' }), name);
+    const url = `${API_URL}/tasks/${taskId}/replies/${replyId}/images`;
+    const resp = await tauriFetch(url, { method: 'POST', body: formData });
+    if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }
+    return resp.json();
+  },
+
+  getTaskReplyImageViewUrl: (taskId: number, replyId: number, imageId: number) =>
+    `${API_URL}/tasks/${taskId}/replies/${replyId}/images/${imageId}/view`,
+
+  deleteTaskReplyImage: (taskId: number, replyId: number, imageId: number) =>
+    request<{ status: string }>('DELETE', `/tasks/${taskId}/replies/${replyId}/images/${imageId}`),
 
   // ---- Notes ----
   getNotes: () =>
