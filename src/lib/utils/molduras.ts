@@ -22,6 +22,32 @@ export interface CardItem {
   correctionInherited?: boolean;
 }
 
+// ── Reglas "Sin materiales" (configurables por keyword) ──
+export function normalizeMaterialText(s: string): string {
+  return (s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export type ExcludeRuleInput = string | { keyword?: string; normalized?: string } | null | undefined;
+
+export function isExcludedByKeywords(desc: string, excludeKeywords?: ExcludeRuleInput[]): boolean {
+  if (!excludeKeywords || excludeKeywords.length === 0) return false;
+  const hay = normalizeMaterialText(desc);
+  if (!hay) return false;
+  for (const r of excludeKeywords) {
+    if (!r) continue;
+    const raw = typeof r === 'string' ? r : (r.normalized || r.keyword || '');
+    const n = normalizeMaterialText(raw);
+    if (!n) continue;
+    if (hay.includes(n)) return true;
+  }
+  return false;
+}
+
 // ── Helpers materiales ──
 export function hasMaterialItems(card: { items: CardItem[] }): boolean {
   return card.items.some(it => !it.isNonMolding && !it.isCirculo && !it.isTapacanto);
@@ -274,7 +300,11 @@ export function buildPagedLayout(cards: MeasurableCard[], heights: number[]): Pa
   return pages;
 }
 
-export function hasMolduraItems(f: Factura): boolean {
+export function hasMolduraItems(f: Factura, _excludeKeywords?: ExcludeRuleInput[]): boolean {
+  // Nota: la visibilidad de la factura no cambia por reglas exclude;
+  // solo se suprimen sus materiales en parseCard. Así una factura solo
+  // con Tapiz sigue apareciendo con su descripción en vez de
+  // desaparecer silenciosamente.
   if (!f.items || f.items.length === 0) return false;
   const doneSet = new Set<number>();
   try {
@@ -293,7 +323,7 @@ export function hasMolduraItems(f: Factura): boolean {
   return false;
 }
 
-export function parseCard(f: Factura): {
+export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[]): {
   id: number;
   num: string;
   cliente: string;
@@ -314,6 +344,57 @@ export function parseCard(f: Factura): {
     const it = f.items[i];
     const desc = it.descripcion || '';
     if (/rollo/i.test(desc)) continue;
+
+    // Regla configurable "Sin materiales": gana sobre el patrón A x B.
+    // Tapacanto/Círculo se conservan con su subtipo para no perder su display.
+    if (isExcludedByKeywords(desc, excludeKeywords)) {
+      if (/tapacanto/i.test(desc)) {
+        items.push({
+          cantidad: it.cantidad,
+          medida: desc,
+          tipo: 'Tapacanto',
+          isNonMolding: true,
+          isTapacanto: true,
+        });
+      } else if (isCirculoDesc(desc)) {
+        items.push({
+          cantidad: it.cantidad,
+          medida: parseCirculoMedida(desc),
+          tipo: 'Círculo',
+          isCirculo: true,
+        });
+      } else {
+        // Sin materiales por regla: se muestra el nombre del producto con su
+        // medida, sin repetir datos. Si trae A x B, la medida va a WxH y el
+        // tipo lleva solo el resto (ej. "CORTE DE TELA 165 X 400" ->
+        // medida "165x400", tipo "CORTE DE TELA"). Sin medida, el tipo queda
+        // vacío porque la medida ya es la descripción completa.
+        const dims = parse2DItem(desc);
+        if (dims && dims.label && dims.label !== 'Marco') {
+          items.push({
+            cantidad: it.cantidad,
+            medida: `${dims.w}x${dims.h}`,
+            tipo: dims.label,
+            isNonMolding: true,
+          });
+        } else if (dims) {
+          items.push({
+            cantidad: it.cantidad,
+            medida: `${dims.w}x${dims.h}`,
+            tipo: desc,
+            isNonMolding: true,
+          });
+        } else {
+          items.push({
+            cantidad: it.cantidad,
+            medida: desc,
+            tipo: '',
+            isNonMolding: true,
+          });
+        }
+      }
+      continue;
+    }
 
     if (/tapacanto/i.test(desc)) {
       items.push({
@@ -385,10 +466,12 @@ export function parseCard(f: Factura): {
       });
       allMats.push(...mats);
     } else {
+      // Sin A x B: la medida ya es la descripción completa, el tipo queda
+      // vacío para no repetir el texto en la fila.
       items.push({
         cantidad: it.cantidad,
         medida: desc,
-        tipo: 'No moldura',
+        tipo: '',
         isNonMolding: true,
       });
     }
@@ -641,7 +724,11 @@ function buildMatRows(card: MeasurableCard): string {
 
 export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'left' | 'right' = 'left'): string {
   const cliente = card.cliente.length > 25 ? card.cliente.slice(0, 25) : card.cliente;
-  const validItems = card.items.filter(it => !it.isNonMolding || it.isTapacanto || it.isCirculo);
+  // El resumen muestra TODOS los productos (incluidos los "Sin materiales",
+  // que salen con su descripción, igual que en pantalla).
+  // Solo la tabla de Varilla/Larguero/Travesaño se oculta (ver hideMaterials).
+  // Los "rollo" nunca llegan a card.items (parseCard los salta), así que no aparecen.
+  const validItems = card.items;
   const summaryRows = validItems.map(it => {
     return `
         <tr>

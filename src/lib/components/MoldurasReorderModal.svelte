@@ -134,7 +134,7 @@
             <tr>
               <td class="pc-qty">{item.cantidad}</td>
               <td class="pc-measure">{item.medida}</td>
-              <td class="pc-type">{item.isNonMolding ? 'No moldura' : item.tipo}</td>
+              <td class="pc-type">{item.tipo}</td>
             </tr>
           {/each}
         </tbody>

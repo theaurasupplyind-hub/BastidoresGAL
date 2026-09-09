@@ -1,4 +1,8 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.75': `⚙️ Molduras: nuevo "Sin materiales" configurable (ej. tapiz, corte de tela) — ya no genera Varilla/Larguero/Travesaño aunque traiga A x B
+🧾 Facturas PDF: se elimina la copia gris duplicada, ahora 2 facturas por hoja A4 y facturas largas en hoja completa
+📍 Panel: muestra domicilio/piso de la primera factura y avisa +N direcciones si el cliente tiene varias
+🧹 Limpieza "No moldura": ahora muestra nombre/medida sin repetir texto ni resucitar materiales por correcciones`,
   '2.3.74': `🧹 Presupuestos sin confirmar se archivan solos a los 15 días
 📌 Tareas con chincheta y respuestas con fotos
 🧩 Fusionar clientes más seguro, sin duplicar direcciones

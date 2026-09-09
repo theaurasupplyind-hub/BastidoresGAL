@@ -92,12 +92,10 @@ fn get_css(style: InvoiceStyle) -> String {
         }
     };
 
-    let grayscale_css = r#"
-.invoice-half.grayscale {
-    filter: grayscale(100%);
-    -webkit-filter: grayscale(100%);
-}
+    let layout_css = r#"
 .invoice-half.full-page { flex: none; height: auto; overflow: visible; }
+.invoice-half-blank {}
+.page-a4.page-full { justify-content: flex-start; }
 "#;
 
     let totals_css = r#"
@@ -106,7 +104,7 @@ fn get_css(style: InvoiceStyle) -> String {
 .grandtotal-line { font-size:22px; font-weight:900; color:#222; white-space:nowrap; }
 "#;
 
-    format!("{}{}{}{}", css, page_css, grayscale_css, totals_css)
+    format!("{}{}{}{}", css, page_css, layout_css, totals_css)
 }
 
 fn is_retirar_item(item: &InvoiceItem) -> bool {
@@ -501,60 +499,76 @@ fn html_to_pdf(html_content: &str, output_pdf: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Arma una hoja A4 con dos mitades distintas (2 facturas por hoja).
+/// `bottom` en `None` deja la mitad inferior en blanco (caso impar / factura única).
+fn push_paired_page(pages_html: &mut String, is_first: &mut bool, top: &str, bottom: Option<&str>) {
+    if *is_first {
+        *is_first = false;
+        pages_html.push_str(r#"<div class="page-a4">"#);
+    } else {
+        pages_html.push_str(r#"<div class="page-a4" style="page-break-before:always">"#);
+    }
+    pages_html.push_str(&format!(
+        r#"
+<div class="invoice-half">{top}</div>
+<div class="cut-indicator"></div>
+<div class="invoice-half invoice-half-blank">{bottom}</div>
+</div>
+"#,
+        top = top,
+        bottom = bottom.unwrap_or(""),
+    ));
+}
+
+/// Hoja exclusiva de hoja completa para una única factura larga.
+/// Las filas siguen y ocupan la hoja, sin duplicar copia.
+fn push_full_page(pages_html: &mut String, is_first: &mut bool, half: &str) {
+    if *is_first {
+        *is_first = false;
+        pages_html.push_str(r#"<div class="page-a4 page-full">"#);
+    } else {
+        pages_html.push_str(r#"<div class="page-a4 page-full" style="page-break-before:always">"#);
+    }
+    pages_html.push_str(&format!(
+        r#"
+<div class="invoice-half full-page">{half}</div>
+</div>
+"#,
+        half = half,
+    ));
+}
+
 pub fn render_invoice_html(data: &InvoiceData) -> String {
     let css = get_css(data.style);
 
     let mut pages_html = String::new();
+    let mut is_first = true;
 
     if data.is_presupuesto {
         let max_rows = 7;
         let chunks: Vec<_> = data.items.chunks(max_rows).collect();
         let chunks = if chunks.is_empty() { vec![&[] as &[InvoiceItem]] } else { chunks };
 
-        for (i, chunk) in chunks.iter().enumerate() {
+        // Cada chunk es una mitad; se apilan de a 2 por hoja.
+        let mut pending: Option<String> = None;
+        for chunk in chunks {
             let page_subtotal: f64 = chunk.iter().map(|i| i.total).sum();
             let half = build_one_half(data, data.style, chunk, page_subtotal);
-
-            if i > 0 {
-                pages_html.push_str(r#"<div class="page-a4" style="page-break-before:always">"#);
+            if let Some(top) = pending.take() {
+                push_paired_page(&mut pages_html, &mut is_first, &top, Some(&half));
             } else {
-                pages_html.push_str(r#"<div class="page-a4">"#);
+                pending = Some(half);
             }
-            pages_html.push_str(&format!(
-                r#"
-<div class="invoice-half">{half}</div>
-<div class="cut-indicator"></div>
-<div class="invoice-half grayscale">{half}</div>
-</div>
-"#,
-                half = half,
-            ));
         }
+        if let Some(top) = pending.take() {
+            push_paired_page(&mut pages_html, &mut is_first, &top, None);
+        }
+    } else if data.items.len() > 7 {
+        let half = build_one_half(data, data.style, &data.items, data.total);
+        push_full_page(&mut pages_html, &mut is_first, &half);
     } else {
         let half = build_one_half(data, data.style, &data.items, data.total);
-
-        if data.items.len() > 7 {
-            pages_html.push_str(&format!(
-                r#"<div class="page-a4">
-<div class="invoice-half full-page">{half}</div>
-</div>
-<div class="page-a4" style="page-break-before:always">
-<div class="invoice-half grayscale full-page">{half}</div>
-</div>
-"#,
-                half = half,
-            ));
-        } else {
-            pages_html.push_str(&format!(
-                r#"<div class="page-a4">
-<div class="invoice-half">{half}</div>
-<div class="cut-indicator"></div>
-<div class="invoice-half grayscale">{half}</div>
-</div>
-"#,
-                half = half,
-            ));
-        }
+        push_paired_page(&mut pages_html, &mut is_first, &half, None);
     }
 
     format!(
@@ -582,6 +596,9 @@ pub fn render_invoices_batch_html(invoices: &[InvoiceData]) -> String {
 
     let mut pages_html = String::new();
     let mut is_first = true;
+    // Mitad pendiente de emparejar: cada factura normal (o chunk de
+    // presupuesto) ocupa una mitad; se emiten de a 2 por hoja.
+    let mut pending: Option<String> = None;
 
     for data in invoices {
         if data.is_presupuesto {
@@ -592,70 +609,33 @@ pub fn render_invoices_batch_html(invoices: &[InvoiceData]) -> String {
             for chunk in chunks {
                 let page_subtotal: f64 = chunk.iter().map(|i| i.total).sum();
                 let half = build_one_half(data, style, chunk, page_subtotal);
-
-                if is_first {
-                    is_first = false;
-                    pages_html.push_str(r#"<div class="page-a4">"#);
+                if let Some(top) = pending.take() {
+                    push_paired_page(&mut pages_html, &mut is_first, &top, Some(&half));
                 } else {
-                    pages_html.push_str(r#"<div class="page-a4" style="page-break-before:always">"#);
+                    pending = Some(half);
                 }
-                pages_html.push_str(&format!(
-                    r#"
-<div class="invoice-half">{half}</div>
-<div class="cut-indicator"></div>
-<div class="invoice-half grayscale">{half}</div>
-</div>
-"#,
-                    half = half,
-                ));
             }
+        } else if data.items.len() > 7 {
+            // Factura larga en lote: ocupa hoja completa exclusiva para no
+            // desbordarse sobre la otra mitad. Primero se vacía el pendiente.
+            if let Some(top) = pending.take() {
+                push_paired_page(&mut pages_html, &mut is_first, &top, None);
+            }
+            let half = build_one_half(data, style, &data.items, data.total);
+            push_full_page(&mut pages_html, &mut is_first, &half);
         } else {
             let half = build_one_half(data, style, &data.items, data.total);
-
-            if data.items.len() > 7 {
-                if is_first {
-                    is_first = false;
-                    pages_html.push_str(&format!(
-                        r#"<div class="page-a4">
-<div class="invoice-half full-page">{half}</div>
-</div>
-"#,
-                        half = half,
-                    ));
-                } else {
-                    pages_html.push_str(&format!(
-                        r#"<div class="page-a4" style="page-break-before:always">
-<div class="invoice-half full-page">{half}</div>
-</div>
-"#,
-                        half = half,
-                    ));
-                }
-                pages_html.push_str(&format!(
-                    r#"<div class="page-a4" style="page-break-before:always">
-<div class="invoice-half grayscale full-page">{half}</div>
-</div>
-"#,
-                    half = half,
-                ));
+            if let Some(top) = pending.take() {
+                push_paired_page(&mut pages_html, &mut is_first, &top, Some(&half));
             } else {
-                if is_first {
-                    is_first = false;
-                    pages_html.push_str(r#"<div class="page-a4">"#);
-                } else {
-                    pages_html.push_str(r#"<div class="page-a4" style="page-break-before:always">"#);
-                }
-                pages_html.push_str(&format!(
-                    r#"
-<div class="invoice-half">{half}</div>
-<div class="cut-indicator"></div>
-<div class="invoice-half grayscale">{half}</div>
-</div>
-"#,
-                    half = half,
-                ));
+                pending = Some(half);
             }
         }
+    }
+
+    // Si quedó una impar, la otra mitad del papel queda en blanco.
+    if let Some(top) = pending.take() {
+        push_paired_page(&mut pages_html, &mut is_first, &top, None);
     }
 
     format!(

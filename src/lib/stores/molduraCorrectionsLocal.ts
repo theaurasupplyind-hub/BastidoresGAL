@@ -158,6 +158,13 @@ export function applyCorrectionsToCard(card: {
 }): void {
   const allMats: CardMaterial[] = [];
   for (const it of card.items) {
+    // Items sin materiales (excluidos por regla, Tapacanto o Círculo) no deben
+    // resucitar materiales vía correcciones.
+    if (it.isNonMolding || it.isCirculo) {
+      it.hasCorrection = false;
+      it.correctionInherited = false;
+      continue;
+    }
     const m = parse2DItem(it.medida);
     if (!m || !m.w || !m.h) continue;
     const formula = calcMaterials(m.w, m.h, it.cantidad);

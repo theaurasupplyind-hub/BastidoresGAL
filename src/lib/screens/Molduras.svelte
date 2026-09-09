@@ -12,6 +12,7 @@
   import { confirm as dialogConfirm } from '@tauri-apps/plugin-dialog';
   import type { CardItem, CardMaterial } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
+  import * as molduraRules from '$lib/stores/molduraMaterialRules';
 
   let loading = $state(false);
   let cards = $state<ParsedCard[]>([]);
@@ -31,6 +32,11 @@
   let addSelected = $state<Set<number>>(new Set());
   let showCorrectionsModal = $state(false);
   let correctionsList = $state<molduraStore.MolduraCorrectionLocal[]>([]);
+  let showRulesModal = $state(false);
+  let rulesList = $state<molduraRules.MolduraExcludeRule[]>([]);
+  let newRuleKw = $state('');
+  let rulesSearch = $state('');
+  let savingRule = $state(false);
   let editLargQty = $state(0);
   let editLargCm = $state(0);
   let editLargNum = $state(0);
@@ -69,7 +75,7 @@
   );
 
   function parseCardLocal(f: Factura): ParsedCard {
-    const p = parseCard(f);
+    const p = parseCard(f, molduraRules.getKeywords());
     const base = { ...p, entrega: f.estado_entrega || 'PENDIENTE', hasCorrection: false };
     molduraStore.applyCorrectionsToCard(base);
     return base;
@@ -80,6 +86,7 @@
     selectedIds = new Set();
     try {
       await molduraStore.load();
+      await molduraRules.load();
       const facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       const pending = facturas.filter(f => f.estado_moldura === 'PENDING' && f.estado_entrega !== 'ENTREGADO');
       cards = pending.map(parseCardLocal);
@@ -398,6 +405,49 @@
     showCorrectionsModal = true;
   }
 
+  async function openRulesModal() {
+    await molduraRules.load();
+    rulesList = molduraRules.getAll();
+    newRuleKw = '';
+    rulesSearch = '';
+    showRulesModal = true;
+  }
+
+  const rulesFiltered = $derived.by(() => {
+    const q = rulesSearch.trim().toLowerCase();
+    if (!q) return rulesList;
+    return rulesList.filter(r => r.keyword.toLowerCase().includes(q));
+  });
+
+  async function addRule() {
+    const kw = newRuleKw.trim();
+    if (!kw || savingRule) return;
+    savingRule = true;
+    try {
+      const added = await molduraRules.add(kw);
+      if (!added) {
+        appStore.showToast('Esa palabra ya está en la lista', 'info');
+        return;
+      }
+      rulesList = molduraRules.getAll();
+      newRuleKw = '';
+      appStore.showToast(`"${added.keyword}" ya no genera materiales`, 'success');
+      await loadCards();
+    } catch (e) {
+      appStore.alert('Error al guardar: ' + (e as Error).message);
+    } finally {
+      savingRule = false;
+    }
+  }
+
+  async function removeRule(rule: molduraRules.MolduraExcludeRule) {
+    if (!await dialogConfirm(`¿Quitar "${rule.keyword}" de Sin materiales? Volverá a generar materiales si tiene A x B.`)) return;
+    await molduraRules.remove(rule.id);
+    rulesList = molduraRules.getAll();
+    appStore.showToast('Regla eliminada', 'success');
+    await loadCards();
+  }
+
   function invoiceLabel(invoiceId: number): string {
     const card = cards.find(c => c.id === invoiceId);
     return card ? `${card.num} — ${card.cliente}` : `ID: ${invoiceId}`;
@@ -462,6 +512,7 @@
       {/if}
       <button class="btn btn-sm btn-secondary" onclick={() => showFormulaModal = true}>📐 Fórmula</button>
       <button class="btn btn-sm btn-warning" onclick={openCorrectionsModal}>✏️ Correcciones</button>
+      <button class="btn btn-sm btn-secondary" onclick={openRulesModal}>⚙️ Sin materiales</button>
       <button class="btn btn-sm btn-primary" onclick={loadCards} disabled={loading}>
         {loading ? 'Cargando...' : '🔄 Refrescar'}
       </button>
@@ -511,11 +562,7 @@
                             {item.medida}
                             {#if item.hasCorrection}<span class="sm-edit" title={item.correctionInherited ? 'Heredado de corrección guardada' : 'Editado'}>{item.correctionInherited ? '↪️' : '✏️'}</span>{/if}
                           </div>
-                          {#if item.isNonMolding}
-                            <span class="sm-tag-no"> No moldura</span>
-                          {:else}
-                            <span class="sm-tipo"> {item.tipo}</span>
-                          {/if}
+                          <span class="sm-tipo"> {item.tipo}</span>
                         </td>
                       </tr>
                     {/each}
@@ -654,6 +701,48 @@
   </div>
 {/if}
 
+<!-- Rules Modal: Sin materiales -->
+{#if showRulesModal}
+  <div class="modal-overlay" role="presentation">
+    <div class="modal modal-corrections" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showRulesModal = false)}>
+      <div class="modal-header">
+        <h3>⚙️ Sin materiales</h3>
+        <button class="modal-close" onclick={() => showRulesModal = false} aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="rules-hint">Si la descripción contiene una de estas palabras, el producto se muestra con su <strong>nombre y medida</strong> (sin repetir datos) y no genera Varilla / Larguero / Travesaño, aunque tenga medida <strong>A x B</strong>.</p>
+        <div class="rules-add">
+          <input type="text" bind:value={newRuleKw} placeholder="Ej: tapiz, corte de tela..." class="add-search" onkeydown={(e) => e.key === 'Enter' && addRule()} />
+          <button class="btn btn-sm btn-primary" onclick={addRule} disabled={!newRuleKw.trim() || savingRule}>
+            {savingRule ? 'Guardando...' : '＋ Añadir'}
+          </button>
+        </div>
+        {#if rulesList.length > 5}
+          <input type="text" bind:value={rulesSearch} placeholder="Buscar..." class="add-search rules-search" />
+        {/if}
+        {#if rulesFiltered.length === 0}
+          <div class="corr-empty">{rulesList.length === 0 ? 'Sin reglas todavía' : 'Sin coincidencias'}</div>
+        {:else}
+          <div class="corr-list">
+            {#each rulesFiltered as rule (rule.id)}
+              <div class="corr-row">
+                <div class="corr-info">
+                  <div class="corr-invoice">🚫 {rule.keyword}</div>
+                  <div class="corr-measure">Ej: "{rule.keyword} 40x50" → sin materiales</div>
+                </div>
+                <button class="btn btn-sm btn-outline" onclick={() => removeRule(rule)}>✕ Quitar</button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick={() => showRulesModal = false}>Cerrar</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
 <!-- Corrections Modal -->
 {#if showCorrectionsModal}
   <div class="modal-overlay" role="presentation">
@@ -723,7 +812,7 @@
                   {/if}
                 </span>
                 {#if item.hasCorrection}<span class="di-edit" title={item.correctionInherited ? 'Heredado de corrección guardada' : 'Editado'}>{item.correctionInherited ? '↪️' : '✏️'}</span>{/if}
-                <span class="di-type">{item.isNonMolding ? 'No moldura' : item.tipo}</span>
+                <span class="di-type">{item.tipo}</span>
               </div>
             {/each}
           </div>
@@ -778,8 +867,8 @@
           {:else if detailItem?.isNonMolding}
             <div class="detail-no-molding">
               <span class="dnm-icon">🖼️</span>
-              <p>Este producto no es una moldura</p>
-              <p class="dnm-desc">{detailItem.medida}</p>
+              <p>{detailItem.tipo || detailItem.medida}</p>
+              <p class="dnm-desc">Cantidad: {detailItem.cantidad} · Sin materiales</p>
             </div>
           {:else}
             <div class="detail-no-molding">
@@ -911,7 +1000,6 @@
   .sm-cortes { display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); margin-top: 0.071rem; }
   .sm-c-l { color: #27ae60; font-weight: 700; }
   .sm-c-c { color: #d35400; font-weight: 700; }
-  .sm-tag-no { font-size: 0.68rem; color: var(--text-muted); font-style: italic; }
   .mol-summary-table tr.non-molding { opacity: 0.5; }
 
   .mol-materials-table {
@@ -1045,6 +1133,11 @@
   .cv-lar { color: #27ae60; font-weight: 700; }
   .cv-tra { color: #d35400; font-weight: 700; }
   .corr-empty { padding: 1.429rem; text-align: center; color: var(--text-muted); font-size: 0.82rem; }
+  .rules-hint { font-size: 0.8rem; color: var(--text-secondary); margin: 0 0 0.714rem; line-height: 1.4; }
+  .rules-add { display: flex; gap: 0.571rem; margin-bottom: 0.714rem; }
+  .rules-add .add-search { flex: 1; }
+  .rules-add .btn { flex-shrink: 0; align-self: center; }
+  .rules-search { margin-bottom: 0.714rem; }
 
   .mat-input {
     width: 3.571rem;

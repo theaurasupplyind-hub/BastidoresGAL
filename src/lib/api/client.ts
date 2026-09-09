@@ -475,6 +475,16 @@ export const api = {
   deleteMolduraCorrection: (id: number) =>
     request<{ status: string }>('DELETE', `/moldura-corrections/${id}`),
 
+  // ---- Moldura Material Rules (Sin materiales, por keyword) ----
+  getMolduraMaterialRules: () =>
+    handleResponse(request<{ id: number | string; keyword: string; normalized?: string; updated_at?: string }[]>('GET', '/moldura-material-rules', undefined, 8), []),
+
+  saveMolduraMaterialRule: (data: { keyword: string }) =>
+    request<{ id: number | string; keyword: string; normalized?: string; updated_at?: string }>('POST', '/moldura-material-rules', data, 8),
+
+  deleteMolduraMaterialRule: (id: number | string) =>
+    request<{ status: string }>('DELETE', `/moldura-material-rules/${id}`, undefined, 8),
+
   getAnalisisMensual: (usuarioId: number) =>
     handleResponse(request<import('$lib/types').AnalisisPeriodo | null>('GET', `/analisis/mensual?usuario_id=${usuarioId}`, undefined, 10), null),
 

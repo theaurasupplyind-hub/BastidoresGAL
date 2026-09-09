@@ -363,13 +363,49 @@
     );
   }
 
+  function normDirPanel(s: any): string {
+    return String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  // Orden canónico: menor fecha primero, desempata por número e id.
+  // La card muestra siempre la primera factura (dirección real de entrega).
+  function facturasOrdenadasDelCliente(id: number): any[] {
+    return facturasDelCliente(id).sort((a: any, b: any) =>
+      String(a.fecha || '').localeCompare(String(b.fecha || '')) ||
+      String(a.numero_factura || '').localeCompare(String(b.numero_factura || ''), undefined, { numeric: true }) ||
+      ((a.id ?? 0) - (b.id ?? 0))
+    );
+  }
+
+  function displayCliente(clienteId: number): {
+    ec: any | null; primera: any | null; nombre: string; domicilio: string;
+    piso: string; multiDir: number; todasDirs: string[]; factsOrdenadas: any[];
+  } {
+    const ec = buscarCliente(clienteId);
+    const factsOrdenadas = facturasOrdenadasDelCliente(clienteId);
+    const primera = factsOrdenadas[0] ?? null;
+    const doms = new Set(
+      factsOrdenadas.map((x: any) => normDirPanel(x.cliente_domicilio)).filter(Boolean)
+    );
+    return {
+      ec,
+      primera,
+      nombre: primera?.cliente_nombre || ec?.nombre || '',
+      domicilio: primera?.cliente_domicilio || ec?.domicilio || '',
+      piso: primera?.cliente_piso_depto || '',
+      multiDir: doms.size > 1 ? doms.size - 1 : 0,
+      todasDirs: [...doms],
+      factsOrdenadas
+    };
+  }
+
   function irAFacturacion(facturaId: number) {
     appStore.pendingInvoiceId = facturaId;
     appStore.currentTab = 'facturacion';
   }
 
   function abrirPrimeraFactura(clienteId: number) {
-    const facts = facturasDelCliente(clienteId);
+    const facts = facturasOrdenadasDelCliente(clienteId);
     if (facts.length > 0) {
       irAFacturacion(facts[0].id);
     } else {
@@ -1119,8 +1155,9 @@
                 </div>
                 <div class="grupo-clientes">
                   {#each idsOrdenadosGrupo(grupo) as clienteId, i}
-                    {@const ec = buscarCliente(clienteId)}
-                    {@const facts = facturasDelCliente(clienteId)}
+                    {@const disp = displayCliente(clienteId)}
+                    {@const ec = disp.ec}
+                    {@const facts = disp.factsOrdenadas}
                     {#if ec}
                       <div
                         class="cliente-card"
@@ -1131,8 +1168,11 @@
                         <span class="cliente-drag">⠿</span>
                         <span class="cliente-order">{i + 1}</span>
                         <div class="cliente-body">
-                          <span class="cliente-nombre">{ec.nombre}</span>
-                          <span class="cliente-dir">{ec.domicilio || ''}</span>
+                          <span class="cliente-nombre">{disp.nombre}</span>
+                          <span class="cliente-dir">{disp.domicilio}{disp.piso ? ' - ' + disp.piso : ''}</span>
+                          {#if disp.multiDir > 0}
+                            <span class="cliente-multi-dir" title={disp.todasDirs.join(' | ')}>+{disp.multiDir} dirección{disp.multiDir !== 1 ? 'es' : ''}</span>
+                          {/if}
                           {#if facts.length > 0}
                             <div class="cliente-facturas">
                               {#each facts as f}
@@ -1201,7 +1241,8 @@
               </div>
               <div class="grupo-clientes">
                 {#each sinGrupo as ec}
-                  {@const facts = facturasDelCliente(ec.id)}
+                  {@const dispSin = displayCliente(ec.id)}
+                  {@const facts = dispSin.factsOrdenadas}
                   <div
                     class="cliente-card"
                     draggable="true"
@@ -1211,8 +1252,11 @@
                     <span class="cliente-drag">⠿</span>
                     <span class="cliente-order" style="background:#9ca3af">{entregas.findIndex((e: any) => e.cliente_id === ec.id) + 1 || ''}</span>
                     <div class="cliente-body">
-                      <span class="cliente-nombre">{ec.nombre}</span>
-                      <span class="cliente-dir">{ec.domicilio || ''}</span>
+                      <span class="cliente-nombre">{dispSin.nombre}</span>
+                      <span class="cliente-dir">{dispSin.domicilio}{dispSin.piso ? ' - ' + dispSin.piso : ''}</span>
+                      {#if dispSin.multiDir > 0}
+                        <span class="cliente-multi-dir" title={dispSin.todasDirs.join(' | ')}>+{dispSin.multiDir} dirección{dispSin.multiDir !== 1 ? 'es' : ''}</span>
+                      {/if}
                       {#if facts.length > 0}
                         <div class="cliente-facturas">
                           {#each facts as f}
@@ -1446,8 +1490,9 @@
             </div>
             <div class="kanban-column-body">
               {#each grupo.ordenRuta.length > 0 ? grupo.ordenRuta : grupo.clienteIds as clienteId, i}
-                {@const ec = buscarCliente(clienteId)}
-                {@const facts = facturasDelCliente(clienteId)}
+                {@const dispKanban = displayCliente(clienteId)}
+                {@const ec = dispKanban.ec}
+                {@const facts = dispKanban.factsOrdenadas}
                 {#if ec}
                   <div
                     class="cliente-card"
@@ -1458,8 +1503,11 @@
                     <span class="cliente-drag">⠿</span>
                     <span class="cliente-order">{i + 1}</span>
                     <div class="cliente-body">
-                      <span class="cliente-nombre">{ec.nombre}</span>
-                      <span class="cliente-dir">{ec.domicilio || ''}</span>
+                      <span class="cliente-nombre">{dispKanban.nombre}</span>
+                      <span class="cliente-dir">{dispKanban.domicilio}{dispKanban.piso ? ' - ' + dispKanban.piso : ''}</span>
+                      {#if dispKanban.multiDir > 0}
+                        <span class="cliente-multi-dir" title={dispKanban.todasDirs.join(' | ')}>+{dispKanban.multiDir} dirección{dispKanban.multiDir !== 1 ? 'es' : ''}</span>
+                      {/if}
                       {#if facts.length > 0}
                         <div class="cliente-facturas">
                           {#each facts as f}
@@ -1501,7 +1549,8 @@
             </div>
             <div class="kanban-column-body">
               {#each sinGrupo as ec}
-                {@const facts = facturasDelCliente(ec.id)}
+                {@const dispKanbanSin = displayCliente(ec.id)}
+                {@const facts = dispKanbanSin.factsOrdenadas}
                 <div
                   class="cliente-card"
                   draggable="true"
@@ -1511,8 +1560,11 @@
                   <span class="cliente-drag">⠿</span>
                   <span class="cliente-order" style="background:#9ca3af">{entregas.findIndex((e: any) => e.id === ec.id) + 1 || ''}</span>
                   <div class="cliente-body">
-                    <span class="cliente-nombre">{ec.nombre}</span>
-                    <span class="cliente-dir">{ec.domicilio || ''}</span>
+                    <span class="cliente-nombre">{dispKanbanSin.nombre}</span>
+                    <span class="cliente-dir">{dispKanbanSin.domicilio}{dispKanbanSin.piso ? ' - ' + dispKanbanSin.piso : ''}</span>
+                    {#if dispKanbanSin.multiDir > 0}
+                      <span class="cliente-multi-dir" title={dispKanbanSin.todasDirs.join(' | ')}>+{dispKanbanSin.multiDir} dirección{dispKanbanSin.multiDir !== 1 ? 'es' : ''}</span>
+                    {/if}
                     {#if facts.length > 0}
                       <div class="cliente-facturas">
                         {#each facts as f}
@@ -2058,6 +2110,18 @@
     color: rgba(255,255,255,0.75);
     display: block;
     margin-top: 2px;
+  }
+  .cliente-multi-dir {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(251, 191, 36, 0.22);
+    color: #fde68a;
+    border: 1px solid rgba(251, 191, 36, 0.45);
+    cursor: help;
   }
   .cliente-facturas {
     display: flex;
