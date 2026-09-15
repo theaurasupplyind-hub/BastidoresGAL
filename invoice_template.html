@@ -193,12 +193,13 @@
 
     /* FOOTER */
     .footer {
-        margin-top: 10px; 
+        margin-top: 10px;
         display: flex;
         justify-content: space-between;
-        align-items: flex-end;
+        align-items: center;
+        gap: 8px;
         border-top: 2px solid #f0f0f0;
-        padding-top: 10px; 
+        padding-top: 10px;
     }
 
     .shipping-badge {
@@ -213,6 +214,23 @@
         align-items: center;
     }
     .shipping-badge span { margin-left: 5px; }
+
+    .entrega-badge {
+        background: transparent;
+        border-radius: 6px;
+        padding: 4px 12px;
+        font-size: 15px;
+        font-weight: 600;
+        color: #333;
+        text-align: center;
+        margin: 0 auto;
+        white-space: nowrap;
+        flex-shrink: 0;
+        max-width: 45%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .entrega-badge span { font-size: 22px; line-height: 1.1; font-weight: 800; color: #000; }
 
     .total-block {
         text-align: right;
@@ -349,6 +367,10 @@
     <div class="footer">
         <div class="shipping-badge">
         ENVÍO: <span id="deliveryValue"></span>
+        </div>
+
+        <div class="entrega-badge">
+        ENTREGA: <span id="entregaValue">—</span>
         </div>
 
         <div class="total-block">

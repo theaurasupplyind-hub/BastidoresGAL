@@ -94,6 +94,7 @@
       saldo: c.total - (pagoMap.get(c.id) ?? 0),
       isPresupuesto: c.tipo === 'PRESUPUESTO',
       styleName: appStore.pdfStyle,
+      fechaEntrega: c.fecha_entrega ?? '',
     }));
 
     generating = true;
@@ -161,6 +162,7 @@
       saldo: c.total - (pagoMap.get(c.id) ?? 0),
       isPresupuesto: c.tipo === 'PRESUPUESTO',
       styleName: appStore.pdfStyle,
+      fechaEntrega: c.fecha_entrega ?? '',
     }));
 
     generating = true;

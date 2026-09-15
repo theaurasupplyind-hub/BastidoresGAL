@@ -141,6 +141,7 @@ async fn generate_pdf(
     is_presupuesto: bool,
     style_name: String,
     use_webview2: Option<bool>,
+    fecha_entrega: Option<String>,
 ) -> Result<String, String> {
     let style = InvoiceStyle::from_name(&style_name);
     let pdf_items: Vec<pdf::InvoiceItem> = items
@@ -166,6 +167,7 @@ async fn generate_pdf(
         saldo,
         is_presupuesto,
         style,
+        fecha_entrega: fecha_entrega.unwrap_or_default(),
     };
 
     let output_dir = state.data_dir.join("generated_invoices");
@@ -310,6 +312,7 @@ async fn generate_invoices_pdf(
                 saldo: inv.saldo,
                 is_presupuesto: inv.is_presupuesto,
                 style,
+                fecha_entrega: inv.fecha_entrega,
             }
         })
         .collect();
@@ -800,6 +803,8 @@ struct BatchInvoiceParam {
     saldo: f64,
     is_presupuesto: bool,
     style_name: String,
+    #[serde(default)]
+    fecha_entrega: String,
 }
 
 // ==========================================

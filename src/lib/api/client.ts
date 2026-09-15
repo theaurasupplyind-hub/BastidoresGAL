@@ -485,6 +485,16 @@ export const api = {
   deleteMolduraMaterialRule: (id: number | string) =>
     request<{ status: string }>('DELETE', `/moldura-material-rules/${id}`, undefined, 8),
 
+  // ---- Moldura Hidden Rules (Ocultos en producción, por keyword) ----
+  getMolduraHiddenRules: () =>
+    handleResponse(request<{ id: number | string; keyword: string; normalized?: string; updated_at?: string }[]>('GET', '/moldura-hidden-rules', undefined, 8), []),
+
+  saveMolduraHiddenRule: (data: { keyword: string }) =>
+    request<{ id: number | string; keyword: string; normalized?: string; updated_at?: string }>('POST', '/moldura-hidden-rules', data, 8),
+
+  deleteMolduraHiddenRule: (id: number | string) =>
+    request<{ status: string }>('DELETE', `/moldura-hidden-rules/${id}`, undefined, 8),
+
   getAnalisisMensual: (usuarioId: number) =>
     handleResponse(request<import('$lib/types').AnalisisPeriodo | null>('GET', `/analisis/mensual?usuario_id=${usuarioId}`, undefined, 10), null),
 

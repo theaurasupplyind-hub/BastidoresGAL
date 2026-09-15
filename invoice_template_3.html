@@ -88,9 +88,27 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            gap: 8px;
             margin-top: auto; /* Empuja el footer al final de la media hoja */
             padding-bottom: 15px;
         }
+
+        .entrega-badge {
+            background: transparent;
+            border-radius: 6px;
+            padding: 4px 12px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #333;
+            text-align: center;
+            margin: 0 auto;
+            white-space: nowrap;
+            flex-shrink: 0;
+            max-width: 45%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .entrega-badge span { font-size: 22px; line-height: 1.1; font-weight: 800; color: #000; }
 
         .shipping-box {
             border: 2px solid #000;
@@ -203,6 +221,10 @@
         <!-- Cuadro de Envío Independiente -->
         <div class="shipping-box">
             ENVÍO: <span id="deliveryValue"></span>
+        </div>
+
+        <div class="entrega-badge">
+            ENTREGA: <span id="entregaValue">—</span>
         </div>
 
         <!-- Cuadro de Total Independiente -->

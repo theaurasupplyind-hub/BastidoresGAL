@@ -1,4 +1,10 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.76': `Facturas PDF: nueva seccion de entrega con fecha destacada y sin relleno gris
+Configuracion: nuevo template "Original test", igual al Original pero mostrando solo la fecha de entrega en gris medio
+PDF: la fecha de entrega ahora entiende rangos y muestra el dia de la semana de forma mas clara
+, Agregado nuevo opcion de copiar ruta en mapas luego de trazar la ruta, 
+Arreglado bugs y agregado 2 opciones para eliminar de Ordenes de Produccion Materiales o Articulos completos, 
+Nuevo boton, seleccionar factura: agrega facturas para imprimir multiples a la vez desde el historial`,
   '2.3.75': `⚙️ Molduras: nuevo "Sin materiales" configurable (ej. tapiz, corte de tela) — ya no genera Varilla/Larguero/Travesaño aunque traiga A x B
 🧾 Facturas PDF: se elimina la copia gris duplicada, ahora 2 facturas por hoja A4 y facturas largas en hoja completa
 📍 Panel: muestra domicilio/piso de la primera factura y avisa +N direcciones si el cliente tiene varias

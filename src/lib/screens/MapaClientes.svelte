@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
+  import { writeText } from '@tauri-apps/plugin-clipboard-manager';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { mapaStore } from '$lib/stores/mapaStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
@@ -1997,53 +1998,63 @@
     renderizarMarcadores();
   }
 
-  function abrirEnGoogleMaps() {
-    if (ordenRuta.length === 0) return;
-
+  function construirGoogleMapsUrl(): string | null {
     const facturasRuta = ordenRuta
       .map(id => facturaMap.get(id))
-      .filter(f => f && seleccionados.has(f.id));
+      .filter(f => f && seleccionados.has(f.id) && f.lat != null && f.lng != null && Number.isFinite(Number(f.lat)) && Number.isFinite(Number(f.lng)));
 
-    if (facturasRuta.length === 0) return;
+    if (facturasRuta.length === 0) return null;
 
-    const origen = encodeURIComponent(`${origenDireccion}, Buenos Aires`);
-    const [primero, ...resto] = facturasRuta;
-    const destino = encodeURIComponent(`${primero.cliente_domicilio}, Buenos Aires`);
-    const waypoints = resto
-      .map(f => encodeURIComponent(`${f.cliente_domicilio}, Buenos Aires`))
-      .join('|');
+    const puntos = facturasRuta.map(f => `${Number(f.lat)},${Number(f.lng)}`);
+    const origenValido = origenCoords
+      && Number.isFinite(Number(origenCoords.lat))
+      && Number.isFinite(Number(origenCoords.lng))
+      ? origenCoords
+      : null;
+    const origen = origenValido
+      ? `${Number(origenValido.lat)},${Number(origenValido.lng)}`
+      : puntos[0];
+    if (!origen) return null;
+    if (!origenValido) puntos.shift();
 
-    const url = waypoints
-      ? `https://www.google.com/maps/dir/?api=1&origin=${origen}&destination=${destino}&waypoints=${waypoints}&travelmode=driving`
-      : `https://www.google.com/maps/dir/?api=1&origin=${origen}&destination=${destino}&travelmode=driving`;
+    const destino = puntos.length > 0 ? puntos[puntos.length - 1] : origen;
+    const waypoints = puntos.slice(0, -1);
+    const params = new URLSearchParams({
+      api: '1',
+      origin: origen,
+      destination: destino,
+      travelmode: 'driving',
+    });
+    if (waypoints.length > 0) params.set('waypoints', waypoints.join('|'));
 
+    return `https://www.google.com/maps/dir/?${params.toString()}`
+      .replace(/%2C/g, ',')
+      .replace(/%7C/g, '|');
+  }
+
+  function abrirEnGoogleMaps() {
+    const url = construirGoogleMapsUrl();
+    if (!url) return;
     shellOpen(url);
   }
 
-  export function copiarRutaAlPortapapeles() {
-    if (ordenRuta.length === 0 || !rutaLinea) {
+  export async function copiarRutaAlPortapapeles() {
+    const url = construirGoogleMapsUrl();
+    if (!url) {
       appStore.alert('Primero trazá una ruta');
       return;
     }
 
-    const facturasRuta = ordenRuta
-      .map(id => facturaMap.get(id))
-      .filter(f => f && seleccionados.has(f.id));
-
-    if (facturasRuta.length === 0) { appStore.alert('Primero trazá una ruta'); return; }
-
-    const origen = encodeURIComponent(`${origenDireccion}, Buenos Aires`);
-    const [primero, ...resto] = facturasRuta;
-    const destino = encodeURIComponent(`${primero.cliente_domicilio}, Buenos Aires`);
-    const waypoints = resto
-      .map(f => encodeURIComponent(`${f.cliente_domicilio}, Buenos Aires`))
-      .join('|');
-
-    const url = waypoints
-      ? `https://www.google.com/maps/dir/?api=1&origin=${origen}&destination=${destino}&waypoints=${waypoints}&travelmode=driving`
-      : `https://www.google.com/maps/dir/?api=1&origin=${origen}&destination=${destino}&travelmode=driving`;
-
-    navigator.clipboard.writeText(url);
+    try {
+      await writeText(url);
+    } catch {
+      try {
+        await navigator.clipboard.writeText(url);
+      } catch {
+        appStore.alert('No se pudo copiar el link de la ruta');
+        return;
+      }
+    }
     appStore.showToast('Link de la ruta copiado al portapapeles', 'success');
   }
 
@@ -2622,6 +2633,11 @@
           <button class="ftc-ruta-btn" onclick={() => trazarRutaGrupo(grupoActivo.id)}>🗺️ Trazar ruta</button>
           <button class="ftc-cancel-btn" onclick={limpiarRuta} disabled={!hayRutaActiva}>✕ Cancelar ruta</button>
         </div>
+        {#if hayRutaActiva}
+          <button class="ftc-copy-btn" onclick={copiarRutaAlPortapapeles} disabled={ordenRuta.length === 0}>
+            Copiar ruta
+          </button>
+        {/if}
         <div class="ftc-clientes">
           {#each clientesEnActivo as cliente (cliente.id)}
             {@const sinGeo = facturasDelDia.some(f => f.cliente_id === cliente.id && (!f.lat || !f.lng))}
@@ -4014,6 +4030,24 @@
   .ftc-cancel-btn:hover { background: #fee2e2; border-color: #fca5a5; }
   .ftc-cancel-btn:disabled { opacity: 0.4; cursor: not-allowed; background: #f9fafb; color: #9ca3af; border-color: #e5e7eb; }
   .ftc-cancel-btn:disabled:hover { background: #f9fafb; border-color: #e5e7eb; }
+
+  .ftc-copy-btn {
+    width: calc(100% - 32px);
+    margin: 0 16px 10px;
+    padding: 8px 12px;
+    background: #fff;
+    color: #2563eb;
+    border: 1px solid #93c5fd;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    font-family: var(--font);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .ftc-copy-btn:hover { background: #eff6ff; border-color: #60a5fa; }
+  .ftc-copy-btn:disabled { opacity: 0.4; cursor: not-allowed; background: #f9fafb; color: #9ca3af; border-color: #e5e7eb; }
+  .ftc-copy-btn:disabled:hover { background: #f9fafb; border-color: #e5e7eb; }
 
   .geo-modal { width: 480px; max-width: 92vw; max-height: 70vh; display: flex; flex-direction: column; }
   .geo-modal h3 { margin: 0 0 4px; }

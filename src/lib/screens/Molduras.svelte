@@ -13,6 +13,7 @@
   import type { CardItem, CardMaterial } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
   import * as molduraRules from '$lib/stores/molduraMaterialRules';
+  import * as molduraHidden from '$lib/stores/molduraHiddenRules';
 
   let loading = $state(false);
   let cards = $state<ParsedCard[]>([]);
@@ -37,6 +38,11 @@
   let newRuleKw = $state('');
   let rulesSearch = $state('');
   let savingRule = $state(false);
+  let showHiddenModal = $state(false);
+  let hiddenList = $state<molduraHidden.MolduraHiddenRule[]>([]);
+  let newHiddenKw = $state('');
+  let hiddenSearch = $state('');
+  let savingHidden = $state(false);
   let editLargQty = $state(0);
   let editLargCm = $state(0);
   let editLargNum = $state(0);
@@ -75,7 +81,7 @@
   );
 
   function parseCardLocal(f: Factura): ParsedCard {
-    const p = parseCard(f, molduraRules.getKeywords());
+    const p = parseCard(f, molduraRules.getKeywords(), molduraHidden.getKeywords());
     const base = { ...p, entrega: f.estado_entrega || 'PENDIENTE', hasCorrection: false };
     molduraStore.applyCorrectionsToCard(base);
     return base;
@@ -87,6 +93,7 @@
     try {
       await molduraStore.load();
       await molduraRules.load();
+      await molduraHidden.load();
       const facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       const pending = facturas.filter(f => f.estado_moldura === 'PENDING' && f.estado_entrega !== 'ENTREGADO');
       cards = pending.map(parseCardLocal);
@@ -448,6 +455,49 @@
     await loadCards();
   }
 
+  async function openHiddenModal() {
+    await molduraHidden.load();
+    hiddenList = molduraHidden.getAll();
+    newHiddenKw = '';
+    hiddenSearch = '';
+    showHiddenModal = true;
+  }
+
+  const hiddenFiltered = $derived.by(() => {
+    const q = hiddenSearch.trim().toLowerCase();
+    if (!q) return hiddenList;
+    return hiddenList.filter(r => r.keyword.toLowerCase().includes(q));
+  });
+
+  async function addHidden() {
+    const kw = newHiddenKw.trim();
+    if (!kw || savingHidden) return;
+    savingHidden = true;
+    try {
+      const added = await molduraHidden.add(kw);
+      if (!added) {
+        appStore.showToast('Esa palabra ya está en la lista', 'info');
+        return;
+      }
+      hiddenList = molduraHidden.getAll();
+      newHiddenKw = '';
+      appStore.showToast(`"${added.keyword}" ya no aparece en producción`, 'success');
+      await loadCards();
+    } catch (e) {
+      appStore.alert('Error al guardar: ' + (e as Error).message);
+    } finally {
+      savingHidden = false;
+    }
+  }
+
+  async function removeHidden(rule: molduraHidden.MolduraHiddenRule) {
+    if (!await dialogConfirm(`¿Quitar "${rule.keyword}" de Ocultos? Volverá a aparecer en la orden de molduras.`)) return;
+    await molduraHidden.remove(rule.id);
+    hiddenList = molduraHidden.getAll();
+    appStore.showToast('Regla eliminada', 'success');
+    await loadCards();
+  }
+
   function invoiceLabel(invoiceId: number): string {
     const card = cards.find(c => c.id === invoiceId);
     return card ? `${card.num} — ${card.cliente}` : `ID: ${invoiceId}`;
@@ -513,6 +563,7 @@
       <button class="btn btn-sm btn-secondary" onclick={() => showFormulaModal = true}>📐 Fórmula</button>
       <button class="btn btn-sm btn-warning" onclick={openCorrectionsModal}>✏️ Correcciones</button>
       <button class="btn btn-sm btn-secondary" onclick={openRulesModal}>⚙️ Sin materiales</button>
+      <button class="btn btn-sm btn-secondary" onclick={openHiddenModal}>🙈 Ocultos</button>
       <button class="btn btn-sm btn-primary" onclick={loadCards} disabled={loading}>
         {loading ? 'Cargando...' : '🔄 Refrescar'}
       </button>
@@ -738,6 +789,48 @@
       </div>
       <div class="modal-footer">
         <button class="btn btn-primary" onclick={() => showRulesModal = false}>Cerrar</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Hidden Modal: Ocultos en producción -->
+{#if showHiddenModal}
+  <div class="modal-overlay" role="presentation">
+    <div class="modal modal-corrections" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showHiddenModal = false)}>
+      <div class="modal-header">
+        <h3>🙈 Ocultos en producción</h3>
+        <button class="modal-close" onclick={() => showHiddenModal = false} aria-label="Cerrar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="rules-hint">Si la descripción contiene una de estas palabras, el producto <strong>no aparece</strong> en la orden de molduras, ni en pantalla ni en el PDF, aunque tenga medida <strong>A x B</strong>.</p>
+        <div class="rules-add">
+          <input type="text" bind:value={newHiddenKw} placeholder="Ej: acrilico, descuento..." class="add-search" onkeydown={(e) => e.key === 'Enter' && addHidden()} />
+          <button class="btn btn-sm btn-primary" onclick={addHidden} disabled={!newHiddenKw.trim() || savingHidden}>
+            {savingHidden ? 'Guardando...' : '＋ Añadir'}
+          </button>
+        </div>
+        {#if hiddenList.length > 5}
+          <input type="text" bind:value={hiddenSearch} placeholder="Buscar..." class="add-search rules-search" />
+        {/if}
+        {#if hiddenFiltered.length === 0}
+          <div class="corr-empty">{hiddenList.length === 0 ? 'Sin reglas todavía' : 'Sin coincidencias'}</div>
+        {:else}
+          <div class="corr-list">
+            {#each hiddenFiltered as rule (rule.id)}
+              <div class="corr-row">
+                <div class="corr-info">
+                  <div class="corr-invoice">🙈 {rule.keyword}</div>
+                  <div class="corr-measure">Ej: "{rule.keyword} 40x50" → no aparece</div>
+                </div>
+                <button class="btn btn-sm btn-outline" onclick={() => removeHidden(rule)}>✕ Quitar</button>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-primary" onclick={() => showHiddenModal = false}>Cerrar</button>
       </div>
     </div>
   </div>

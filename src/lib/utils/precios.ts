@@ -15,6 +15,9 @@ export interface PriceSuggestion {
 export function normalizeText(text: string): string {
   let t = text.toLowerCase().trim();
   t = t.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // Normalizar primero las medidas triples evita que "67 x 67 x 3"
+  // termine convertido en "67x67 x 3".
+  t = t.replace(/(\d+(?:[.,]\d+)?)\s*[xX*×]\s*(\d+(?:[.,]\d+)?)\s*[xX*×]\s*(\d+(?:[.,]\d+)?)/g, '$1x$2x$3');
   t = t.replace(/(\d+(?:[.,]\d+)?)\s*[xX*×]\s*(\d+(?:[.,]\d+)?)/g, '$1x$2');
   t = t.replace(/\s+/g, ' ').trim();
   return t;
@@ -34,10 +37,8 @@ function extractDims(text: string): Set<string> {
 }
 
 export function getBaseAndDims(text: string): { base: string; dims: Set<string> } {
-  const norm = normalizeText(text);
-  const dims = extractDims(norm);
-  const base = norm.replace(/\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?/g, '').replace(/\s+/g, ' ').trim();
-  return { base, dims };
+  const parsed = parseQuery(text);
+  return { base: parsed.base, dims: new Set(parsed.dims) };
 }
 
 // ── Parseo de query con grosor (triple dim: 40x50x5) ──
@@ -61,7 +62,40 @@ export function parseQuery(query: string): ParsedQuery {
   return { tokens, dims, base, grosor };
 }
 
-// ── Evaluación de reglas (paso a paso para UI) ──
+// ── Matching de reglas por tokens (normalizado, anti-falsos-positivos) ──
+// - Normaliza a minúsculas/sin acentos (igual que parseQuery).
+// - Tokens de <4 letras se ignoran ("sin" solo disparaba de más).
+// - Token multi-palabra ("sin tela") matchea por frase en la base.
+// - Token simple matchea por palabra exacta; además hay fallback sin
+//   espacios para ("sintela" ⇔ "sin tela").
+
+export function ruleMatchesQuery(parsed: ParsedQuery, rule: PricingRule): string | null {
+  const base = parsed.base || '';
+  const baseNoSpace = base.replace(/\s+/g, '');
+  const tokens = new Set(parsed.tokens);
+  for (const raw of rule.matchTokens || []) {
+    const mt = normalizeText(String(raw || ''));
+    if (!mt || mt.length < 4) continue;
+    if (mt.includes(' ')) {
+      if (base.includes(mt)) return String(raw);
+      const mtNoSpace = mt.replace(/\s+/g, '');
+      if (mtNoSpace.length >= 4 && baseNoSpace.includes(mtNoSpace)) return String(raw);
+      continue;
+    }
+    if (tokens.has(mt)) return String(raw);
+    // Fallback pegado: "sintela" debe matchear base "sin tela"
+    const mtNoSpace = mt.replace(/\s+/g, '');
+    if (mtNoSpace.length >= 4 && baseNoSpace.includes(mtNoSpace)) return String(raw);
+  }
+
+  // Una consulta triple (ej. "67x67x3") ya identifica un producto con
+  // grosor, aunque todavía no tenga escrito el nombre/categoría. En ese
+  // caso pueden aplicar las reglas que explícitamente dependen del grosor.
+  if (parsed.grosor !== null && rule.conditions?.some(c => c.field === 'grosor')) {
+    return 'grosor';
+  }
+  return null;
+}
 
 export interface RuleEvalStep {
   type: 'parse' | 'lookup' | 'rule' | 'condition' | 'result';
@@ -152,9 +186,7 @@ export function evaluateRules(
 
   let ruleApplied = false;
   for (const rule of enabled) {
-    const matchedToken = parsed.tokens.find(t =>
-      rule.matchTokens.some(mt => t.includes(mt) || mt.includes(t))
-    );
+    const matchedToken = ruleMatchesQuery(parsed, rule);
     if (!matchedToken) continue;
     ruleApplied = true;
 
@@ -461,11 +493,12 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
 
   let result: PriceSuggestion[] = [];
 
-  // ── Evaluar reglas (independiente del base matching) ──
+  // ── Evaluar reglas (solo las que matchean el query) ──
   if (rules && rules.length > 0) {
     const parsed = parseQuery(query);
     for (const rule of rules) {
       if (!rule.enabled) continue;
+      if (!ruleMatchesQuery(parsed, rule)) continue;
 
       const catUpper = rule.baseCategoria.toUpperCase();
       const varUpper = rule.baseVariante.toUpperCase();

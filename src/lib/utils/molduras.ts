@@ -48,6 +48,22 @@ export function isExcludedByKeywords(desc: string, excludeKeywords?: ExcludeRule
   return false;
 }
 
+// ── Reglas "Ocultos en producción" ──
+// Si la descripción matchea, el item no aparece ni en pantalla ni en PDF.
+// hiddenKeywords viene del store (backend + local). El fallback cubre el
+// caso de store aún no cargado o lista vaciada por el usuario.
+const HIDDEN_FALLBACK = ['acrilic', 'descuento', 'rollo'];
+
+export function isHiddenProductionItem(desc: string, hiddenKeywords?: ExcludeRuleInput[]): boolean {
+  if (isExcludedByKeywords(desc, hiddenKeywords)) return true;
+  const hay = normalizeMaterialText(desc);
+  if (!hay) return false;
+  for (const kw of HIDDEN_FALLBACK) {
+    if (hay.includes(kw)) return true;
+  }
+  return false;
+}
+
 // ── Helpers materiales ──
 export function hasMaterialItems(card: { items: CardItem[] }): boolean {
   return card.items.some(it => !it.isNonMolding && !it.isCirculo && !it.isTapacanto);
@@ -300,11 +316,13 @@ export function buildPagedLayout(cards: MeasurableCard[], heights: number[]): Pa
   return pages;
 }
 
-export function hasMolduraItems(f: Factura, _excludeKeywords?: ExcludeRuleInput[]): boolean {
+export function hasMolduraItems(f: Factura, _excludeKeywords?: ExcludeRuleInput[], hiddenKeywords?: ExcludeRuleInput[]): boolean {
   // Nota: la visibilidad de la factura no cambia por reglas exclude;
   // solo se suprimen sus materiales en parseCard. Así una factura solo
   // con Tapiz sigue apareciendo con su descripción en vez de
   // desaparecer silenciosamente.
+  // En cambio las reglas "Ocultos en producción" sí quitan visibilidad:
+  // esos items no cuentan como moldura.
   if (!f.items || f.items.length === 0) return false;
   const doneSet = new Set<number>();
   try {
@@ -315,7 +333,7 @@ export function hasMolduraItems(f: Factura, _excludeKeywords?: ExcludeRuleInput[
     if (doneSet.has(i)) continue;
     const it = f.items[i];
     const desc = it.descripcion || '';
-    if (/rollo/i.test(desc)) continue;
+    if (isHiddenProductionItem(desc, hiddenKeywords)) continue;
     if (isCirculoDesc(desc)) return true;
     if (/promo/i.test(desc) && /promo[^0-9]*\d+\s*[xX×]\s*\d+/i.test(desc)) return true;
     if (parse2DItem(desc)) return true;
@@ -323,7 +341,7 @@ export function hasMolduraItems(f: Factura, _excludeKeywords?: ExcludeRuleInput[
   return false;
 }
 
-export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[]): {
+export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[], hiddenKeywords?: ExcludeRuleInput[]): {
   id: number;
   num: string;
   cliente: string;
@@ -343,7 +361,8 @@ export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[]): {
     if (doneSet.has(i)) continue;
     const it = f.items[i];
     const desc = it.descripcion || '';
-    if (/rollo/i.test(desc)) continue;
+    // "Ocultos en producción" gana sobre todo: ni fila ni materiales.
+    if (isHiddenProductionItem(desc, hiddenKeywords)) continue;
 
     // Regla configurable "Sin materiales": gana sobre el patrón A x B.
     // Tapacanto/Círculo se conservan con su subtipo para no perder su display.
@@ -727,7 +746,7 @@ export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'l
   // El resumen muestra TODOS los productos (incluidos los "Sin materiales",
   // que salen con su descripción, igual que en pantalla).
   // Solo la tabla de Varilla/Larguero/Travesaño se oculta (ver hideMaterials).
-  // Los "rollo" nunca llegan a card.items (parseCard los salta), así que no aparecen.
+  // Los "Ocultos en producción" nunca llegan a card.items (parseCard los salta), así que no aparecen.
   const validItems = card.items;
   const summaryRows = validItems.map(it => {
     return `

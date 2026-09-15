@@ -139,11 +139,12 @@
 
     /* --- FOOTER --- */
       .footer-section {
-        margin-top: auto; 
+        margin-top: auto;
         margin-bottom: 12px;
-        display: flex; 
-        justify-content: space-between; 
-        align-items: flex-end;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
         
         /* OPCIÓN RECOMENDADA: Línea del mismo color rosa */
         border-top: 2px solid #FBD0CF; 
@@ -154,6 +155,8 @@
         padding-top: 5px;
     }
     .shipping-info { font-size: 19px; font-weight: bold; color: #555; margin-bottom: 10px}
+    .entrega-badge { background: transparent; border-radius: 6px; padding: 4px 12px; font-size: 15px; font-weight: 600; color: #333; text-align: center; margin: 0 auto; white-space: nowrap; flex-shrink: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+    .entrega-badge span { font-size: 22px; line-height: 1.1; font-weight: 800; color: #000; }
     .total-amount { 
         font-size: 26px; 
         font-weight: 900; 
@@ -259,6 +262,7 @@
 
     <div class="footer-section">
         <div class="shipping-info">ENVIO: <span id="deliveryValue"></span></div>
+        <div class="entrega-badge">ENTREGA: <span id="entregaValue">—</span></div>
         <div class="total-amount">TOTAL <span id="invoiceTotal">0.00</span></div>
     </div>
 </div>

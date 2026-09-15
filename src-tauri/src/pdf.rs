@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InvoiceStyle {
     Original,
+    OriginalTest,
     Moderno,
     Clasico,
 }
@@ -11,6 +12,7 @@ pub enum InvoiceStyle {
 impl InvoiceStyle {
     pub fn from_name(name: &str) -> Self {
         match name {
+            "Original test" => Self::OriginalTest,
             "Moderno" => Self::Moderno,
             "Clasico" => Self::Clasico,
             _ => Self::Original,
@@ -41,6 +43,8 @@ pub struct InvoiceData {
     pub saldo: f64,
     pub is_presupuesto: bool,
     pub style: InvoiceStyle,
+    #[allow(dead_code)]
+    pub fecha_entrega: String,
 }
 
 fn embed_b64(data: &[u8]) -> String {
@@ -69,7 +73,7 @@ fn extract_between<'a>(s: &'a str, start: &str, end: &str) -> &'a str {
 
 fn get_css(style: InvoiceStyle) -> String {
     let template = match style {
-        InvoiceStyle::Original => include_str!("../../invoice_template.html"),
+        InvoiceStyle::Original | InvoiceStyle::OriginalTest => include_str!("../../invoice_template.html"),
         InvoiceStyle::Moderno => include_str!("../../invoice_template_2.html"),
         InvoiceStyle::Clasico => include_str!("../../invoice_template_3.html"),
     };
@@ -102,9 +106,89 @@ fn get_css(style: InvoiceStyle) -> String {
 .totals-stack { display:flex; flex-direction:column; align-items:flex-end; gap:2px; }
 .subtotal-line { font-size:13px; color:#888; font-weight:600; white-space:nowrap; }
 .grandtotal-line { font-size:22px; font-weight:900; color:#222; white-space:nowrap; }
+.entrega-badge { background:transparent; border-radius:6px; padding:4px 12px; font-size:15px; font-weight:600; color:#333; text-align:center; margin:0 auto; white-space:nowrap; flex-shrink:0; max-width:45%; overflow:hidden; text-overflow:ellipsis; }
+.entrega-badge span { font-size:22px; line-height:1.1; font-weight:800; color:#000; }
+.entrega-badge.original-test-entrega span { font-size:22px; line-height:1.1; font-weight:800; color:#666; }
+.footer, .footer-section, .footer-area { align-items:center !important; gap:8px; }
 "#;
 
     format!("{}{}{}{}", css, page_css, layout_css, totals_css)
+}
+
+fn dia_semana_completo(fecha: &str) -> String {
+    // Espera "D/M/YYYY" (con o sin ceros). Devuelve "Lunes 14".
+    let p: Vec<&str> = fecha.split('/').collect();
+    if p.len() != 3 {
+        return fecha.to_string();
+    }
+    let d: i32 = p[0].trim().parse().unwrap_or(0);
+    let m: i32 = p[1].trim().parse().unwrap_or(0);
+    let y: i32 = p[2].trim().parse().unwrap_or(0);
+    if d <= 0 || m <= 0 || y <= 0 {
+        return fecha.to_string();
+    }
+    // Algoritmo de Zeller para no depender de chrono.
+    let (mut mm, mut yy) = (m, y);
+    if mm < 3 {
+        mm += 12;
+        yy -= 1;
+    }
+    let k = yy % 100;
+    let j = yy / 100;
+    let h = (d + (13 * (mm + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
+    // h: 0=Sábado, 1=Domingo, 2=Lunes, ...
+    let dias = ["Sábado", "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
+    let dia = dias[h.rem_euclid(7) as usize];
+    format!("{} {}", dia, d)
+}
+
+pub fn format_entrega_display(raw: &str) -> String {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return "—".to_string();
+    }
+    // Caso JSON {desde, hasta, extras} (lo que guarda Facturacion/Kanban).
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) {
+        if v.get("desde").is_some() || v.get("hasta").is_some() {
+            let desde = v.get("desde").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+            let hasta = v.get("hasta").and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+            let extras: Vec<String> = v
+                .get("extras")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|e| e.as_str().map(|s| s.trim().to_string()))
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let mut s = String::new();
+            if !desde.is_empty() && !hasta.is_empty() {
+                if desde == hasta {
+                    s = dia_semana_completo(&desde);
+                } else {
+                    s = format!("{} al {}", dia_semana_completo(&desde), dia_semana_completo(&hasta));
+                }
+            } else if !desde.is_empty() {
+                s = dia_semana_completo(&desde);
+            } else if !hasta.is_empty() {
+                s = dia_semana_completo(&hasta);
+            }
+            if !extras.is_empty() {
+                let extra_txt = format!(" +{}", extras.len());
+                s.push_str(&extra_txt);
+            }
+            if s.is_empty() {
+                return "—".to_string();
+            }
+            return s;
+        }
+    }
+    // Caso legacy: fecha simple "D/M/YYYY".
+    if raw.contains('/') {
+        return dia_semana_completo(raw);
+    }
+    raw.to_string()
 }
 
 fn is_retirar_item(item: &InvoiceItem) -> bool {
@@ -172,24 +256,37 @@ fn build_one_half(data: &InvoiceData, style: InvoiceStyle, items_subset: &[Invoi
     };
 
     let items_rows = build_items_rows(items_subset);
+    let entrega_text = format_entrega_display(&data.fecha_entrega);
 
     match style {
         InvoiceStyle::Original => build_original_half(
             title, &data.num_factura, day, month, year,
             &data.cliente_nombre, &data.cliente_telefono, &data.cliente_domicilio,
-            &items_rows, &envio_text, &saldo_display,
+            &items_rows, &envio_text, &entrega_text, &saldo_display,
             &b64_brand, &b64_ign,
         ),
+        InvoiceStyle::OriginalTest => {
+            let html = build_original_half(
+                title, &data.num_factura, day, month, year,
+                &data.cliente_nombre, &data.cliente_telefono, &data.cliente_domicilio,
+                &items_rows, &envio_text, &entrega_text, &saldo_display,
+                &b64_brand, &b64_ign,
+            );
+            html.replace(
+                "<div class=\"entrega-badge\">ENTREGA: <span>",
+                "<div class=\"entrega-badge original-test-entrega\"><span>",
+            )
+        },
         InvoiceStyle::Moderno => build_moderno_half(
             title, &data.num_factura, day, month, year,
             &data.cliente_nombre, &data.cliente_telefono, &data.cliente_domicilio,
-            &items_rows, &envio_text, &saldo_display,
+            &items_rows, &envio_text, &entrega_text, &saldo_display,
             &b64_ign, &b64_header,
         ),
         InvoiceStyle::Clasico => build_clasico_half(
             title, &data.num_factura, day, month, year,
             &data.cliente_nombre, &data.cliente_telefono, &data.cliente_domicilio,
-            &items_rows, &envio_text, &saldo_display,
+            &items_rows, &envio_text, &entrega_text, &saldo_display,
         ),
     }
 }
@@ -219,7 +316,7 @@ fn build_items_rows(items: &[InvoiceItem]) -> String {
 fn build_original_half(
     title: &str, num: &str, day: &str, month: &str, year: &str,
     cliente: &str, tel: &str, domicilio: &str,
-    items_rows: &str, envio: &str, saldo_display: &str,
+    items_rows: &str, envio: &str, entrega: &str, saldo_display: &str,
     brand_b64: &str, ign_b64: &str,
 ) -> String {
     let ig_html = if ign_b64.is_empty() {
@@ -270,6 +367,7 @@ fn build_original_half(
   </table>
   <div class="footer">
     <div class="shipping-badge">ENVIO: <span>{envio}</span></div>
+    <div class="entrega-badge">ENTREGA: <span>{entrega}</span></div>
     <div class="total-block">
       <div class="saldo-row">
         {saldo_display}
@@ -290,6 +388,7 @@ fn build_original_half(
         domicilio = domicilio,
         items = items_rows,
         envio = envio,
+        entrega = entrega,
         saldo_display = saldo_display,
     )
 }
@@ -297,7 +396,7 @@ fn build_original_half(
 fn build_moderno_half(
     title: &str, num: &str, day: &str, month: &str, year: &str,
     cliente: &str, tel: &str, domicilio: &str,
-    items_rows: &str, envio: &str, saldo_display: &str,
+    items_rows: &str, envio: &str, entrega: &str, saldo_display: &str,
     ign_b64: &str, header_b64: &str,
 ) -> String {
     let bg_img = if header_b64.is_empty() {
@@ -350,6 +449,7 @@ fn build_moderno_half(
   </table>
   <div class="footer-section">
     <div class="shipping-info">ENVIO: <span>{envio}</span></div>
+    <div class="entrega-badge">ENTREGA: <span>{entrega}</span></div>
     <div class="total-amount">
       <div class="saldo-row">
         {saldo_display}
@@ -370,6 +470,7 @@ fn build_moderno_half(
         domicilio = domicilio,
         items = items_rows,
         envio = envio,
+        entrega = entrega,
         saldo_display = saldo_display,
     )
 }
@@ -377,7 +478,7 @@ fn build_moderno_half(
 fn build_clasico_half(
     title: &str, num: &str, day: &str, month: &str, year: &str,
     cliente: &str, tel: &str, domicilio: &str,
-    items_rows: &str, envio: &str, saldo_display: &str,
+    items_rows: &str, envio: &str, entrega: &str, saldo_display: &str,
 ) -> String {
     format!(r#"
 <div class="invoice-container-mini">
@@ -415,6 +516,7 @@ fn build_clasico_half(
   </table>
   <div class="footer-area">
     <div class="shipping-box">ENVIO: <span>{envio}</span></div>
+    <div class="entrega-badge">ENTREGA: <span>{entrega}</span></div>
     <div class="total-box">
       <div class="saldo-row">
         {saldo_display}
@@ -433,6 +535,7 @@ fn build_clasico_half(
         domicilio = domicilio,
         items = items_rows,
         envio = envio,
+        entrega = entrega,
         saldo_display = saldo_display,
     )
 }

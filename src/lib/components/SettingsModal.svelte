@@ -103,6 +103,7 @@
         <label>Diseño Factura</label>
         <select bind:value={config.selected_template_name}>
           <option value="Original">Original</option>
+          <option value="Original test">Original test</option>
           <option value="Moderno">Moderno</option>
           <option value="Clasico">Clásico</option>
         </select>

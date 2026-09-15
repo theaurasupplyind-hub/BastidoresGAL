@@ -10,7 +10,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
   import html2canvas from 'html2canvas';
   import { renderReceiptHtml } from '$lib/utils/receipt';
-  import MoldurasModal from '$lib/components/MoldurasModal.svelte';
+  import InvoicePrintModal from '$lib/components/InvoicePrintModal.svelte';
   import PagoDialog from '$lib/components/PagoDialog.svelte';
   import PriceListModal from '$lib/components/PriceListModal.svelte';
   import PrinterBadge from '$lib/components/PrinterBadge.svelte';
@@ -293,7 +293,9 @@ const tallerApi: TallerApi = api;
   let searchHistory = $state('');
   let filterNoConfirmadoOnly = $state(false);
   let selectedHistoryIds = $state<Set<number>>(new Set());
-  let showMoldurasModal = $state(false);
+  let modoSeleccionImpresion = $state(false);
+  let showPrintModal = $state(false);
+  let printCards = $state<Factura[]>([]);
   let showPriceList = $state(false);
   let showDiscountModal = $state(false);
   let discountMode = $state<'amount' | 'percent'>('amount');
@@ -306,6 +308,35 @@ const tallerApi: TallerApi = api;
   let showTallerResults = $state(false);
   let selectedTallerIndex = $state(-1);
   let talleres = $state<TallerDireccion[]>([]);
+
+  function togglePrintSelection(invoiceId: number) {
+    const next = new Set(selectedHistoryIds);
+    if (next.has(invoiceId)) next.delete(invoiceId);
+    else next.add(invoiceId);
+    selectedHistoryIds = next;
+  }
+
+  function cancelarSeleccionImpresion() {
+    modoSeleccionImpresion = false;
+    selectedHistoryIds = new Set();
+  }
+
+  async function openPrintQueue() {
+    const selected = filteredHistory.filter(f => selectedHistoryIds.has(f.id));
+    if (selected.length === 0) return;
+
+    try {
+      const cards = await Promise.all(selected.map(async (f) => {
+        if (Array.isArray((f as any).items)) return f;
+        const full = await api.getFactura(f.id);
+        return { ...f, ...full.factura, items: full.items ?? full.factura?.items ?? [] } as Factura;
+      }));
+      printCards = cards;
+      showPrintModal = true;
+    } catch (e: any) {
+      appStore.showToast('No se pudieron cargar las facturas para imprimir: ' + (e?.message || e), 'error');
+    }
+  }
 
   // Product autocomplete per row
   let productSearch = $state<string[]>(['']);
@@ -611,7 +642,17 @@ const tallerApi: TallerApi = api;
       if (sugBase.includes(' → ')) {
         const ruleName = (sugBase.split(' → ')[0] || '').trim();
         if (userDims) {
-          newDesc = `${ruleName} ${userDims[0]}`.trim();
+          // Formato producto: "Bastidor 133 × 195 × 3,7 Sin Tela" (sufijo atrás,
+          // igual que el catálogo) en vez de "Sin Tela 133 × ..." adelante.
+          const dimsText = userDims[0].replace(/\s+/g, ' ').trim();
+          const esc = ruleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const remainder = userQuery
+            .replace(/\d+(?:[.,]\d+)?\s*[xX×]\s*\d+(?:[.,]\d+)?(?:\s*[xX×]\s*\d+(?:[.,]\d+)?)?/g, ' ')
+            .replace(new RegExp(esc, 'gi'), ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          const prefix = remainder ? remainder.charAt(0).toUpperCase() + remainder.slice(1) : 'Bastidor';
+          newDesc = `${prefix} ${dimsText} ${ruleName}`.replace(/\s+/g, ' ').trim();
         } else {
           newDesc = ruleName || sug.description;
         }
@@ -1471,6 +1512,7 @@ const tallerApi: TallerApi = api;
         isPresupuesto: true,
         styleName: appStore.pdfStyle,
         useWebview2,
+        fechaEntrega: serializeFechasEntrega(fechasEntrega),
       });
       ok = true;
       if (shouldPrint) {
@@ -1537,6 +1579,7 @@ const tallerApi: TallerApi = api;
         saldo: currentSaldo,
         isPresupuesto: true,
         styleName: appStore.pdfStyle,
+        fechaEntrega: serializeFechasEntrega(fechasEntrega),
       });
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;
@@ -2121,14 +2164,23 @@ const tallerApi: TallerApi = api;
           placeholder="Buscar en facturas..."
         />
       </div>
-      <div class="history-actions">
-        <button class="top-btn top-btn-filter" class:active={filterNoConfirmadoOnly} onclick={() => filterNoConfirmadoOnly = !filterNoConfirmadoOnly} title={filterNoConfirmadoOnly ? 'Mostrar todas' : 'Mostrar solo no confirmadas'}>
-          <span class="filter-icon">⏳</span> No Confirmadas {#if filterNoConfirmadoOnly && !loadingNoConfirmadas}<span class="filter-count">{filteredHistory.length}</span>{/if}
+      <div class="history-actions" class:print-selection-mode={modoSeleccionImpresion}>
+        <button class="top-btn top-btn-filter" class:active={filterNoConfirmadoOnly} class:compact={modoSeleccionImpresion} onclick={() => filterNoConfirmadoOnly = !filterNoConfirmadoOnly} title={filterNoConfirmadoOnly ? 'Mostrar todas' : 'Mostrar solo no confirmadas'} aria-label={filterNoConfirmadoOnly ? 'Mostrar todas' : 'Mostrar solo no confirmadas'}>
+          <span class="filter-icon">⏳</span><span class="filter-label"> No Confirmadas {#if filterNoConfirmadoOnly && !loadingNoConfirmadas}<span class="filter-count">{filteredHistory.length}</span>{/if}</span>
         </button>
-        <span class="history-sel-count">{selectedHistoryIds.size > 0 ? `${selectedHistoryIds.size} selec.` : ''}</span>
-        <button class="top-btn top-btn-molduras" onclick={() => showMoldurasModal = true} disabled={selectedHistoryIds.size === 0}>
-          🖼 Molduras
-        </button>
+        {#if modoSeleccionImpresion}
+          <span class="history-sel-count">{selectedHistoryIds.size} seleccionadas</span>
+          <button class="top-btn top-btn-cancelar-seleccion" onclick={cancelarSeleccionImpresion}>
+            Cancelar
+          </button>
+          <button class="top-btn top-btn-imprimir" onclick={openPrintQueue} disabled={selectedHistoryIds.size === 0}>
+            🖨 Imprimir ({selectedHistoryIds.size})
+          </button>
+        {:else}
+          <button class="top-btn top-btn-imprimir" onclick={() => { modoSeleccionImpresion = true; selectedHistoryIds = new Set(); }}>
+            🖨 Seleccionar facturas
+          </button>
+        {/if}
       </div>
       <div class="history-list">
         {#if filterNoConfirmadoOnly && loadingNoConfirmadas}
@@ -2138,12 +2190,11 @@ const tallerApi: TallerApi = api;
           <div
             class="history-item"
             class:active={f.id === id}
-            class:selected={selectedHistoryIds.has(f.id)}
+            class:selected={modoSeleccionImpresion && selectedHistoryIds.has(f.id)}
+            class:print-selectable={modoSeleccionImpresion}
             onclick={(e) => {
-              if (e.ctrlKey) {
-                const s = new Set(selectedHistoryIds);
-                if (s.has(f.id)) s.delete(f.id); else s.add(f.id);
-                selectedHistoryIds = s;
+              if (modoSeleccionImpresion) {
+                togglePrintSelection(f.id);
               } else {
                 selectedHistoryIds = new Set();
                 loadInvoice(f.id);
@@ -2194,11 +2245,12 @@ const tallerApi: TallerApi = api;
   </div>
 </div>
 
-{#if showMoldurasModal}
-  <MoldurasModal
-    show={showMoldurasModal}
-    preselectedIds={Array.from(selectedHistoryIds)}
-    onClose={() => { showMoldurasModal = false; selectedHistoryIds = new Set(); }}
+{#if showPrintModal}
+  <InvoicePrintModal
+    show={showPrintModal}
+    cards={printCards}
+    onClose={() => { showPrintModal = false; cancelarSeleccionImpresion(); }}
+    onPrinted={refreshHistory}
   />
 {/if}
 
@@ -3372,28 +3424,77 @@ const tallerApi: TallerApi = api;
     padding: 0.286rem 0.857rem;
     gap: 0.429rem;
   }
+  .history-actions.print-selection-mode {
+    justify-content: flex-start;
+    gap: 0.35rem;
+  }
+  .history-actions.print-selection-mode .history-sel-count {
+    margin-left: auto;
+  }
   .history-sel-count {
     font-size: 0.72rem;
     color: var(--accent);
     font-weight: 600;
   }
-  .top-btn-molduras {
-    font-size: 0.78rem;
-    padding: 0.214rem 0.571rem;
-    border: 0.071rem solid var(--border);
-    background: var(--bg-card);
-    color: var(--text-primary);
+  .top-btn-imprimir {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    font-size: 0.76rem;
+    padding: 0.36rem 0.65rem;
+    border: 1px solid #2563eb;
+    background: #2563eb;
+    color: #fff;
+    font-weight: 700;
     cursor: pointer;
     border-radius: var(--radius-sm);
     white-space: nowrap;
-    transition: all 0.12s;
+    box-shadow: 0 1px 2px rgba(37, 99, 235, 0.2);
+    transition: background 0.12s, border-color 0.12s, box-shadow 0.12s, transform 0.12s;
   }
-  .top-btn-molduras:hover { background: var(--bg-hover); border-color: var(--accent); }
-  .top-btn-molduras:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
+  .top-btn-imprimir:hover:not(:disabled) { background: #1d4ed8; border-color: #1d4ed8; box-shadow: 0 2px 5px rgba(37, 99, 235, 0.28); transform: translateY(-1px); }
+  .top-btn-imprimir:disabled { opacity: 0.45; cursor: not-allowed; box-shadow: none; }
+  .top-btn-cancelar-seleccion {
+    padding: 0.36rem 0.6rem;
+    color: var(--text-secondary);
+    background: var(--bg-card);
+    border-color: var(--border);
+    box-shadow: none;
+    transform: none;
+  }
+  .top-btn-cancelar-seleccion:hover { background: var(--bg-hover); border-color: var(--text-secondary); box-shadow: none; transform: none; }
   .top-btn-filter { display:inline-flex; align-items:center; gap:.35rem; font-weight:600; font-size:.78rem; padding:.28rem .6rem; border:1px solid #fde68a; background:#fffbeb; color:#92400e; border-radius:999px; transition:all .15s; }
   .top-btn-filter:hover { background:#fef3c7; border-color:#f59e0b; transform:translateY(-1px); box-shadow:0 2px 6px rgba(245,158,11,.15); }
   .top-btn-filter.active { background:#f59e0b; border-color:#d97706; color:#fff; box-shadow:0 2px 8px rgba(245,158,11,.3); }
-  .top-btn-filter .filter-icon { font-size:.85rem; }
+  .top-btn-filter {
+    width: 9rem;
+    overflow: hidden;
+    box-sizing: border-box;
+    transition: width 0.22s ease, padding 0.22s ease, gap 0.22s ease, background 0.15s, border-color 0.15s;
+  }
+  .top-btn-filter .filter-icon { font-size:.85rem; flex: 0 0 auto; }
+  .top-btn-filter .filter-label {
+    display: inline-block;
+    max-width: 7rem;
+    overflow: hidden;
+    white-space: nowrap;
+    opacity: 1;
+    transition: max-width 0.22s ease, opacity 0.15s ease, margin 0.22s ease;
+  }
+  .top-btn-filter.compact {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+    flex: 0 0 2rem;
+  }
+  .top-btn-filter.compact .filter-label {
+    max-width: 0;
+    opacity: 0;
+    margin: 0;
+  }
   .top-btn-filter .filter-count { background:#fff; color:#92400e; font-size:.7rem; padding:.1rem .4rem; border-radius:999px; font-weight:800; min-width:1.1rem; text-align:center; }
   .top-btn-filter.active .filter-count { background:rgba(255,255,255,.95); }
   .history-loading { padding:.714rem; text-align:center; font-size:.78rem; color:#92400e; background:#fffbeb; border:1px dashed #fde68a; border-radius:var(--radius-sm); margin:0 .571rem .429rem; }
@@ -3428,6 +3529,9 @@ const tallerApi: TallerApi = api;
     border-left-color: #6366f1;
     border-color: #6366f1;
   }
+  .history-item.print-selectable { cursor: pointer; }
+  .history-item.print-selectable:hover { border-color: var(--accent); background: var(--bg-hover); }
+  .history-item.print-selectable.selected { box-shadow: inset 3px 0 0 var(--accent); }
 
   .history-item-header {
     display: flex;
