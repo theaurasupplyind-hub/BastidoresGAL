@@ -15,7 +15,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import PriceListModal from '$lib/components/PriceListModal.svelte';
   import PrinterBadge from '$lib/components/PrinterBadge.svelte';
   import BuscarLugar from '$lib/components/BuscarLugar.svelte';
-  import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, type PriceSuggestion } from '$lib/utils/precios';
+  import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, buildSuggestionDesc, type PriceSuggestion } from '$lib/utils/precios';
 import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
 import { diasRestantesNoConfirmada } from '$lib/utils/facturas';
 import type { ClientAddress } from '$lib/types';
@@ -642,17 +642,10 @@ const tallerApi: TallerApi = api;
       if (sugBase.includes(' → ')) {
         const ruleName = (sugBase.split(' → ')[0] || '').trim();
         if (userDims) {
-          // Formato producto: "Bastidor 133 × 195 × 3,7 Sin Tela" (sufijo atrás,
-          // igual que el catálogo) en vez de "Sin Tela 133 × ..." adelante.
-          const dimsText = userDims[0].replace(/\s+/g, ' ').trim();
-          const esc = ruleName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-          const remainder = userQuery
-            .replace(/\d+(?:[.,]\d+)?\s*[xX×]\s*\d+(?:[.,]\d+)?(?:\s*[xX×]\s*\d+(?:[.,]\d+)?)?/g, ' ')
-            .replace(new RegExp(esc, 'gi'), ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          const prefix = remainder ? remainder.charAt(0).toUpperCase() + remainder.slice(1) : 'Bastidor';
-          newDesc = `${prefix} ${dimsText} ${ruleName}`.replace(/\s+/g, ' ').trim();
+          // Nombre canónico genérico: canonicaliza alias/abreviaturas a rule.name
+          // ("pi"→"Pintura", "ta"→"Tapacanto", "sin"→"Sin Tela") sin duplicar.
+          const rule = pricingRules.find(r => (r.name || '').trim().toLowerCase() === ruleName.toLowerCase());
+          newDesc = buildSuggestionDesc(userQuery, ruleName, rule ?? null);
         } else {
           newDesc = ruleName || sug.description;
         }

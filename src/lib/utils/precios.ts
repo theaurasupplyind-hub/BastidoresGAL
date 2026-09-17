@@ -62,39 +62,203 @@ export function parseQuery(query: string): ParsedQuery {
   return { tokens, dims, base, grosor };
 }
 
-// ── Matching de reglas por tokens (normalizado, anti-falsos-positivos) ──
-// - Normaliza a minúsculas/sin acentos (igual que parseQuery).
-// - Tokens de <4 letras se ignoran ("sin" solo disparaba de más).
-// - Token multi-palabra ("sin tela") matchea por frase en la base.
-// - Token simple matchea por palabra exacta; además hay fallback sin
-//   espacios para ("sintela" ⇔ "sin tela").
+// ── Singularización simple (escalable a cualquier regla) ──
+// "pinturas"→"pintura", "tapacantos"→"tapacanto", "marcos"→"marco".
+// Solo quita una "s"/"es" final; no toca infinitivos ("embastar").
 
-export function ruleMatchesQuery(parsed: ParsedQuery, rule: PricingRule): string | null {
+export function singularize(word: string): string {
+  const w = (word || '').toLowerCase().trim();
+  if (w.length <= 3 || !w.endsWith('s')) return w;
+  if (w.endsWith('es') && w.length > 4) {
+    const prev = w.charAt(w.length - 3);
+    if (!'aeiou'.includes(prev)) return w.slice(0, -2);
+  }
+  return w.slice(0, -1);
+}
+
+function capFirst(text: string): string {
+  if (!text) return text;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+// ── Matching de reglas por tokens (normalizado, no-estricto, escalable) ──
+// - Todo lo que el usuario configura en matchTokens + el propio rule.name dispara.
+// - Niveles: exacto (100) > singular/pegado (90) > frase contenida (80) >
+//   prefijo >=2 letras en ambos sentidos (60-79, más largo = más score).
+// - El filtro de longitud solo limita lo difuso (prefijo/substring),
+//   nunca el exacto: un token explícito corto como "Sin" debe matchear "sin".
+
+export function ruleMatchScore(parsed: ParsedQuery, rule: PricingRule): { score: number; matched: string | null } {
   const base = parsed.base || '';
   const baseNoSpace = base.replace(/\s+/g, '');
-  const tokens = new Set(parsed.tokens);
-  for (const raw of rule.matchTokens || []) {
+  const tokens = parsed.tokens || [];
+  const triggers: string[] = [...(rule.matchTokens || []), rule.name || ''].filter(Boolean);
+
+  let best = 0;
+  let bestRaw: string | null = null;
+  const consider = (score: number, raw: string) => {
+    if (score > best) { best = score; bestRaw = raw; }
+  };
+
+  for (const raw of triggers) {
     const mt = normalizeText(String(raw || ''));
-    if (!mt || mt.length < 4) continue;
-    if (mt.includes(' ')) {
-      if (base.includes(mt)) return String(raw);
-      const mtNoSpace = mt.replace(/\s+/g, '');
-      if (mtNoSpace.length >= 4 && baseNoSpace.includes(mtNoSpace)) return String(raw);
-      continue;
-    }
-    if (tokens.has(mt)) return String(raw);
-    // Fallback pegado: "sintela" debe matchear base "sin tela"
+    if (!mt) continue;
     const mtNoSpace = mt.replace(/\s+/g, '');
-    if (mtNoSpace.length >= 4 && baseNoSpace.includes(mtNoSpace)) return String(raw);
+    const mtSing = singularize(mt);
+    const mtWords = mt.split(/\s+/).filter(Boolean);
+
+    // Exacto frase / token
+    if (base === mt) { consider(100, String(raw)); continue; }
+    if (tokens.includes(mt)) { consider(100, String(raw)); continue; }
+    // Exacto singular / pegado
+    if (singularize(base) === mtSing && base) { consider(90, String(raw)); continue; }
+    if (baseNoSpace && mtNoSpace && baseNoSpace === mtNoSpace) { consider(90, String(raw)); continue; }
+    // Frase contenida (multi-palabra): "caja fibro" contiene "fibro facil"
+    if (mt.includes(' ')) {
+      if (base.includes(mt)) { consider(80, String(raw)); continue; }
+      if (mtNoSpace.length >= 3 && baseNoSpace.includes(mtNoSpace)) { consider(78, String(raw)); continue; }
+      // Prefijo de frase: "fibro" → "fibro facil", "sin" → "sin tela"
+      if (base.length >= 2 && mt.startsWith(base)) { consider(60 + Math.min(19, base.length), String(raw)); continue; }
+      if (mt.length >= 2 && base.startsWith(mt)) { consider(60 + Math.min(19, mt.length), String(raw)); continue; }
+    } else {
+      // Glued: "sintela" ⇔ "sin tela" / "sin" en "sintela"
+      if (mtNoSpace.length >= 2 && baseNoSpace.includes(mtNoSpace) && baseNoSpace !== mtNoSpace) {
+        consider(mtNoSpace.length <= 3 ? 70 : 78, String(raw));
+      }
+    }
+
+    // Por palabra: exacto, singular y prefijo en ambos sentidos
+    for (const qt of tokens) {
+      const qtSing = singularize(qt);
+      for (const mw of mtWords) {
+        const mwSing = singularize(mw);
+        if (qt === mw) { consider(100, String(raw)); break; }
+        if (qtSing === mwSing) { consider(90, String(raw)); break; }
+        // Prefijo query→trigger: "pi"→"pintura", "ta"→"tapacantos", "embas"→"embastado"
+        if (qt.length >= 2 && mw.startsWith(qt)) {
+          consider(60 + Math.min(19, qt.length), String(raw));
+        }
+        // Inicial con medidas ("90x87 p"→"pintura"): solo si hay dims para no
+        // inundar al tipear una letra suelta; score menor que el prefijo >=2.
+        else if (qt.length === 1 && parsed.dims.length > 0 && mw.startsWith(qt)) {
+          consider(55, String(raw));
+        }
+        // Prefijo trigger→query: "pinturas" escrito vs token "pintura", "sintela" vs "sin"
+        else if (mw.length >= 2 && qt.startsWith(mw)) {
+          consider(60 + Math.min(19, mw.length), String(raw));
+        }
+      }
+    }
   }
+
+  if (best > 0 && bestRaw) return { score: best, matched: bestRaw };
 
   // Una consulta triple (ej. "67x67x3") ya identifica un producto con
   // grosor, aunque todavía no tenga escrito el nombre/categoría. En ese
   // caso pueden aplicar las reglas que explícitamente dependen del grosor.
   if (parsed.grosor !== null && rule.conditions?.some(c => c.field === 'grosor')) {
-    return 'grosor';
+    return { score: 50, matched: 'grosor' };
   }
-  return null;
+  return { score: 0, matched: null };
+}
+
+export function ruleMatchesQuery(parsed: ParsedQuery, rule: PricingRule): string | null {
+  return ruleMatchScore(parsed, rule).matched;
+}
+
+// ── Nombre final de la sugerencia (genérico, sin hardcodear productos) ──
+// - Cualquier alias (matchTokens) canonicaliza al rule.name.
+// - Abreviaturas ("pi"→"Pintura", "ta"→"Tapacanto", "sin"→"Sin Tela") se expanden.
+// - Si la regla ES una variante (name ≈ baseVariante, ej. "Sin Tela"),
+//   formato "{Categoria} {dims} {Nombre}": "Bastidor 34 x 56 Sin Tela".
+// - Si no (ej. "Pinturas", "Tapacanto"), formato "{Nombre} {dims}":
+//   "Pintura 34 x 54", "Tapacanto 45 x 32" (singularizado, sin duplicar).
+
+export function buildSuggestionDesc(
+  userQuery: string,
+  ruleName: string,
+  rule?: Pick<PricingRule, 'baseCategoria' | 'baseVariante' | 'matchTokens'> | null,
+): string {
+  const dimsRe = /\d+(?:[.,]\d+)?\s*[xX×]\s*\d+(?:[.,]\d+)?(?:\s*[xX×]\s*\d+(?:[.,]\d+)?)?/;
+  const userDims = (userQuery || '').match(dimsRe);
+  if (!userDims) return ruleName || userQuery;
+  const dimsText = userDims[0].replace(/\s+/g, ' ').trim();
+
+  const triggers: string[] = [ruleName, ...((rule?.matchTokens as string[]) || [])].filter(Boolean);
+  // Quitar medidas primero
+  let remainder = (userQuery || '')
+    .replace(new RegExp(dimsRe.source, 'g'), ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  // Quitar menciones completas de los triggers (frases largas primero, con \b)
+  const sorted = [...triggers].sort((a, b) => String(b).length - String(a).length);
+  for (const t of sorted) {
+    const norm = normalizeText(String(t));
+    if (!norm) continue;
+    const esc = String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    try {
+      remainder = remainder.replace(new RegExp(`\\b${esc}\\b`, 'gi'), ' ');
+    } catch {
+      remainder = remainder.replace(new RegExp(esc, 'gi'), ' ');
+    }
+    // También quitar versión singular/plural simple del trigger
+    const sing = singularize(norm);
+    if (sing && sing !== norm) {
+      const escS = sing.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      try {
+        remainder = remainder.replace(new RegExp(`\\b${escS}\\b`, 'gi'), ' ');
+      } catch { /* noop */ }
+    }
+  }
+  remainder = remainder.replace(/\s+/g, ' ').trim();
+
+  const ruleNorm = normalizeText(ruleName);
+  const ruleSing = singularize(ruleNorm);
+  const remNorm = normalizeText(remainder);
+  const remSing = singularize(remNorm);
+
+  // ¿El resto es la misma idea (exacto, plural o abreviatura/prefijo)?
+  // La inicial sola ("p"→"pintura") solo vale si hay medidas en la query.
+  const hasDims = !!userDims;
+  let consumed = remNorm.length === 0;
+  if (!consumed) {
+    if (remNorm === ruleNorm || remSing === ruleSing) consumed = true;
+    else if ((remNorm.length >= 2 || (remNorm.length === 1 && hasDims)) && (ruleNorm.startsWith(remNorm) || ruleSing.startsWith(remNorm))) consumed = true;
+    else if (ruleNorm.length >= 2 && (remNorm.startsWith(ruleNorm) || remNorm.startsWith(ruleSing))) consumed = true;
+    else {
+      // Alias: el resto es otro token de la misma regla ("marco"→Tapacanto, "embastar"→Pinturas)
+      const aliasHit = (rule?.matchTokens || []).some(t => {
+        const tn = normalizeText(String(t));
+        return tn && (tn === remNorm || singularize(tn) === remSing || ((remNorm.length >= 2 || (remNorm.length === 1 && hasDims)) && tn.startsWith(remNorm)));
+      });
+      if (aliasHit) consumed = true;
+      // Resto es primera palabra de un nombre multi-palabra ("sin"→"sin tela")
+      if (!consumed && ruleNorm.includes(' ')) {
+        const first = ruleNorm.split(/\s+/)[0];
+        if (remNorm === first || singularize(first) === remSing || ((remNorm.length >= 2 || (remNorm.length === 1 && hasDims)) && first.startsWith(remNorm))) consumed = true;
+      }
+    }
+  }
+
+  if (consumed) {
+    const varNorm = normalizeText(String(rule?.baseVariante || ''));
+    const isVarianteRule = varNorm && (ruleNorm === varNorm || ruleSing === singularize(varNorm));
+    if (isVarianteRule) {
+      const cat = (rule?.baseCategoria || 'Bastidor').toLowerCase();
+      const catCap = capFirst(cat);
+      return `${catCap} ${dimsText} ${ruleName}`.replace(/\s+/g, ' ').trim();
+    }
+    // Producto: preferir la forma que escribió el usuario si solo difiere en plural,
+    // si no usar el singular del rule.name ("Pinturas"→"Pintura", "pi"→"Pintura").
+    let display = ruleName;
+    if (remainder && remSing === ruleSing) display = capFirst(remainder.toLowerCase());
+    else display = capFirst(ruleSing);
+    return `${display} ${dimsText}`.replace(/\s+/g, ' ').trim();
+  }
+
+  // Concepto distinto al de la regla: conservar prefijo ("Marco dorado 45x32 Tapacanto")
+  const prefix = capFirst(remainder);
+  return `${prefix} ${dimsText} ${ruleName}`.replace(/\s+/g, ' ').trim();
 }
 
 export interface RuleEvalStep {

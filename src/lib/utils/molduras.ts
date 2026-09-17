@@ -128,11 +128,14 @@ export function parse2DItem(desc: string): { w: number; h: number; label: string
 }
 
 function largueroCount(longer: number, shorter?: number): number {
-  // Regla especial: lado corto >=50 y lado largo 75..79 (inclusivo continuo) => 1 larguero, 0 travesaños
-  if (shorter !== undefined && shorter >= 50 && longer >= 75 && longer <= 79) return 1;
-  if (longer < 90) return 0;
-  if (longer >= 90 && longer <= 129) return 1;
-  if (longer >= 130 && longer < 201) return 2;
+  // Regla especial (histórica): lado corto >=50 y lado largo 75..84 => 1 larguero.
+  // Se conserva para no regresionar marcos 75-79 que ya llevaban 1.
+  if (shorter !== undefined && shorter >= 50 && longer >= 75 && longer < 85) return 1;
+  // Generalización de correcciones de taller (85-89 pedían 1 donde antes era 0):
+  if (longer < 85) return 0;
+  if (longer >= 85 && longer <= 129) return 1;
+  // Generalización: 190 ya necesita 3 largueros (antes solo desde 201).
+  if (longer >= 130 && longer < 190) return 2;
   return 3;
 }
 

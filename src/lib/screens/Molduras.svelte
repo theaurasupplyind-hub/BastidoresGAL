@@ -517,6 +517,33 @@
     appStore.showToast('Corrección revertida', 'success');
   }
 
+  function isRedundantCorrection(corr: molduraStore.MolduraCorrectionLocal): boolean {
+    const qty = corr.qty || 1;
+    const formula = getMolduraFormula(corr.width, corr.height, qty);
+    const fLargQty = formula.largueros.length > 0 ? formula.largueros[0].qty : 0;
+    const fLargCm = formula.larguero_cm;
+    const fTravQty = formula.travesanos.length > 0 ? formula.travesanos[0].qty : 0;
+    const fTravCm = formula.travesano_cm;
+    const sameCm = (a: number, b: number) => Math.abs((a || 0) - (b || 0)) < 0.051;
+    return corr.larguero_qty === fLargQty && sameCm(corr.larguero_cm, fLargCm)
+      && corr.travesano_qty === fTravQty && sameCm(corr.travesano_cm, fTravCm);
+  }
+
+  async function cleanRedundantCorrections() {
+    const redundant = correctionsList.filter(isRedundantCorrection);
+    if (redundant.length === 0) {
+      appStore.showToast('Sin correcciones redundantes: todo aporte sigue vigente', 'info');
+      return;
+    }
+    if (!await dialogConfirm(`Hay ${redundant.length} corrección(es) idénticas a la nueva fórmula. ¿Revertirlas?`)) return;
+    for (const corr of redundant) {
+      await molduraStore.removeForItem(corr.invoice_id, corr.item_descripcion);
+    }
+    correctionsList = molduraStore.getAll();
+    await loadCards();
+    appStore.showToast(`${redundant.length} corrección(es) redundante(s) revertida(s)`, 'success');
+  }
+
   async function closeDetailModal() {
     if (editMode && hasChanges && !await dialogConfirm('Hay cambios sin guardar. ¿Salir sin guardar?')) return;
     editMode = false;
@@ -727,10 +754,10 @@
           <h4 style="color:#27ae60;">Largueros (L)</h4>
           <p>Cantidad según el lado <strong>más largo</strong>:</p>
           <ul>
-            <li><strong>Regla especial:</strong> lado corto ≥ 50 cm y lado largo 75 – 79 cm → 1 larguero (0 travesaños)</li>
-            <li>90 – 129 cm → 1 larguero</li>
-            <li>130 cm – &lt; 201 cm → 2 largueros</li>
-            <li>≥ 201 cm → 3 largueros</li>
+            <li><strong>Regla especial:</strong> lado corto ≥ 50 cm y lado largo 75 – 84 cm → 1 larguero (0 travesaños)</li>
+            <li>85 – 129 cm → 1 larguero</li>
+            <li>130 cm – &lt; 190 cm → 2 largueros</li>
+            <li>≥ 190 cm → 3 largueros</li>
           </ul>
           <p class="formula-example">Largo = lado_corto − 5.2 cm</p>
         </div>
@@ -866,6 +893,9 @@
         {/if}
       </div>
       <div class="modal-footer">
+        {#if correctionsList.some(isRedundantCorrection)}
+          <button class="btn btn-secondary" onclick={cleanRedundantCorrections}>🧹 Limpiar redundantes ({correctionsList.filter(isRedundantCorrection).length})</button>
+        {/if}
         <button class="btn btn-primary" onclick={() => showCorrectionsModal = false}>Cerrar</button>
       </div>
     </div>

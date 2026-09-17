@@ -1,4 +1,6 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.78': `Facturación: sugerencias de precio canonicalizan alias y abreviaturas (pi→Pintura, ta→Tapacanto, sin→Sin Tela) sin duplicar texto
+Molduras: umbrales de largueros generalizados (75-84 especial, 85-129=1, 130-189=2, ≥190=3) + botón para limpiar correcciones redundantes`,
   '2.3.77': `Notas: nueva pestana Archivos, mini-drive de excels de prospectos (subir, ver, descargar) con links clicables a web e Instagram
 Nuevo analisis FODA en Panel
 PDF: se quita el guion cuando no hay fecha de entrega`,
