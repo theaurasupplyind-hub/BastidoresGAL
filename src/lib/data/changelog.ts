@@ -1,4 +1,7 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.77': `Notas: nueva pestana Archivos, mini-drive de excels de prospectos (subir, ver, descargar) con links clicables a web e Instagram
+Nuevo analisis FODA en Panel
+PDF: se quita el guion cuando no hay fecha de entrega`,
   '2.3.76': `Facturas PDF: nueva seccion de entrega con fecha destacada y sin relleno gris
 Configuracion: nuevo template "Original test", igual al Original pero mostrando solo la fecha de entrega en gris medio
 PDF: la fecha de entrega ahora entiende rangos y muestra el dia de la semana de forma mas clara

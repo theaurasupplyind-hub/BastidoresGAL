@@ -5,6 +5,9 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { mapaStore } from '$lib/stores/mapaStore.svelte';
   import { animate, spring } from 'animejs';
+  import FodaModal from '$lib/components/FodaModal.svelte';
+  import * as XLSX from 'xlsx';
+  import { open as shellOpen } from '@tauri-apps/plugin-shell';
 
   // ── Task List (API) ──
   type TaskImageRef = { id: number; created_at?: string | null; url?: string | null };
@@ -23,6 +26,7 @@
   let pastedImage = $state<Uint8Array | null>(null);
   let pastedImageUrl = $state<string | null>(null);
   let showTaskTrash = $state(false);
+  let showFoda = $state(false);
   let trashTasks = $state<Array<{ id: number; text: string; done: boolean; position: number; pinned: boolean; created_at?: string | null; deleted_at?: string | null; assigned_by: string | null; images: TaskImageRef[] }>>([]);
   let loadingTrash = $state(false);
   // Replies (1 nivel, cloud)
@@ -830,9 +834,188 @@
     currentPage = 0;
     notesTemp = loadedPages[0] ?? '';
     historyExpanded = false;
+    notesTab = 'notas';
+    closePViewer();
     showNotesModal = true;
   }
   function closeNotes() { showNotesModal = false; }
+
+  // ── Mini-drive de excels (pestaña Archivos junto a Notas) ──
+  type ProspectoFileMeta = { id: number; name: string; original_filename: string; mime_type: string; size_bytes: number; sheets_meta: string; created_at: string };
+  type PSheet = { name: string; header: string[]; rows: string[][]; abs: number[]; links: Record<string, string>; rowOff: number; colOff: number };
+  let notesTab = $state<'notas' | 'archivos'>('notas');
+  let pFiles = $state<ProspectoFileMeta[]>([]);
+  let loadingPFiles = $state(false);
+  let uploadingPFile = $state(false);
+  let pFileInput = $state<HTMLInputElement>();
+  let pViewing = $state<ProspectoFileMeta | null>(null);
+  let pSheets = $state<PSheet[]>([]);
+  let pSheetIdx = $state(0);
+  let pLoadingSheet = $state(false);
+  let pSearch = $state('');
+
+  let pCurrentSheet = $derived(pSheets[pSheetIdx] ?? null);
+  let pFilteredRows = $derived((() => {
+    const sh = pSheets[pSheetIdx];
+    if (!sh) return [];
+    const q = pSearch.trim().toLowerCase();
+    const all = sh.rows.map((row, idx) => ({ row, abs: sh.abs[idx] ?? 0 }));
+    if (!q) return all;
+    return all.filter(({ row }) => row.some(c => (c || '').toLowerCase().includes(q)));
+  })());
+
+  function pSheetsSummary(f: ProspectoFileMeta): string {
+    try {
+      const meta = JSON.parse(f.sheets_meta || '[]');
+      if (!Array.isArray(meta) || meta.length === 0) return 'Excel';
+      return meta.map((s: any) => `${s.n} (${s.r})`).join(' · ');
+    } catch { return 'Excel'; }
+  }
+
+  function formatBytes(n: number): string {
+    if (!n) return '0 KB';
+    if (n < 1024) return `${n} B`;
+    return `${(n / 1024).toFixed(n < 102400 ? 0 : 1)} KB`;
+  }
+
+  async function loadPFiles() {
+    loadingPFiles = true;
+    try { pFiles = await api.listProspectoFiles(); } catch { pFiles = []; }
+    finally { loadingPFiles = false; }
+  }
+
+  function triggerPUpload() { pFileInput?.click(); }
+
+  async function handlePUpload(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const files = input.files;
+    if (!files || files.length === 0) return;
+    uploadingPFile = true;
+    try {
+      for (const file of Array.from(files)) {
+        const lower = file.name.toLowerCase();
+        if (!lower.endsWith('.xlsx') && !lower.endsWith('.xls')) {
+          appStore.showToast(`${file.name}: solo .xlsx/.xls`, 'error');
+          continue;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          appStore.showToast(`${file.name}: muy grande (máx 10MB)`, 'error');
+          continue;
+        }
+        const buf = await file.arrayBuffer();
+        let sheetsMeta = '[]';
+        try {
+          const wb = XLSX.read(buf, { type: 'array' });
+          sheetsMeta = JSON.stringify(wb.SheetNames.map(n => {
+            const ws = wb.Sheets[n];
+            const ref = ws['!ref'];
+            let r = 0, c = 0;
+            if (ref) {
+              const range = XLSX.utils.decode_range(ref);
+              r = range.e.r - range.s.r + 1;
+              c = range.e.c - range.s.c + 1;
+            }
+            return { n, r, c };
+          }));
+        } catch {}
+        await api.uploadProspectoFile(file.name.replace(/\.(xlsx|xls)$/i, ''), sheetsMeta, new Uint8Array(buf), file.name);
+      }
+      await loadPFiles();
+      appStore.showToast('Archivo subido', 'success');
+    } catch (err: any) {
+      appStore.showToast('Error al subir: ' + (err?.message || String(err)), 'error');
+    } finally {
+      uploadingPFile = false;
+      input.value = '';
+    }
+  }
+
+  async function openPViewer(f: ProspectoFileMeta) {
+    pViewing = f;
+    pSheets = [];
+    pSheetIdx = 0;
+    pSearch = '';
+    pLoadingSheet = true;
+    try {
+      const bytes = await api.downloadProspectoBytes(f.id);
+      const wb = XLSX.read(bytes, { type: 'array', cellDates: true });
+      pSheets = wb.SheetNames.map(n => {
+        const ws = wb.Sheets[n];
+        const aoa: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+        // Mapa de hipervínculos nativos del Excel (HYPERLINK / links insertados)
+        const links: Record<string, string> = {};
+        let rowOff = 0, colOff = 0;
+        try {
+          const range = ws['!ref'] ? XLSX.utils.decode_range(ws['!ref']) : null;
+          if (range) {
+            rowOff = range.s.r;
+            colOff = range.s.c;
+            for (let r = range.s.r; r <= range.e.r; r++) {
+              for (let c = range.s.c; c <= range.e.c; c++) {
+                const cell = ws[XLSX.utils.encode_cell({ r, c })];
+                const target = (cell as any)?.l?.Target;
+                if (typeof target === 'string' && /^https?:\/\//i.test(target.trim())) {
+                  links[`${r},${c}`] = target.trim();
+                }
+              }
+            }
+          }
+        } catch {}
+        const norm = aoa.map(row => (Array.isArray(row) ? row : []).map(v => (v == null ? '' : String(v))));
+        const header = norm[0] ?? [];
+        const rows: string[][] = [];
+        const abs: number[] = [];
+        norm.slice(1).forEach((row, i) => {
+          if (!row.some(v => (v || '').trim() !== '')) return;
+          rows.push(row);
+          abs.push(rowOff + 1 + i);
+        });
+        return { name: n, header, rows, abs, links, rowOff, colOff };
+      });
+    } catch (err: any) {
+      appStore.showToast('No se pudo abrir: ' + (err?.message || String(err)), 'error');
+      pViewing = null;
+    } finally {
+      pLoadingSheet = false;
+    }
+  }
+
+  function closePViewer() { pViewing = null; pSheets = []; pSheetIdx = 0; pSearch = ''; }
+
+  async function deletePFile(id: number) {
+    try {
+      await api.deleteProspectoFile(id);
+      if (pViewing?.id === id) closePViewer();
+      await loadPFiles();
+      appStore.showToast('Archivo eliminado', 'success');
+    } catch (err: any) {
+      appStore.showToast('Error al eliminar: ' + (err?.message || String(err)), 'error');
+    }
+  }
+
+  async function downloadPFile(f: ProspectoFileMeta) {
+    try { await shellOpen(api.getProspectoDownloadUrl(f.id)); }
+    catch (err: any) { appStore.showToast('Error al descargar: ' + (err?.message || String(err)), 'error'); }
+  }
+
+  /** Devuelve URL si la celda es un link (hipervínculo del Excel, URL, www., Instagram). absR = fila absoluta en la hoja. */
+  function cellLinkUrl(sh: PSheet, absR: number, c: number, text: string): string | null {
+    const explicit = (sh.links[`${absR},${sh.colOff + c}`] || '').trim();
+    if (explicit && /^https?:\/\//i.test(explicit)) return explicit;
+    const s = (text || '').trim();
+    if (!s) return null;
+    if (/^https?:\/\//i.test(s)) return s;
+    if (/^www\./i.test(s)) return 'https://' + s;
+    if (/^instagram\.com\//i.test(s)) return 'https://' + s;
+    const m = s.match(/^@([A-Za-z0-9._]{1,30})$/);
+    if (m) return `https://instagram.com/${m[1]}`;
+    return null;
+  }
+
+  async function openCellLink(url: string) {
+    try { await shellOpen(url); }
+    catch (err: any) { appStore.showToast('No se pudo abrir el link', 'error'); }
+  }
 
   // ── Helpers ──
   const taskCount = $derived(tasks.length);
@@ -911,6 +1094,10 @@
         <div class="card-header-actions">
           <button class="task-sort-btn" onclick={() => { taskSortRecentFirst = !taskSortRecentFirst; try{ localStorage.setItem('panel_tasks_recent_first', String(taskSortRecentFirst)); }catch{} }} title={taskSortRecentFirst ? 'Recientes arriba — cambiar a abajo' : 'Recientes abajo — cambiar a arriba'} aria-label="Cambiar orden">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="10" x2="12" y2="3"/><polyline points="8 7 12 3 16 7"/><line x1="12" y1="14" x2="12" y2="21"/><polyline points="8 17 12 21 16 17"/></svg>
+          </button>
+          <button class="foda-btn" onclick={() => showFoda = true} title="Análisis FODA" aria-label="Abrir análisis FODA">
+            <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2A10 10 0 0 0 2 12h6a4 4 0 0 1 4 4v6A10 10 0 0 0 12 2z" fill="#00b8e6"/><path d="M12 2A10 10 0 0 1 22 12h-6a4 4 0 0 0-4-4V2z" fill="#8b00b8"/><path d="M16 12a4 4 0 0 0-4 4v6a10 10 0 0 0 10-10h-6z" fill="#00b3a4"/><path d="M12 12a4 4 0 0 0-4 4H2a10 10 0 0 0 10 10v-6a4 4 0 0 1 0-8z" fill="#8fd400"/></svg>
+            <span>FODA</span>
           </button>
           <button class="card-trash-btn" onclick={toggleTaskTrash} aria-label="Papelera de tareas">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
@@ -1369,10 +1556,14 @@
   <div class="modal-overlay" role="presentation">
     <div class="modal modal-notes" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && closeNotes()}>
       <div class="notes-modal-header">
-        <h3>Notas</h3>
+        <div class="notes-tabs" role="tablist">
+          <button class="notes-tab" class:active={notesTab === 'notas'} onclick={() => notesTab = 'notas'} role="tab">Notas</button>
+          <button class="notes-tab" class:active={notesTab === 'archivos'} onclick={() => { notesTab = 'archivos'; loadPFiles(); }} role="tab">Archivos</button>
+        </div>
         <button class="notes-modal-close" onclick={closeNotes} aria-label="Cerrar">✕</button>
       </div>
 
+      {#if notesTab === 'notas'}
       <div class="book-container">
         <div class="book-nav">
           <button class="book-nav-btn" onclick={prevSec} disabled={isFirstPage} aria-label="Sección anterior">
@@ -1399,7 +1590,7 @@
         </div>
       </div>
 
-      {#if noteHistory.length > 0}
+      {#if noteHistory.length > 0 && notesTab === 'notas'}
         <div class="history-section">
           <button class="history-toggle" onclick={() => historyExpanded = !historyExpanded}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" class:rotated={historyExpanded}>
@@ -1429,9 +1620,104 @@
           {/if}
         </div>
       {/if}
+      {/if}
+
+      {#if notesTab === 'archivos'}
+      <div class="drive-container">
+        <input type="file" accept=".xlsx,.xls" multiple bind:this={pFileInput} onchange={handlePUpload} class="task-file-input" />
+        {#if !pViewing}
+          <div class="drive-toolbar">
+            <span class="drive-hint">Excels de prospectos · se guardan en el servidor</span>
+            <button class="btn btn-primary btn-sm" onclick={triggerPUpload} disabled={uploadingPFile}>{uploadingPFile ? 'Subiendo...' : '+ Subir Excel'}</button>
+          </div>
+          {#if loadingPFiles}
+            <div class="drive-empty">Cargando archivos...</div>
+          {:else if pFiles.length === 0}
+            <div class="drive-empty">Sin archivos. Subí tu primer Excel con + Subir Excel.</div>
+          {:else}
+            <div class="drive-list">
+              {#each pFiles as f}
+                <div class="drive-item">
+                  <div class="drive-file-icon" aria-hidden="true">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  </div>
+                  <div class="drive-meta">
+                    <span class="drive-name" title={f.original_filename}>{f.name}</span>
+                    <span class="drive-sub">{pSheetsSummary(f)} · {formatBytes(f.size_bytes)} · {formatShortDate(f.created_at)}</span>
+                  </div>
+                  <div class="drive-actions">
+                    <button class="drive-btn" onclick={() => openPViewer(f)} title="Ver">Ver</button>
+                    <button class="drive-btn" onclick={() => downloadPFile(f)} title="Descargar">Descargar</button>
+                    <button class="drive-btn drive-btn-del" onclick={() => deletePFile(f.id)} title="Eliminar">✕</button>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {:else}
+          <div class="drive-viewer">
+            <div class="drive-toolbar">
+              <button class="drive-btn" onclick={closePViewer} aria-label="Volver">← Archivos</button>
+              <span class="drive-name" title={pViewing.original_filename}>{pViewing.name}</span>
+              <button class="drive-btn" onclick={() => downloadPFile(pViewing!)} title="Descargar">Descargar</button>
+            </div>
+            {#if pLoadingSheet}
+              <div class="drive-empty">Abriendo Excel...</div>
+            {:else if pSheets.length === 0}
+              <div class="drive-empty">El archivo no tiene hojas con datos.</div>
+            {:else}
+              {#if pSheets.length > 1}
+                <div class="drive-sheets" role="tablist">
+                  {#each pSheets as sh, i}
+                    <button class="drive-sheet" class:active={i === pSheetIdx} onclick={() => { pSheetIdx = i; pSearch = ''; }} role="tab">{sh.name}</button>
+                  {/each}
+                </div>
+              {/if}
+              {#if pCurrentSheet}
+                <input class="drive-search" type="text" bind:value={pSearch} placeholder="Buscar en la hoja..." />
+                <div class="drive-count">{pFilteredRows.length} filas × {pCurrentSheet.header.length} columnas</div>
+                <div class="drive-table-wrap">
+                  <table class="drive-table">
+                    <thead>
+                      <tr>
+                        {#each pCurrentSheet.header as h}
+                          <th>{h || '—'}</th>
+                        {/each}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each pFilteredRows.slice(0, 500) as item}
+                        <tr>
+                          {#each pCurrentSheet.header as _, c}
+                            {@const text = item.row[c] ?? ''}
+                            {@const url = cellLinkUrl(pCurrentSheet, item.abs, c, text)}
+                            <td>
+                              {#if url}
+                                <button class="drive-link" onclick={() => openCellLink(url)} title={url}>🔗 {text || url}</button>
+                              {:else}
+                                {text}
+                              {/if}
+                            </td>
+                          {/each}
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+                {#if pFilteredRows.length > 500}
+                  <div class="drive-count">Mostrando las primeras 500 filas. Usá el buscador para filtrar.</div>
+                {/if}
+              {/if}
+            {/if}
+          </div>
+        {/if}
+      </div>
+      {/if}
 
       <div class="modal-footer">
-        <button class="btn btn-primary" onclick={saveNote} disabled={savingNote}>{savingNote ? 'Guardando...' : 'Guardar'}</button>
+        {#if notesTab === 'notas'}
+          <button class="btn btn-primary" onclick={saveNote} disabled={savingNote}>{savingNote ? 'Guardando...' : 'Guardar'}</button>
+        {/if}
         <button class="btn btn-secondary" onclick={closeNotes}>Cerrar</button>
       </div>
     </div>
@@ -1593,6 +1879,10 @@
   </div>
 {/if}
 
+{#if showFoda}
+  <FodaModal onclose={() => showFoda = false} />
+{/if}
+
 <style>
   .panel-control {
     display: flex;
@@ -1669,6 +1959,8 @@
   .card-back-btn:hover { color: var(--text-primary, #111827); background: var(--bg-hover, #f3f4f6); }
   .task-sort-btn { flex-shrink:0; background:none; border:none; color:var(--text-muted, #9ca3af); padding:.143rem; border-radius:.214rem; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:color .12s, background .12s; }
   .task-sort-btn:hover { color:var(--text-primary, #374151); background:var(--bg-hover, #f3f4f6); }
+  .foda-btn { flex-shrink:0; background:none; border:1px solid var(--border-light, #e5e7eb); color:var(--text-secondary, #4b5563); padding:.143rem .429rem; border-radius:1rem; display:flex; align-items:center; justify-content:center; gap:.25rem; cursor:pointer; font-size:.643rem; font-weight:700; letter-spacing:.03em; transition:color .12s, background .12s, border-color .12s; }
+  .foda-btn:hover { color:#8b00b8; background:rgba(139,0,184,0.07); border-color:rgba(139,0,184,0.35); }
   .task-restore-btn {
     flex-shrink: 0;
     background: none;
@@ -2396,6 +2688,108 @@
     transition: all 0.12s;
   }
   .notes-modal-close:hover { background: rgba(239,68,68,0.08); color: #ef4444; }
+
+  /* ── Tabs Notas | Archivos ── */
+  .notes-tabs {
+    display: flex;
+    gap: 0.143rem;
+    background: #e9ecef;
+    border-radius: 0.429rem;
+    padding: 0.143rem;
+  }
+  .notes-tab {
+    padding: 0.429rem 1rem;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary, #6b7280);
+    border-radius: 0.286rem;
+    transition: all 0.12s;
+  }
+  .notes-tab:hover { color: var(--text-primary); }
+  .notes-tab.active { background: var(--bg-card, #fff); color: var(--text-primary); box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.08); }
+
+  /* ── Mini-drive (pestaña Archivos) ── */
+  .drive-container { display: flex; flex-direction: column; gap: 0.571rem; }
+  .drive-toolbar {
+    display: flex; align-items: center; gap: 0.571rem;
+  }
+  .drive-hint { flex: 1; font-size: 0.786rem; color: var(--text-muted, #9ca3af); }
+  .drive-empty {
+    text-align: center; color: var(--text-muted, #9ca3af);
+    font-size: 0.857rem; padding: 2rem 0;
+  }
+  .drive-list {
+    display: flex; flex-direction: column; gap: 0.429rem;
+    max-height: 22rem; overflow-y: auto;
+  }
+  .drive-item {
+    display: flex; align-items: center; gap: 0.571rem;
+    border: 1px solid var(--border, #e5e7eb);
+    border-radius: 0.429rem; padding: 0.5rem 0.714rem;
+    background: var(--bg-card, #fff);
+  }
+  .drive-file-icon { color: #16a34a; display: flex; flex-shrink: 0; }
+  .drive-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+  .drive-name {
+    font-size: 0.857rem; font-weight: 600; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .drive-sub {
+    font-size: 0.714rem; color: var(--text-muted, #9ca3af);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .drive-actions { display: flex; gap: 0.286rem; flex-shrink: 0; }
+  .drive-btn {
+    padding: 0.286rem 0.571rem;
+    border: 1px solid var(--border, #e5e7eb);
+    background: var(--bg-card, #fff);
+    color: var(--text-secondary, #4b5563);
+    font-size: 0.786rem; font-weight: 600;
+    border-radius: 0.286rem; cursor: pointer;
+    transition: all 0.12s; white-space: nowrap;
+  }
+  .drive-btn:hover { background: var(--bg-hover, #f3f4f6); color: var(--text-primary); }
+  .drive-btn-del:hover { color: #ef4444; border-color: #ef4444; background: rgba(239,68,68,0.08); }
+  .btn-sm { padding: 0.429rem 0.857rem; font-size: 0.857rem; }
+  .drive-sheets { display: flex; gap: 0.286rem; flex-wrap: wrap; }
+  .drive-sheet {
+    padding: 0.286rem 0.714rem; border: 1px solid var(--border, #e5e7eb);
+    background: var(--bg-card, #fff); color: var(--text-secondary, #6b7280);
+    font-size: 0.786rem; font-weight: 600; border-radius: 1rem; cursor: pointer;
+  }
+  .drive-sheet.active { background: var(--accent, #2563eb); border-color: var(--accent, #2563eb); color: #fff; }
+  .drive-search {
+    padding: 0.429rem 0.714rem; border: 1px solid var(--border, #e5e7eb);
+    border-radius: 0.429rem; font-size: 0.857rem; font-family: inherit;
+    background: var(--bg-card, #fff); color: var(--text-primary); outline: none;
+  }
+  .drive-search:focus { border-color: var(--border-focus, #93c5fd); }
+  .drive-count { font-size: 0.714rem; color: var(--text-muted, #9ca3af); }
+  .drive-table-wrap {
+    overflow: auto; max-height: 20rem;
+    border: 1px solid var(--border, #e5e7eb); border-radius: 0.429rem;
+  }
+  .drive-table { border-collapse: collapse; width: 100%; font-size: 0.786rem; }
+  .drive-table th {
+    position: sticky; top: 0; background: var(--bg-hover, #f3f4f6);
+    color: var(--text-primary); font-weight: 700; text-align: left;
+    padding: 0.429rem 0.571rem; border-bottom: 1px solid var(--border, #e5e7eb);
+    white-space: nowrap;
+  }
+  .drive-table td {
+    padding: 0.357rem 0.571rem; border-bottom: 1px solid var(--border-light, #f3f4f6);
+    color: var(--text-secondary, #374151); max-width: 16rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .drive-link {
+    background: none; border: none; padding: 0; cursor: pointer;
+    color: #2563eb; font-size: inherit; text-decoration: underline;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .drive-link:hover { color: #1d4ed8; }
 
   /* ── Book Container ── */
   .book-container {

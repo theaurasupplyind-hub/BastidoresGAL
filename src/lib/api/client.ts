@@ -629,6 +629,40 @@ export const api = {
   deleteNote: (id: number) =>
     request<{ status: string }>('DELETE', `/notes/${id}`),
 
+  // ---- Mini-drive de excels (pestaña Archivos junto a Notas) ----
+  listProspectoFiles: () =>
+    handleResponse(request<{ id: number; name: string; original_filename: string; mime_type: string; size_bytes: number; sheets_meta: string; created_at: string }[]>('GET', '/prospecto-files', undefined, 15), []),
+
+  async uploadProspectoFile(name: string, sheetsMeta: string, bytes: Uint8Array, filename: string) {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('sheets_meta', sheetsMeta);
+    formData.append('file', new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
+    const url = `${API_URL}/prospecto-files`;
+    const resp = await tauriFetch(url, { method: 'POST', body: formData });
+    if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }
+    return resp.json();
+  },
+
+  async downloadProspectoBytes(id: number): Promise<Uint8Array> {
+    const url = `${API_URL}/prospecto-files/${id}/download`;
+    const resp = await tauriFetch(url, { method: 'GET' });
+    if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }
+    const buf = await resp.arrayBuffer();
+    return new Uint8Array(buf);
+  },
+
+  getProspectoDownloadUrl: (id: number) => `${API_URL}/prospecto-files/${id}/download`,
+
+  deleteProspectoFile: (id: number) =>
+    request<{ status: string }>('DELETE', `/prospecto-files/${id}`),
+
+  // ---- FODA ----
+  getFoda: () =>
+    handleResponse(request<{ fortalezas: string[]; oportunidades: string[]; debilidades: string[]; amenazas: string[] }>('GET', '/foda', undefined, 10), { fortalezas: [], oportunidades: [], debilidades: [], amenazas: [] } as any),
+  saveFoda: (data: { fortalezas: string[]; oportunidades: string[]; debilidades: string[]; amenazas: string[] }) =>
+    request<{ status: string }>('PUT', '/foda', data),
+
   getLatestManifest: () =>
     request<{ version: string; notes: string; pub_date: string; platforms: any }>('GET', '/latest.json', undefined, 10),
 };

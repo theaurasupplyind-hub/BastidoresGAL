@@ -145,7 +145,7 @@ fn dia_semana_completo(fecha: &str) -> String {
 pub fn format_entrega_display(raw: &str) -> String {
     let raw = raw.trim();
     if raw.is_empty() {
-        return "—".to_string();
+        return String::new();
     }
     // Caso JSON {desde, hasta, extras} (lo que guarda Facturacion/Kanban).
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) {
@@ -179,7 +179,7 @@ pub fn format_entrega_display(raw: &str) -> String {
                 s.push_str(&extra_txt);
             }
             if s.is_empty() {
-                return "—".to_string();
+                return String::new();
             }
             return s;
         }
