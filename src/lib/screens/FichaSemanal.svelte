@@ -1,5 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { fly } from 'svelte/transition';
+  import { flip } from 'svelte/animate';
+  import { cubicOut } from 'svelte/easing';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
@@ -27,6 +30,9 @@
   let recentPagos = $state<(Pago & { cliente_nombre: string })[]>([]);
   let pagoPage = $state(0);
   const PAGOS_PER_PAGE = 10;
+
+  // Above this row count, row animations are disabled to avoid O(n) layout thrashing.
+  const ANIM_LIMIT = 150;
 
   // Top debtors
   let topDebtors = $state<{ cliente: string; deuda: number }[]>([]);
@@ -128,8 +134,8 @@
     return { start, end };
   }
 
-  async function loadData() {
-    loading = true;
+  async function loadData(silent = false) {
+    if (!silent) loading = true;
     try {
       const [f, p, c] = await Promise.all([
         cacheStore.fetch(`facturas:semanal:${startDate}:${endDate}`, () => api.listFacturas({ start: startDate, end: endDate, limit: 2000, with_items: false }), 300000),
@@ -152,7 +158,7 @@
       console.error('Error loading data:', e);
       appStore.alert('Error al cargar datos: ' + (e as Error).message);
     } finally {
-      loading = false;
+      if (!silent) loading = false;
     }
   }
 
@@ -297,8 +303,26 @@
     showPagoDialog = true;
   }
 
-  function handlePagoSaved() {
-    loadData();
+  function handlePagoSaved(pago?: Pago) {
+    if (pago && pago.invoice_id) {
+      const factura = facturas.find(f => f.id === pago.invoice_id);
+      const enriched: Pago = {
+        ...pago,
+        extra_client_name: pago.extra_client_name || factura?.cliente_nombre || 'Desconocido',
+      };
+      const idx = pagos.findIndex(p => p.id === enriched.id);
+      if (idx >= 0) {
+        pagos[idx] = { ...pagos[idx], ...enriched };
+      } else {
+        pagos = [...pagos, enriched];
+      }
+      computeRows();
+      computeKpis();
+      computeRecentPagos();
+      computeTopDebtors();
+    }
+    appStore.showToast('Pago registrado', 'success');
+    loadData(true);
   }
 
   async function handleDeletePago() {
@@ -308,7 +332,7 @@
       await api.deletePago(pagoDlg.pagoId);
       showPagoDialog = false;
       cacheStore.invalidate('pagos');
-      await loadData();
+      await loadData(true);
     } catch (e) {
       appStore.alert('Error al eliminar pago: ' + (e as Error).message);
     }
@@ -325,9 +349,10 @@
         api.patchInvoiceField(row.id, 'estado_kanban', newKanban),
       ]);
       confirmEntregaId = null;
+      const idx = rows.findIndex(r => r.id === row.id);
+      if (idx >= 0) rows[idx] = { ...rows[idx], estado_entrega: newStatus };
       cacheStore.invalidate('facturas');
       cacheStore.invalidate('pagos');
-      await loadData();
     } catch (e) {
       appStore.alert('Error al cambiar estado de entrega: ' + (e as Error).message);
     }
@@ -368,6 +393,7 @@
     appStore.fsFilterCliente = '';
     appStore.fsFilterEstado = 'TODOS';
     appStore.fsFilterEntrega = 'TODOS';
+    lastLoadedRange = `${d.start}|${d.end}`;
     loadData();
   }
 
@@ -386,19 +412,65 @@
 
   let initialized = $state(false);
   let showKpis = $state(true);
+  let lastLoadedRange = '';
 
   onMount(() => {
     const d = getDefaultDates();
     appStore.fsStartDate = d.start;
     appStore.fsEndDate = d.end;
     initialized = true;
+    lastLoadedRange = `${d.start}|${d.end}`;
     loadData();
   });
 
   $effect(() => {
-    if (initialized) loadData();
+    const range = `${startDate}|${endDate}`;
+    if (!initialized || range === lastLoadedRange) return;
+    const t = setTimeout(() => {
+      lastLoadedRange = range;
+      loadData();
+    }, 250);
+    return () => clearTimeout(t);
   });
 </script>
+
+{#snippet rowCells(row: FichaSemanalRow)}
+  <td>{formatDate(row.fecha)}</td>
+  <td class="td-numero">{row.numero}</td>
+  <td>{row.cliente}</td>
+  <td class="td-number">{formatCurrency(row.total)}</td>
+  <td class="td-number">{formatCurrency(row.pagado)}</td>
+  <td class="td-number">{formatCurrency(row.saldo)}</td>
+  <td class="td-estado">
+    {#key row.estado}
+      <span class={`estado-badge ${getEstadoClass(row.estado)}`}>{row.estado}</span>
+    {/key}
+  </td>
+  <td class="td-entrega">
+    {#if confirmEntregaId === row.id}
+      <span class="entrega-confirm">
+        ¿{row.estado_entrega === 'ENTREGADO' ? 'Pendiente?' : 'Entregado?'}
+        <button class="btn btn-xs btn-success" onclick={() => toggleEntrega(row)}>Sí</button>
+        <button class="btn btn-xs btn-secondary" onclick={() => confirmEntregaId = null}>No</button>
+      </span>
+    {:else}
+      {#key row.estado_entrega}
+        <span class="entrega-wrap">
+          <button
+            class={`entrega-btn ${getEntregaClass(row.estado_entrega)}`}
+            onclick={() => confirmEntregaId = row.id}
+            title="Click para cambiar estado de entrega"
+          >
+            {row.estado_entrega === 'ENTREGADO' ? '☑ LISTO' : '☐ PEND'}
+          </button>
+          {#if row.fecha_entrega}
+            <span class="entrega-date">({formatDate(row.fecha_entrega)})</span>
+          {/if}
+        </span>
+      {/key}
+    {/if}
+  </td>
+{/snippet}
 
 <div class="ficha-semanal">
   <!-- KPI Cards -->
@@ -451,7 +523,7 @@
       {:else if filteredRows.length === 0}
         <div class="fs-empty">No hay facturas en el período seleccionado.</div>
       {:else}
-        <table class="fs-table">
+        <table class="fs-table" class:no-anim={filteredRows.length > ANIM_LIMIT}>
           <thead>
             <tr>
               <th>Fecha</th>
@@ -465,39 +537,28 @@
             </tr>
           </thead>
           <tbody>
-            {#each filteredRows as row (row.id)}
-              <tr ondblclick={() => openNewPago(row.id)} oncontextmenu={(e) => { e.preventDefault(); ctxMenuRowId = row.id; ctxMenuX = e.clientX; ctxMenuY = e.clientY; ctxMenuShow = true; }}>
-                <td>{formatDate(row.fecha)}</td>
-                <td class="td-numero">{row.numero}</td>
-                <td>{row.cliente}</td>
-                <td class="td-number">{formatCurrency(row.total)}</td>
-                <td class="td-number">{formatCurrency(row.pagado)}</td>
-                <td class="td-number">{formatCurrency(row.saldo)}</td>
-                <td>
-                  <span class={`estado-badge ${getEstadoClass(row.estado)}`}>{row.estado}</span>
-                </td>
-                <td>
-                  {#if confirmEntregaId === row.id}
-                    <span class="entrega-confirm">
-                      ¿{row.estado_entrega === 'ENTREGADO' ? 'Pendiente?' : 'Entregado?'}
-                      <button class="btn btn-xs btn-success" onclick={() => toggleEntrega(row)}>Sí</button>
-                      <button class="btn btn-xs btn-secondary" onclick={() => confirmEntregaId = null}>No</button>
-                    </span>
-                  {:else}
-                    <button
-                      class={`entrega-btn ${getEntregaClass(row.estado_entrega)}`}
-                      onclick={() => confirmEntregaId = row.id}
-                      title="Click para cambiar estado de entrega"
-                    >
-                      {row.estado_entrega === 'ENTREGADO' ? '☑ LISTO' : '☐ PEND'}
-                    </button>
-                    {#if row.fecha_entrega}
-                      <span class="entrega-date">({formatDate(row.fecha_entrega)})</span>
-                    {/if}
-                  {/if}
-                </td>
-              </tr>
-            {/each}
+            {#if filteredRows.length <= ANIM_LIMIT}
+              {#each filteredRows as row (row.id)}
+                <tr
+                  in:fly={{ x: -24, duration: 180, easing: cubicOut }}
+                  out:fly={{ x: 360, duration: 300, easing: cubicOut }}
+                  animate:flip={{ duration: 300, easing: cubicOut }}
+                  ondblclick={() => openNewPago(row.id)}
+                  oncontextmenu={(e) => { e.preventDefault(); ctxMenuRowId = row.id; ctxMenuX = e.clientX; ctxMenuY = e.clientY; ctxMenuShow = true; }}
+                >
+                  {@render rowCells(row)}
+                </tr>
+              {/each}
+            {:else}
+              {#each filteredRows as row (row.id)}
+                <tr
+                  ondblclick={() => openNewPago(row.id)}
+                  oncontextmenu={(e) => { e.preventDefault(); ctxMenuRowId = row.id; ctxMenuX = e.clientX; ctxMenuY = e.clientY; ctxMenuShow = true; }}
+                >
+                  {@render rowCells(row)}
+                </tr>
+              {/each}
+            {/if}
           </tbody>
         </table>
       {/if}
@@ -708,16 +769,30 @@
   .td-number { text-align: right; font-family: monospace; font-size: 0.95rem; }
   .td-numero { font-family: monospace; font-size: 0.92rem; }
 
+  .td-estado { min-width: 7rem; }
   .estado-badge {
     display: inline-block;
     padding: 0.286rem 0.857rem;
     border-radius: 0.714rem;
     font-size: 0.88rem;
     font-weight: 600;
+    animation: estado-swap-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  @keyframes estado-swap-in {
+    from { opacity: 0; transform: translateX(-12px); }
+    to { opacity: 1; transform: translateX(0); }
   }
   .estado-pagado { color: #27ae60; }
   .estado-parcial { color: #d68910; }
   .estado-pendiente { color: #e74c3c; }
+  .entrega-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.286rem;
+    animation: estado-swap-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  }
+  .fs-table.no-anim .estado-badge,
+  .fs-table.no-anim .entrega-wrap { animation: none; }
   .entrega-btn {
     border: none;
     background: none;

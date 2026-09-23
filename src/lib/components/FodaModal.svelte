@@ -24,6 +24,11 @@
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
   let printRoot = $state<HTMLDivElement | null>(null);
 
+  const MANY_THRESHOLD = 5;
+  let expanded = $derived(
+    Math.max(items.fortalezas.length, items.oportunidades.length, items.debilidades.length, items.amenazas.length) > MANY_THRESHOLD
+  );
+
   // ── Semicírculo FODA (donut superior dividido en 4) ──
   const CX = 200, CY = 205, R_OUT = 190, R_IN = 108;
   const ANGLES: Record<QuadrantKey, [number, number]> = {
@@ -207,7 +212,7 @@
     {#if loading}
       <div class="foda-loading">Cargando FODA…</div>
     {:else}
-      <div class="foda-body">
+      <div class="foda-body" class:expanded>
         <div class="foda-side">
           {@render quad(QUADRANTS[0])}
           {@render quad(QUADRANTS[1])}
@@ -232,8 +237,8 @@
             <g>
               <circle cx={CX} cy={CY} r="86" fill="#fff" stroke="#e5e7eb" stroke-width="6" />
               <circle cx={CX} cy={CY} r="72" fill="#f3f4f6" />
-              <text x={CX} y={CY - 2} text-anchor="middle" font-size="21" font-weight="800" fill="#1f2937">Análisis</text>
-              <text x={CX} y={CY + 30} text-anchor="middle" font-size="32" font-weight="900" fill="#1f2937">foda</text>
+              <text x={CX} y={CY - 16} text-anchor="middle" font-size="21" font-weight="800" fill="#1f2937">Análisis</text>
+              <text x={CX} y={CY + 14} text-anchor="middle" font-size="32" font-weight="900" fill="#1f2937">foda</text>
             </g>
           </svg>
           <div class="foda-legend">
@@ -263,7 +268,7 @@
   }
   .foda-modal {
     background: var(--bg-card, #fff); color: var(--text-primary, #111827);
-    border-radius: 1rem; width: min(1220px, 96vw); max-height: 90vh;
+    border-radius: 1rem; width: min(1560px, 96vw); max-height: 90vh;
     display: flex; flex-direction: column; overflow: hidden;
     box-shadow: 0 12px 48px rgba(0,0,0,0.25);
   }
@@ -292,7 +297,7 @@
   .foda-close:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
   .foda-loading { padding: 3rem; text-align: center; color: var(--text-muted, #9ca3af); }
   .foda-body {
-    display: grid; grid-template-columns: 1fr 330px 1fr; gap: 1rem;
+    display: grid; grid-template-columns: 1fr 360px 1fr; gap: 1rem;
     padding: 1rem 1.25rem; overflow: auto; align-items: start;
   }
   .foda-side { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
@@ -331,7 +336,7 @@
     background: var(--bg-card, #fff); border: 1px solid var(--border-light, #e5e7eb);
     border-radius: 1rem; padding: 0.1rem 0.5rem; color: var(--text-secondary, #4b5563);
   }
-  .quad ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; max-height: 9rem; overflow: auto; }
+  .quad ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; max-height: 28rem; overflow: auto; overscroll-behavior: contain; }
   .quad li {
     display: flex; align-items: center; gap: 0.4rem;
     background: var(--bg-card, #fff); border: 1px solid var(--border-light, #e5e7eb);
@@ -352,8 +357,20 @@
     background: var(--qc); color: #fff; font-size: 1.1rem; font-weight: 700; cursor: pointer;
   }
   .q-add button:hover { filter: brightness(0.92); }
+  .foda-body.expanded { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .foda-body.expanded .foda-side { display: contents; }
+  .foda-body.expanded .foda-chart {
+    grid-column: 1 / -1; order: -1; position: static;
+    flex-direction: row; align-items: center; justify-content: center;
+    gap: 1.5rem; flex-wrap: wrap;
+  }
+  .foda-body.expanded .foda-svg { width: min(340px, 60vw); }
+  .foda-body.expanded .foda-legend { max-width: 360px; }
   @media (max-width: 900px) {
     .foda-body { grid-template-columns: 1fr; }
     .foda-chart { position: static; order: -1; }
+    .foda-body.expanded { grid-template-columns: 1fr; }
+    .foda-body.expanded .foda-side { display: flex; flex-direction: column; gap: 0.75rem; }
+    .foda-body.expanded .foda-svg { width: 100%; }
   }
 </style>

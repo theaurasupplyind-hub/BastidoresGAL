@@ -26,6 +26,39 @@
     { value: 10000, label: '$10.000' },
   ];
 
+  const roundingModes = [
+    { value: 'nearest', label: 'Cercano' },
+    { value: 'up', label: 'Arriba' },
+  ];
+
+  function roundingStep(rounding: number): number {
+    return Math.abs(rounding || 0);
+  }
+
+  function roundingMode(rounding: number): 'nearest' | 'up' {
+    return rounding < 0 ? 'up' : 'nearest';
+  }
+
+  function setRoundingStep(id: number | undefined, step: number) {
+    if (id == null) return;
+    const current = rules.find(r => r.id === id)?.rounding ?? 0;
+    const value = step === 0 ? 0 : (roundingMode(current) === 'up' ? -step : step);
+    updateRule(id, { rounding: value });
+  }
+
+  function setRoundingMode(id: number | undefined, mode: string) {
+    if (id == null) return;
+    const current = rules.find(r => r.id === id)?.rounding ?? 0;
+    const step = roundingStep(current) || 1000;
+    updateRule(id, { rounding: mode === 'up' ? -step : step });
+  }
+
+  function formatRounding(rounding: number): string {
+    const step = Math.abs(rounding);
+    const label = step >= 1000 ? `$${step.toLocaleString('es-AR')}` : `$${step}`;
+    return `${rounding < 0 ? '↑' : '↕'}${label}`;
+  }
+
   async function loadRefs() {
     const cached = cacheStore.get<PrecioReferencia[]>('preciosReferencia');
     if (cached) { refs = cached; return; }
@@ -346,6 +379,9 @@
                 <span class="rule-tokens">{tokensToString(rule.matchTokens)}</span>
                 <span class="rule-op">{operationLabel(rule.operation)}</span>
                 <span class="rule-val">{rule.operation === 'percentage' ? `${rule.operationValue}%` : rule.operation === 'fixed' ? `$${rule.operationValue}` : rule.operation === 'override' ? `$${rule.operationValue}` : '—'}</span>
+                <span class="rule-round" title={rule.rounding !== 0 ? (rule.rounding < 0 ? 'Redondeo hacia arriba' : 'Redondeo cercano') : ''}>
+                  {rule.rounding !== 0 ? formatRounding(rule.rounding) : ''}
+                </span>
                 <span class="rule-expand">{expandedRule === rule.id ? '▲' : '▼'}</span>
               </div>
 
@@ -399,8 +435,20 @@
                       <input type="number" value={rule.operationValue} oninput={(e) => updateRule(rule.id, { operationValue: parseFloat(e.currentTarget.value) || 0 })} />
                     </div>
                     <div class="form-group">
-                      <label>Redondeo</label>
-                      <select value={rule.rounding} onchange={(e) => updateRule(rule.id, { rounding: parseInt(e.currentTarget.value) })}>
+                      <label>Modo</label>
+                      <select
+                        value={roundingMode(rule.rounding)}
+                        disabled={roundingStep(rule.rounding) === 0}
+                        onchange={(e) => setRoundingMode(rule.id, e.currentTarget.value)}
+                      >
+                        {#each roundingModes as opt}
+                          <option value={opt.value}>{opt.label}</option>
+                        {/each}
+                      </select>
+                    </div>
+                    <div class="form-group">
+                      <label>Múltiplo</label>
+                      <select value={roundingStep(rule.rounding)} onchange={(e) => setRoundingStep(rule.id, parseInt(e.currentTarget.value))}>
                         {#each roundingOptions as opt}
                           <option value={opt.value}>{opt.label}</option>
                         {/each}
@@ -628,6 +676,7 @@
   .rule-tokens { flex: 1; font-size: 0.8rem; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .rule-op { flex: 0 0 5rem; font-size: 0.8rem; color: var(--text-muted); }
   .rule-val { flex: 0 0 4rem; font-size: 0.8rem; color: var(--text-muted); text-align: right; }
+  .rule-round { flex: 0 0 5rem; font-size: 0.75rem; color: var(--text-muted); text-align: right; }
   .rule-expand { flex: 0 0 1.5rem; text-align: center; font-size: 0.7rem; color: var(--text-muted); }
   .empty { font-size: 0.85rem; color: var(--text-muted); font-style: italic; padding: 0.5rem 0; }
 

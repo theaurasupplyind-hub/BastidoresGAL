@@ -2,7 +2,7 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import type { Provider, Employee } from '$lib/types';
+  import type { Provider, Employee, Pago } from '$lib/types';
 
   let {
     show = $bindable(false),
@@ -34,7 +34,7 @@
     initialEntityType?: string;
     initialEntityId?: number;
     onclose?: () => void;
-    onsaved?: () => void;
+    onsaved?: (pago?: Pago) => void;
     onDelete?: () => void;
   } = $props();
 
@@ -106,6 +106,7 @@
     if (!invoiceId || !pagoDate || pagoAmount <= 0) return;
     if (pagoMethod === 'Transferencia' && !pagoEntityId) return;
     saving = true;
+    let saved: Pago | null = null;
     try {
       const payload: Record<string, unknown> = {
         invoice_id: invoiceId,
@@ -118,14 +119,20 @@
         payload.entity_id = pagoEntityId;
       }
       if (editing && pagoId) {
-        await api.updatePago(pagoId, payload);
+        const res: any = await api.updatePago(pagoId, payload);
+        saved = res && typeof res === 'object'
+          ? ({ ...payload, id: pagoId, ...res } as Pago)
+          : ({ ...payload, id: pagoId } as Pago);
       } else {
-        await api.addPago({ ...payload, user_id: appStore.user?.user_id || 0 });
+        const res: any = await api.addPago({ ...payload, user_id: appStore.user?.user_id || 0 });
+        saved = res && typeof res === 'object' && res.id != null
+          ? ({ ...payload, ...res } as Pago)
+          : ({ ...payload, id: -Date.now(), created_at: new Date().toISOString() } as Pago);
       }
       cacheStore.invalidate('pagos');
       cacheStore.invalidate('facturas');
       close();
-      onsaved?.();
+      onsaved?.(saved ?? undefined);
     } catch (e: any) {
       appStore.alert('Error al registrar pago: ' + (e?.message || e));
     } finally {

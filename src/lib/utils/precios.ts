@@ -476,15 +476,17 @@ export function evaluateRules(
     }
 
     // 6. Redondeo
-    if (rule.rounding > 0 && currentPrice > 0) {
+    if (rule.rounding !== 0 && currentPrice > 0) {
       const beforeRound = currentPrice;
       currentPrice = roundPrice(currentPrice, rule.rounding);
       const diff = currentPrice - beforeRound;
       if (diff !== 0) {
-        const label = rule.rounding >= 1000 ? `$${rule.rounding.toLocaleString('es-AR')}` : `$${rule.rounding}`;
+        const step = Math.abs(rule.rounding);
+        const label = step >= 1000 ? `$${step.toLocaleString('es-AR')}` : `$${step}`;
+        const dir = rule.rounding < 0 ? 'hacia arriba ' : '';
         steps.push({
           type: 'condition',
-          label: `🔢 Redondeo al múltiplo de ${label}`,
+          label: `🔢 Redondeo ${dir}al múltiplo de ${label}`,
           detail: `$${beforeRound.toLocaleString('es-AR')} → $${currentPrice.toLocaleString('es-AR')} (${diff > 0 ? `+$${diff.toLocaleString('es-AR')}` : `-$${Math.abs(diff).toLocaleString('es-AR')}`})`,
           success: true,
         });
@@ -575,16 +577,18 @@ export function refsToProductos(refs: PrecioReferencia[]): Producto[] {
   }));
 }
 
-// ── Redondeo de precios (half-down para .5) ──
+// ── Redondeo de precios (half-down para .5; negativo = hacia arriba) ──
 
 function roundPrice(price: number, roundTo: number): number {
-  if (roundTo <= 0) return price;
-  const half = roundTo / 2;
-  const remainder = price % roundTo;
+  const step = Math.abs(roundTo);
+  if (step <= 0) return price;
+  if (roundTo < 0) return Math.ceil(price / step) * step;
+  const half = step / 2;
+  const remainder = price % step;
   if (remainder > half) {
-    return Math.ceil(price / roundTo) * roundTo;
+    return Math.ceil(price / step) * step;
   } else {
-    return Math.floor(price / roundTo) * roundTo;
+    return Math.floor(price / step) * step;
   }
 }
 
@@ -737,7 +741,7 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
         }
       }
 
-      if (rule.rounding > 0 && price > 0) {
+      if (rule.rounding !== 0 && price > 0) {
         price = roundPrice(price, rule.rounding);
       }
 

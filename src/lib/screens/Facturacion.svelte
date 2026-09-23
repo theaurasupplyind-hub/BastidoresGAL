@@ -15,6 +15,8 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import PriceListModal from '$lib/components/PriceListModal.svelte';
   import PrinterBadge from '$lib/components/PrinterBadge.svelte';
   import BuscarLugar from '$lib/components/BuscarLugar.svelte';
+  import ConfirmModal from '$lib/components/ConfirmModal.svelte';
+  import GIcon from '$lib/components/gastos/GIcon.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, buildSuggestionDesc, type PriceSuggestion } from '$lib/utils/precios';
 import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
 import { diasRestantesNoConfirmada } from '$lib/utils/facturas';
@@ -125,6 +127,7 @@ const tallerApi: TallerApi = api;
     return total;
   });
   let showNewAddressPrompt = $state(false);
+  let pendingDeleteAddr = $state<ClientAddress | null>(null);
   let newAddressLabel = $state('');
   let newAddressDefault = $state(false);
   let pendingSavePayload = $state<any>(null);
@@ -500,12 +503,14 @@ const tallerApi: TallerApi = api;
     _initialized = true;
     document.addEventListener('mousemove', dragMove);
     document.addEventListener('mouseup', dragEnd);
+    document.addEventListener('mousedown', handleAddressClickOutside);
     document.addEventListener('visibilitychange', onVisibilityChange);
   });
 
   onDestroy(() => {
     document.removeEventListener('mousemove', dragMove);
     document.removeEventListener('mouseup', dragEnd);
+    document.removeEventListener('mousedown', handleAddressClickOutside);
     document.removeEventListener('visibilitychange', onVisibilityChange);
   });
 
@@ -1296,6 +1301,13 @@ const tallerApi: TallerApi = api;
     return items;
   }
 
+  function handleAddressClickOutside(e: MouseEvent) {
+    if (!showAddressDropdown) return;
+    const t = e.target as HTMLElement | null;
+    if (t?.closest('.address-wrap')) return;
+    showAddressDropdown = false;
+  }
+
   function toggleAddressDropdown() {
     if (showAddressDropdown) {
       showAddressDropdown = false;
@@ -1364,6 +1376,25 @@ const tallerApi: TallerApi = api;
     }
     showAddressDropdown = false;
     selectedAddressIdx = -1;
+  }
+
+  function deleteSavedAddress(a: ClientAddress) {
+    if (a.id <= 0) return;
+    pendingDeleteAddr = a;
+  }
+
+  async function confirmDeleteAddress() {
+    const a = pendingDeleteAddr;
+    if (!a) return;
+    pendingDeleteAddr = null;
+    try {
+      await api.deleteAddress(a.client_id, a.id);
+      clienteAddresses = await api.listAddresses(a.client_id);
+      addressSuggestions = buildAddressSugerencias();
+      showAddressDropdown = true;
+    } catch {
+      appStore.showToast('No se pudo eliminar la dirección', 'error');
+    }
   }
 
   function openAddAddressModal() {
@@ -1767,7 +1798,7 @@ const tallerApi: TallerApi = api;
           </div>
           <div class="row">
             <div class="field flex-2">
-              <div class="autocomplete-wrap">
+              <div class="autocomplete-wrap address-wrap">
                 <input type="text" bind:value={cliente_domicilio} placeholder="Domicilio" class="input-with-icon-left input-with-address-btns"
                   oninput={handleAddressInput}
                   onfocus={handleAddressFocus}
@@ -1791,6 +1822,10 @@ const tallerApi: TallerApi = api;
                         {#if sug.type === 'saved'}
                           <span class="addr-label">{sug.data.label || 'Dirección'}</span>
                           <span class="addr-text">{sug.data.address}{sug.data.extra ? ` - ${sug.data.extra}` : ''}</span>
+                          {#if sug.data.id > 0}
+                            <button class="addr-del" type="button" title="Eliminar dirección" aria-label="Eliminar dirección"
+                              onmousedown={(e) => { e.preventDefault(); e.stopPropagation(); deleteSavedAddress(sug.data); }}><GIcon name="trash" size={14} /></button>
+                          {/if}
                         {:else}
                           <span class="addr-nominatim">{formatearDireccionNominatim(sug.data)}</span>
                         {/if}
@@ -2289,6 +2324,25 @@ const tallerApi: TallerApi = api;
       </div>
     </div>
   </div>
+{/if}
+
+{#if pendingDeleteAddr}
+  {@const addr = pendingDeleteAddr}
+  <ConfirmModal
+    title="Eliminar dirección"
+    confirmText="Eliminar"
+    cancelText="Cancelar"
+    danger
+    onconfirm={confirmDeleteAddress}
+    oncancel={() => pendingDeleteAddr = null}
+  >
+    {#snippet children()}
+      <p>
+        ¿Eliminar la dirección
+        <strong>"{addr.address}{addr.extra ? ` - ${addr.extra}` : ''}"</strong>?
+      </p>
+    {/snippet}
+  </ConfirmModal>
 {/if}
 
 <style>
@@ -3687,11 +3741,31 @@ const tallerApi: TallerApi = api;
     white-space: nowrap;
   }
   .addr-text {
+    flex: 1 1 auto;
+    min-width: 0;
     font-size: var(--text-sm);
     color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .addr-del {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 0.4rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 0.3rem;
+  }
+  .addr-del:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
   }
   .addr-nominatim {
     font-size: var(--text-sm);

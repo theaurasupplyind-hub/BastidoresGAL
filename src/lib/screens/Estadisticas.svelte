@@ -3,7 +3,7 @@
   import { api } from '$lib/api/client';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
-  import type { Factura } from '$lib/types';
+  import type { Factura, Cliente } from '$lib/types';
   import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, LineController, LineElement, PointElement } from 'chart.js';
   import ChartDataLabels from 'chartjs-plugin-datalabels';
   Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, LineController, LineElement, PointElement, ChartDataLabels);
@@ -53,6 +53,7 @@
   let viewType = $state('Mensual');
 
   let facturas = $state<Factura[]>([]);
+  let facturasRec = $state<Factura[]>([]);
   let filteredFacturas = $state<Factura[]>([]);
 
   let kpis = $state<{ label: string; value: string; change: string; arrow: string; color: string }[]>([]);
@@ -65,6 +66,75 @@
 
   let topClientes = $state<{ cliente: string; total: number; unidades: number }[]>([]);
   let topProductos = $state<{ producto: string; total: number; unidades: number }[]>([]);
+
+  let clientes = $state<Cliente[]>([]);
+  let totalClientes = $state(0);
+  let clientesActivos = $state(0);
+
+  // ── Recurrencia de clientes ──
+  type RecPeriod = '6m' | '12m' | '24m' | 'all';
+  type RecCountMode = 'ocasiones' | 'facturas';
+
+  let recPeriod = $state<RecPeriod>('12m');
+  let recCountMode = $state<RecCountMode>('ocasiones');
+
+  const REC_GAP_DIAS = 90;
+
+  interface RecSegmento { label: string; clientes: number; pct: number; }
+  interface RecTopRow {
+    cliente: string;
+    compras: number;
+    facturas: number;
+    facturacion: number;
+    ticketProm: number;
+    primera: number;
+    ultima: number;
+    diasProm: number | null;
+  }
+  interface RecAltaRow {
+    cliente: string;
+    compras: number;
+    facturacion: number;
+    ultima: number;
+    diasProm: number | null;
+  }
+  interface RecurrenciaData {
+    periodoLabel: string;
+    totalFacturasPeriodo: number;
+    totalOcasionesPeriodo: number;
+    totalFacturacion: number;
+    facturasSinCliente: number;
+    activos: number;
+    recurrentes: number;
+    unicos: number;
+    tasaRecurrencia: number;
+    tasaUnica: number;
+    comprasPromedio: number;
+    totalCompras: number;
+    facturacionRecurrentes: number;
+    pctFacturacionRecurrentes: number;
+    nuevos: number;
+    facturacionNuevos: number;
+    pctFacturacionNuevos: number;
+    nuevosAplica: boolean;
+    recuperados: number;
+    recuperadosAplica: boolean;
+    intervaloPromedio: number | null;
+    intervalosCount: number;
+    segmentos: RecSegmento[];
+    topRecurrentes: RecTopRow[];
+    altaFrecuencia: RecAltaRow[];
+    interpretacion: string;
+  }
+
+  let recurrencia = $state<RecurrenciaData>({
+    periodoLabel: '', totalFacturasPeriodo: 0, totalOcasionesPeriodo: 0, totalFacturacion: 0,
+    facturasSinCliente: 0, activos: 0, recurrentes: 0, unicos: 0, tasaRecurrencia: 0, tasaUnica: 0,
+    comprasPromedio: 0, totalCompras: 0, facturacionRecurrentes: 0, pctFacturacionRecurrentes: 0,
+    nuevos: 0, facturacionNuevos: 0, pctFacturacionNuevos: 0, nuevosAplica: true,
+    recuperados: 0, recuperadosAplica: true, intervaloPromedio: null, intervalosCount: 0,
+    segmentos: [], topRecurrentes: [], altaFrecuencia: [], interpretacion: '',
+  });
 
   let globalVentasTotal = $state(0);
   let globalUnidadesTotal = $state(0);
@@ -207,6 +277,9 @@
     try {
       cacheStore.invalidate('facturas');
       facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
+      facturasRec = facturasActivas(await cacheStore.fetch('facturas:recurrencia', () => api.listFacturas({ limit: 20000, with_items: false }), 300000));
+      clientes = await cacheStore.fetch('clientes', () => api.listClientes(), 1800000);
+      totalClientes = clientes.length;
       globalVentasTotal = facturas.reduce((s, f) => s + (f.total || 0), 0);
       globalUnidadesTotal = facturas.reduce((s, f) => s + (f.items || []).reduce((si, it) => si + (it.cantidad || 0), 0), 0);
       computeMonthlyTable();
@@ -221,7 +294,11 @@
   }
 
   function applyFilters() {
-    if (!facturas.length) return;
+    if (!facturas.length) {
+      filteredFacturas = [];
+      clientesActivos = 0;
+      return;
+    }
 
     const s = parseDate(startDate);
     const e = parseDate(endDate);
@@ -236,6 +313,9 @@
     computeChart(filteredFacturas);
     computeTopClientes(filteredFacturas);
     computeTopProductos(filteredFacturas);
+    clientesActivos = new Set(
+      filteredFacturas.map(f => f.cliente_id).filter((x): x is number => x != null)
+    ).size;
   }
 
   function computeKpis(current: Factura[]) {
@@ -349,6 +429,182 @@
       .map(([producto, v]) => ({ producto, total: v.total, unidades: v.units }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 50);
+  }
+
+  function formatFechaMs(ms: number): string {
+    if (!ms) return '—';
+    const d = new Date(ms);
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  }
+
+  function toDayMs(fecha: string): number {
+    const d = parseDate(fecha);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+
+  function addMonths(d: Date, n: number): Date {
+    return new Date(d.getFullYear(), d.getMonth() + n, d.getDate());
+  }
+
+  function buildInterpretacion(r: Omit<RecurrenciaData, 'interpretacion'>): string {
+    if (r.activos === 0) return 'No hay compras con cliente identificado en el período seleccionado.';
+    const parts: string[] = [];
+    parts.push(`Durante el período analizado (${r.periodoLabel}) hubo ${r.activos} clientes activos.`);
+    parts.push(`${r.recurrentes} realizaron dos o más compras, por lo que la tasa de recurrencia fue del ${r.tasaRecurrencia.toFixed(1)}%.`);
+    parts.push(`Los clientes recurrentes representaron el ${r.pctFacturacionRecurrentes.toFixed(1)}% de la facturación (${formatCurrency(r.facturacionRecurrentes)} de ${formatCurrency(r.totalFacturacion)}).`);
+    parts.push(`${r.unicos} clientes (${r.tasaUnica.toFixed(1)}%) compraron una sola vez.`);
+    if (r.nuevosAplica) parts.push(`Se sumaron ${r.nuevos} clientes nuevos, que generaron ${formatCurrency(r.facturacionNuevos)} (${r.pctFacturacionNuevos.toFixed(1)}% de la facturación).`);
+    if (r.recuperadosAplica) parts.push(`Se recuperaron ${r.recuperados} clientes (más de ${REC_GAP_DIAS} días sin comprar).`);
+    if (r.intervaloPromedio != null) parts.push(`El intervalo promedio entre compras consecutivas fue de ${r.intervaloPromedio.toFixed(1)} días (sobre ${r.intervalosCount} intervalos).`);
+    if (r.facturasSinCliente > 0) parts.push(`Se omitieron ${r.facturasSinCliente} facturas sin cliente identificado.`);
+    return parts.join(' ');
+  }
+
+  function computeRecurrencia() {
+    const now = new Date();
+    const periodEnd = now.getTime();
+    let periodStart: number | null = null;
+    if (recPeriod === '6m') periodStart = addMonths(now, -6).getTime();
+    else if (recPeriod === '12m') periodStart = addMonths(now, -12).getTime();
+    else if (recPeriod === '24m') periodStart = addMonths(now, -24).getTime();
+
+    const inPeriod = (t: number) => periodStart == null || (t >= periodStart && t <= periodEnd);
+
+    const clients = new Map<number, { nombre: string; facturas: { date: number; total: number }[] }>();
+    let facturasSinCliente = 0;
+    for (const f of facturasRec) {
+      if (f.cliente_id == null) { facturasSinCliente++; continue; }
+      const g = clients.get(f.cliente_id) || { nombre: f.cliente_nombre || `Cliente ${f.cliente_id}`, facturas: [] };
+      if (f.cliente_nombre) g.nombre = f.cliente_nombre;
+      g.facturas.push({ date: toDayMs(f.fecha), total: f.total || 0 });
+      clients.set(f.cliente_id, g);
+    }
+
+    let activos = 0, recurrentes = 0, unicos = 0;
+    let totalCompras = 0, totalFacturasPeriodo = 0, totalOcasionesPeriodo = 0, totalFacturacion = 0;
+    let facturacionRecurrentes = 0, nuevos = 0, facturacionNuevos = 0, recuperados = 0;
+    const intervalos: number[] = [];
+    const segCounts = [0, 0, 0, 0, 0];
+    const topRows: RecTopRow[] = [];
+    const altaRows: RecAltaRow[] = [];
+    const last12Start = addMonths(now, -12).getTime();
+
+    for (const g of clients.values()) {
+      const all = [...new Set(g.facturas.map(x => x.date))].sort((a, b) => a - b);
+      const periodFacturas = g.facturas.filter(x => inPeriod(x.date));
+      if (periodFacturas.length === 0) continue;
+
+      const days = [...new Set(periodFacturas.map(x => x.date))].sort((a, b) => a - b);
+      const invoices = periodFacturas.length;
+      const occasions = days.length;
+      const facturacion = periodFacturas.reduce((s, x) => s + x.total, 0);
+      const compras = recCountMode === 'ocasiones' ? occasions : invoices;
+
+      activos++;
+      if (compras >= 2) { recurrentes++; facturacionRecurrentes += facturacion; } else unicos++;
+
+      totalCompras += compras;
+      totalFacturasPeriodo += invoices;
+      totalOcasionesPeriodo += occasions;
+      totalFacturacion += facturacion;
+
+      if (compras === 1) segCounts[0]++;
+      else if (compras === 2) segCounts[1]++;
+      else if (compras <= 5) segCounts[2]++;
+      else if (compras <= 11) segCounts[3]++;
+      else segCounts[4]++;
+
+      let diasProm: number | null = null;
+      if (days.length >= 2) {
+        let sum = 0;
+        for (let i = 1; i < days.length; i++) {
+          const gap = (days[i] - days[i - 1]) / 864e5;
+          sum += gap;
+          intervalos.push(gap);
+        }
+        diasProm = sum / (days.length - 1);
+      }
+
+      const firstEver = all[0];
+      if (periodStart != null && firstEver != null && inPeriod(firstEver)) { nuevos++; facturacionNuevos += facturacion; }
+
+      if (periodStart != null) {
+        const before = all.filter(t => t < periodStart);
+        if (before.length > 0 && days.length > 0 && (days[0] - before[before.length - 1]) / 864e5 > REC_GAP_DIAS) recuperados++;
+      }
+
+      topRows.push({
+        cliente: g.nombre, compras, facturas: invoices, facturacion,
+        ticketProm: invoices > 0 ? facturacion / invoices : 0,
+        primera: days[0], ultima: days[days.length - 1], diasProm,
+      });
+
+      const last12days = all.filter(t => t >= last12Start);
+      const last12Facturas = g.facturas.filter(x => x.date >= last12Start);
+      const compras12 = recCountMode === 'ocasiones' ? last12days.length : last12Facturas.length;
+      if (compras12 >= 6) {
+        let dp: number | null = null;
+        if (last12days.length >= 2) {
+          let s = 0;
+          for (let i = 1; i < last12days.length; i++) s += (last12days[i] - last12days[i - 1]) / 864e5;
+          dp = s / (last12days.length - 1);
+        }
+        altaRows.push({
+          cliente: g.nombre,
+          compras: compras12,
+          facturacion: last12Facturas.reduce((s, x) => s + x.total, 0),
+          ultima: last12days[last12days.length - 1] ?? 0,
+          diasProm: dp,
+        });
+      }
+    }
+
+    const intervaloPromedio = intervalos.length > 0 ? intervalos.reduce((a, b) => a + b, 0) / intervalos.length : null;
+
+    const segLabels = ['1 compra', '2 compras', '3 a 5', '6 a 11', '12 o más'];
+    const segmentos = segCounts.map((c, i) => ({ label: segLabels[i], clientes: c, pct: activos > 0 ? (c / activos) * 100 : 0 }));
+
+    const topRecurrentes = topRows
+      .filter(r => r.compras >= 2)
+      .sort((a, b) => b.compras - a.compras || b.facturacion - a.facturacion)
+      .slice(0, 10);
+
+    const altaFrecuencia = altaRows
+      .sort((a, b) => b.compras - a.compras || b.facturacion - a.facturacion)
+      .slice(0, 20);
+
+    const periodoLabel = periodStart != null ? `${formatFechaMs(periodStart)} – ${formatFechaMs(periodEnd)}` : 'Toda la historia';
+
+    const base: Omit<RecurrenciaData, 'interpretacion'> = {
+      periodoLabel,
+      totalFacturasPeriodo,
+      totalOcasionesPeriodo,
+      totalFacturacion,
+      facturasSinCliente,
+      activos,
+      recurrentes,
+      unicos,
+      tasaRecurrencia: activos > 0 ? (recurrentes / activos) * 100 : 0,
+      tasaUnica: activos > 0 ? (unicos / activos) * 100 : 0,
+      comprasPromedio: activos > 0 ? totalCompras / activos : 0,
+      totalCompras,
+      facturacionRecurrentes,
+      pctFacturacionRecurrentes: totalFacturacion > 0 ? (facturacionRecurrentes / totalFacturacion) * 100 : 0,
+      nuevos,
+      facturacionNuevos,
+      pctFacturacionNuevos: totalFacturacion > 0 ? (facturacionNuevos / totalFacturacion) * 100 : 0,
+      nuevosAplica: recPeriod !== 'all',
+      recuperados,
+      recuperadosAplica: recPeriod !== 'all',
+      intervaloPromedio,
+      intervalosCount: intervalos.length,
+      segmentos,
+      topRecurrentes,
+      altaFrecuencia,
+    };
+
+    recurrencia = { ...base, interpretacion: buildInterpretacion(base) };
   }
 
   function fechaToKey(s: string): string | null {
@@ -496,6 +752,13 @@
 
   $effect(() => { chartData; canvasEl; buildChart(); });
 
+  $effect(() => {
+    facturasRec;
+    recPeriod;
+    recCountMode;
+    computeRecurrencia();
+  });
+
   onDestroy(() => { if (chartInstance) chartInstance.destroy(); });
 
   onMount(() => {
@@ -560,6 +823,11 @@
         <span class="kpi-sub">Global: {globalUnidadesTotal}</span>
       </div>
     {/if}
+    <div class="kpi-card">
+      <span class="kpi-label">Clientes</span>
+      <span class="kpi-value">{totalClientes}</span>
+      <span class="kpi-sub">Activos en período: {clientesActivos}</span>
+    </div>
     <div class="kpi-card kpi-card-forecast">
       <span class="kpi-label">Pronóstico del mes</span>
       <span class="kpi-value">{formatCurrency(forecastProyeccion)}</span>
@@ -705,6 +973,178 @@
           </div>
         </div>
       </div>
+
+      <div class="est-recurrencia">
+        <div class="rec-head">
+          <h3>Recurrencia de clientes</h3>
+          <div class="rec-controls">
+            <div class="rec-seg" role="group" aria-label="Período de análisis">
+              <button class:active={recPeriod === '6m'} onclick={() => recPeriod = '6m'}>6m</button>
+              <button class:active={recPeriod === '12m'} onclick={() => recPeriod = '12m'}>12m</button>
+              <button class:active={recPeriod === '24m'} onclick={() => recPeriod = '24m'}>24m</button>
+              <button class:active={recPeriod === 'all'} onclick={() => recPeriod = 'all'}>Toda</button>
+            </div>
+            <div class="rec-seg" role="group" aria-label="Modo de conteo">
+              <button class:active={recCountMode === 'ocasiones'} onclick={() => recCountMode = 'ocasiones'} title="Cuenta días únicos de compra">Ocasiones</button>
+              <button class:active={recCountMode === 'facturas'} onclick={() => recCountMode = 'facturas'} title="Cuenta cada factura">Facturas</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="rec-periodo">
+          Período analizado: <strong>{recurrencia.periodoLabel}</strong>
+          &middot; {recurrencia.totalFacturasPeriodo} facturas
+          &middot; {recurrencia.totalOcasionesPeriodo} ocasiones de compra
+          {#if recurrencia.facturasSinCliente > 0}
+            &middot; <span class="rec-warn">{recurrencia.facturasSinCliente} facturas sin cliente identificado (omitidas)</span>
+          {/if}
+        </div>
+
+        <div class="rec-kpis">
+          <div class="rec-kpi">
+            <span class="rec-kpi-label">Clientes activos</span>
+            <span class="rec-kpi-value">{recurrencia.activos}</span>
+            <span class="rec-kpi-sub">únicos con ≥1 compra</span>
+          </div>
+          <div class="rec-kpi">
+            <span class="rec-kpi-label">Clientes recurrentes</span>
+            <span class="rec-kpi-value">{recurrencia.recurrentes}</span>
+            <span class="rec-kpi-sub">≥2 compras</span>
+          </div>
+          <div class="rec-kpi">
+            <span class="rec-kpi-label">Tasa de recurrencia</span>
+            <span class="rec-kpi-value">{recurrencia.tasaRecurrencia.toFixed(1)}%</span>
+            <span class="rec-kpi-sub">{recurrencia.recurrentes} / {recurrencia.activos}</span>
+          </div>
+          <div class="rec-kpi">
+            <span class="rec-kpi-label">Compras prom. / cliente</span>
+            <span class="rec-kpi-value">{recurrencia.comprasPromedio.toFixed(2)}</span>
+            <span class="rec-kpi-sub">{recurrencia.totalCompras} / {recurrencia.activos}</span>
+          </div>
+          <div class="rec-kpi">
+            <span class="rec-kpi-label">% facturación recurrentes</span>
+            <span class="rec-kpi-value">{recurrencia.pctFacturacionRecurrentes.toFixed(1)}%</span>
+            <span class="rec-kpi-sub">{formatCurrency(recurrencia.facturacionRecurrentes)} de {formatCurrency(recurrencia.totalFacturacion)}</span>
+          </div>
+        </div>
+
+        <div class="rec-grid">
+          <div class="rec-block">
+            <h4>Distribución por cantidad de compras</h4>
+            <table class="est-table">
+              <thead><tr><th>Segmento</th><th class="td-r">Clientes</th><th class="td-r">% de activos</th></tr></thead>
+              <tbody>
+                {#each recurrencia.segmentos as s}
+                  <tr>
+                    <td>{s.label}</td>
+                    <td class="td-r">{s.clientes}</td>
+                    <td class="td-r">{s.pct.toFixed(1)}%</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="rec-block">
+            <h4>Nuevos vs recurrentes</h4>
+            <table class="est-table">
+              <tbody>
+                <tr><td>Clientes nuevos</td><td class="td-r">{recurrencia.nuevosAplica ? recurrencia.nuevos : '—'}</td></tr>
+                <tr><td>Facturación de nuevos</td><td class="td-r">{recurrencia.nuevosAplica ? formatCurrency(recurrencia.facturacionNuevos) : '—'}</td></tr>
+                <tr><td>% de facturación</td><td class="td-r">{recurrencia.nuevosAplica ? recurrencia.pctFacturacionNuevos.toFixed(1) + '%' : '—'}</td></tr>
+                <tr><td>Clientes recuperados</td><td class="td-r">{recurrencia.recuperadosAplica ? recurrencia.recuperados : '—'}</td></tr>
+              </tbody>
+            </table>
+            {#if !recurrencia.nuevosAplica}
+              <p class="rec-note">Con "Toda la historia" no hay historia previa fuera del período: nuevos y recuperados no aplican.</p>
+            {/if}
+          </div>
+
+          <div class="rec-block">
+            <h4>Intervalo promedio entre compras</h4>
+            <div class="rec-big">{recurrencia.intervaloPromedio != null ? recurrencia.intervaloPromedio.toFixed(1) + ' días' : '—'}</div>
+            <p class="rec-note">Promedio de {recurrencia.intervalosCount} intervalos consecutivos (clientes con ≥2 compras en el período).</p>
+          </div>
+
+          <div class="rec-block">
+            <h4>Facturación de clientes recurrentes</h4>
+            <div class="rec-big">{formatCurrency(recurrencia.facturacionRecurrentes)}</div>
+            <p class="rec-note">{recurrencia.pctFacturacionRecurrentes.toFixed(1)}% de {formatCurrency(recurrencia.totalFacturacion)} facturado en el período.</p>
+          </div>
+        </div>
+
+        <div class="rec-block">
+          <h4>Top 10 clientes recurrentes</h4>
+          {#if recurrencia.topRecurrentes.length === 0}
+            <div class="chart-empty">Sin clientes con 2 o más compras en el período</div>
+          {:else}
+            <div class="est-table-wrap">
+              <table class="est-table">
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th class="td-r">Compras</th>
+                    <th class="td-r">Facturación</th>
+                    <th class="td-r">Ticket prom.</th>
+                    <th class="td-r">Primera compra</th>
+                    <th class="td-r">Última compra</th>
+                    <th class="td-r">Días prom.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each recurrencia.topRecurrentes as r}
+                    <tr>
+                      <td>{r.cliente}</td>
+                      <td class="td-r">{r.compras}</td>
+                      <td class="td-r">{formatCurrency(r.facturacion)}</td>
+                      <td class="td-r">{formatCurrency(r.ticketProm)}</td>
+                      <td class="td-r">{formatFechaMs(r.primera)}</td>
+                      <td class="td-r">{formatFechaMs(r.ultima)}</td>
+                      <td class="td-r">{r.diasProm != null ? r.diasProm.toFixed(1) : '—'}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
+        </div>
+
+        <div class="rec-block">
+          <h4>Clientes de alta frecuencia (≥6 compras en 12 meses)</h4>
+          {#if recurrencia.altaFrecuencia.length === 0}
+            <div class="chart-empty">Sin clientes con 6 o más compras en los últimos 12 meses</div>
+          {:else}
+            <div class="est-table-wrap">
+              <table class="est-table">
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th class="td-r">Compras</th>
+                    <th class="td-r">Facturación</th>
+                    <th class="td-r">Última compra</th>
+                    <th class="td-r">Días prom.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each recurrencia.altaFrecuencia as r}
+                    <tr>
+                      <td>{r.cliente}</td>
+                      <td class="td-r">{r.compras}</td>
+                      <td class="td-r">{formatCurrency(r.facturacion)}</td>
+                      <td class="td-r">{formatFechaMs(r.ultima)}</td>
+                      <td class="td-r">{r.diasProm != null ? r.diasProm.toFixed(1) : '—'}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
+        </div>
+
+        <div class="rec-interpretacion">
+          <strong>Interpretación:</strong> {recurrencia.interpretacion}
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -771,7 +1211,7 @@
 
   .est-kpis {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
     gap: 0.714rem;
   }
   .kpi-card {
@@ -952,6 +1392,67 @@
     color: var(--text-primary);
   }
 
+  /* ── Recurrencia de clientes ── */
+  .est-recurrencia {
+    background: var(--bg-card);
+    border-radius: 0.571rem;
+    padding: 1rem;
+    box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 0.857rem;
+  }
+  .rec-head { display: flex; justify-content: space-between; align-items: center; gap: 0.714rem; flex-wrap: wrap; }
+  .rec-head h3 { margin: 0; font-size: 1rem; color: var(--text-primary); }
+  .rec-controls { display: flex; gap: 0.571rem; flex-wrap: wrap; }
+  .rec-seg { display: inline-flex; background: var(--bg-page); border-radius: 0.429rem; padding: 0.143rem; gap: 0.143rem; }
+  .rec-seg button {
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 0.286rem 0.643rem;
+    border-radius: 0.357rem;
+    cursor: pointer;
+    font-family: inherit;
+    transition: background 0.12s, color 0.12s;
+  }
+  .rec-seg button:hover { color: var(--text-primary); }
+  .rec-seg button.active { background: var(--accent); color: #fff; }
+  .rec-periodo { font-size: 0.8rem; color: var(--text-secondary); }
+  .rec-warn { color: #e67e22; }
+
+  .rec-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.714rem; }
+  .rec-kpi {
+    background: var(--bg-page);
+    border-radius: 0.429rem;
+    padding: 0.714rem 0.857rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+  .rec-kpi-label { font-size: 0.68rem; text-transform: uppercase; color: var(--text-muted); font-weight: 600; letter-spacing: 0.02rem; }
+  .rec-kpi-value { font-size: 1.35rem; font-weight: 700; color: var(--text-primary); margin-top: 0.214rem; }
+  .rec-kpi-sub { font-size: 0.68rem; color: var(--text-muted); margin-top: 0.143rem; }
+
+  .rec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.714rem; }
+  .rec-block { background: var(--bg-page); border-radius: 0.429rem; padding: 0.714rem; }
+  .rec-block h4 { margin: 0 0 0.429rem; font-size: 0.82rem; color: var(--text-primary); }
+  .rec-block .est-table { background: var(--bg-card); }
+  .rec-big { font-size: 1.6rem; font-weight: 700; color: var(--text-primary); }
+  .rec-note { margin: 0.286rem 0 0; font-size: 0.72rem; color: var(--text-muted); }
+  .rec-interpretacion {
+    background: var(--accent-light);
+    border-left: 0.214rem solid var(--accent);
+    border-radius: 0.357rem;
+    padding: 0.714rem 0.857rem;
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
   .est-table-wrap {
     max-height: none;
     overflow: auto;
@@ -977,6 +1478,11 @@
     padding: 0.5rem 0.714rem;
     border-bottom: 1px solid #f0f1f5;
   }
+  .est-table th.td-r { text-align: right; }
+  .est-table th:first-child,
+  .est-table td:first-child { width: 100%; }
+  .est-table th.td-r,
+  .est-table td.td-r { white-space: nowrap; }
   .td-r { text-align: right; font-family: monospace; }
   .td-date { font-family: monospace; font-size: 0.72rem; }
   .td-num { font-family: monospace; font-size: 0.72rem; }
