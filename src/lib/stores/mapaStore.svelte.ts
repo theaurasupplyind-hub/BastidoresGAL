@@ -33,13 +33,7 @@ let _regenerandoPlan = $state(false);
 let _geoAlertReadOculto = $state(false);
 let _geoAlertReadColapsado = $state(false);
 
-let _estiloMapa = $state<string>(() => {
-  try {
-    return localStorage.getItem('mapa-estilo') || 'osm';
-  } catch {
-    return 'osm';
-  }
-});
+try { localStorage.removeItem('mapa-estilo'); } catch {}
 
 let _geocodificarFn: (() => Promise<void>) | null = null;
 let _guardarFn: (() => Promise<void>) | null = null;
@@ -125,12 +119,6 @@ export const mapaStore = {
 
 	get geoAlertReadColapsado() { return _geoAlertReadColapsado; },
 	set geoAlertReadColapsado(v: boolean) { _geoAlertReadColapsado = v; },
-
-	get estiloMapa() { return _estiloMapa; },
-	set estiloMapa(v: string) {
-		_estiloMapa = v;
-		try { localStorage.setItem('mapa-estilo', v); } catch {}
-	},
 
 	get geocodificarOrigen() { return _geocodificarFn; },
 	set geocodificarOrigen(fn: (() => Promise<void>) | null) { _geocodificarFn = fn; },

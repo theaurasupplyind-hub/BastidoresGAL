@@ -40,34 +40,13 @@
   let map: any;
   let L: any;
 
-  const ESTILOS_MAPA = [
-    { id: 'positron', label: 'Positron', light: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' },
-    { id: 'voyager', label: 'Voyager', light: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', dark: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png' },
-    { id: 'dark', label: 'Dark Matter', light: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', dark: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png' },
-    { id: 'esri-street', label: 'Esri Street', light: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', dark: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}' },
-    { id: 'osm', label: 'OSM', light: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', dark: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png' },
-  ];
-  function estiloDe(id: string) {
-    return ESTILOS_MAPA.find(e => e.id === id) || ESTILOS_MAPA[0];
-  }
+  const TILES_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+  const TILES_ATTRIBUTION = '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>';
   function temaActual() {
     return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
   }
-  function URL_TILES(estiloId: string, tema: string) {
-    const e = estiloDe(estiloId);
-    return e ? (tema === 'dark' ? e.dark : e.light) : ESTILOS_MAPA[0].light;
-  }
-  function ATTRIBUCION(estiloId: string) {
-    const esEsri = estiloId === 'esri-street';
-    return esEsri
-      ? '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> &copy; <a href="https://www.esri.com/">Esri</a>'
-      : '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>';
-  }
   let temaMapa = $state(temaActual());
-  let tileLayerActual: any = null;
   let observerTema: MutationObserver | null = null;
-  let estiloMapa = $state(mapaStore.estiloMapa);
-  let mostrarSelectorEstilo = $state(false);
 
   let todosLosClientes: any[] = $state([]);
   let facturasDelDia: any[] = $state([]);
@@ -308,7 +287,6 @@
   $effect(() => { mapaStore.planViajeId = planViajeId; });
   $effect(() => { mapaStore.geoAlertReadOculto = geoAlertReadOculto; });
   $effect(() => { mapaStore.geoAlertReadColapsado = geoAlertReadColapsado; });
-  $effect(() => { mapaStore.estiloMapa = estiloMapa; });
 
   $effect(() => { mapaStore.recomendaciones = recomendaciones; });
   $effect(() => { mapaStore.recomendando = recomendando; });
@@ -321,13 +299,6 @@
     recomendacionTimer = setTimeout(() => {
       generarRecomendaciones();
     }, 900);
-  });
-
-  $effect(() => {
-    const e = estiloMapa;
-    if (!tileLayerActual) return;
-    tileLayerActual.setUrl(URL_TILES(e, temaActual()));
-    renderizarMarcadores();
   });
 
   $effect(() => {
@@ -586,8 +557,8 @@
 
     map = L.map(mapContainer).setView([-34.6037, -58.3816], 13);
 
-    tileLayerActual = L.tileLayer(URL_TILES(estiloMapa, temaActual()), {
-      attribution: ATTRIBUCION(estiloMapa),
+    L.tileLayer(TILES_URL, {
+      attribution: TILES_ATTRIBUTION,
       maxZoom: 20,
     }).addTo(map);
 
@@ -595,7 +566,6 @@
       const t = temaActual();
       if (t !== temaMapa) {
         temaMapa = t;
-        tileLayerActual?.setUrl(URL_TILES(estiloMapa, t));
         renderizarMarcadores();
       }
     });
@@ -2340,34 +2310,6 @@
   <div class="mapa-container-wrap">
     <div class="mapa-container" bind:this={mapContainer} onclick={() => { cerrarMenuContextual(); }}></div>
 
-    <div class="estilo-selector" onclick={(e) => e.stopPropagation()}>
-      <button
-        class="btn-estilo"
-        onclick={() => mostrarSelectorEstilo = !mostrarSelectorEstilo}
-        title="Estilo del mapa"
-        aria-label="Cambiar estilo del mapa"
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 2 17 12 22 22 17 22 7 12 2"/><line x1="2" y1="7" x2="12" y2="12"/><line x1="12" y1="12" x2="22" y2="7"/><line x1="12" y1="12" x2="12" y2="22"/></svg>
-      </button>
-      {#if mostrarSelectorEstilo}
-        <div class="estilo-menu">
-          {#each ESTILOS_MAPA as est}
-            <button
-              class="estilo-item"
-              class:activo={est.id === estiloMapa}
-              onclick={() => { estiloMapa = est.id; mostrarSelectorEstilo = false; }}
-            >
-              <span class="estilo-dot" style="background:{(est.id === 'positron' || est.id === 'voyager' || est.id === 'osm') ? '#e5e7eb' : (est.id === 'dark' ? '#1f2937' : '#3b82f6')};"></span>
-              <span class="estilo-nombre">{est.label}</span>
-              {#if est.id === estiloMapa}
-                <span class="estilo-check">✓</span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-      {/if}
-    </div>
-
     <div class="mapa-search-group" onclick={(e) => e.stopPropagation()}>
       <button
         class="mapa-btn-side mapa-btn-reload"
@@ -2464,10 +2406,6 @@
           <div class="leyenda-item">
             <svg width="16" height="18" viewBox="14 12 18 20" xmlns="http://www.w3.org/2000/svg"><path d="M17 21.3 L20.2 24.6 L27 17" fill="none" stroke="#111" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
             <span class="leyenda-texto">Listo</span>
-          </div>
-          <div class="leyenda-item">
-            <span class="leyenda-estilo">🗺️</span>
-            <span class="leyenda-texto">Cambiá el estilo del mapa con el botón de capas (arriba izquierda)</span>
           </div>
         </div>
       {:else}
@@ -3451,7 +3389,6 @@
     box-shadow: 0 0 0 1px rgba(0,0,0,0.15);
     flex-shrink: 0;
   }
-  .leyenda-estilo { font-size: 14px; flex-shrink: 0; }
   .leyenda-texto {
     font-size: 12px;
     color: var(--text-primary);
@@ -3470,67 +3407,6 @@
     font-family: var(--font);
   }
   .leyenda-reopen:hover { background: var(--bg-hover); }
-
-  .estilo-selector {
-    position: absolute;
-    top: 16px;
-    left: 56px;
-    z-index: 600;
-  }
-  .btn-estilo {
-    width: 38px;
-    height: 38px;
-    border-radius: 10px;
-    border: 1px solid var(--border);
-    background: var(--bg-card);
-    color: var(--text-primary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-    transition: background 0.15s;
-    font-family: var(--font);
-  }
-  .btn-estilo:hover { background: var(--bg-hover); }
-  .estilo-menu {
-    margin-top: 6px;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.15);
-    min-width: 180px;
-    padding: 4px;
-    display: flex;
-    flex-direction: column;
-  }
-  .estilo-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 10px;
-    border: none;
-    background: none;
-    cursor: pointer;
-    border-radius: 6px;
-    font-size: 13px;
-    font-family: var(--font);
-    color: var(--text-primary);
-    text-align: left;
-    transition: background 0.12s;
-  }
-  .estilo-item:hover { background: var(--bg-hover); }
-  .estilo-item.activo { background: #eff6ff; }
-  .estilo-dot {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 2px solid #fff;
-    box-shadow: 0 0 0 1px rgba(0,0,0,0.15);
-    flex-shrink: 0;
-  }
-  .estilo-nombre { flex: 1; }
-  .estilo-check { color: #2563eb; font-weight: 700; }
 
   .mapa-search-group {
     position: absolute;
