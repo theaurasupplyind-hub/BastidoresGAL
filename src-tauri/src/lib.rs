@@ -275,6 +275,26 @@ async fn generate_molduras_pdf(
     Ok(output_str)
 }
 
+/// PDF del analisis FODA: solo Chrome headless (sin WebView2).
+#[tauri::command]
+async fn generate_foda_pdf(
+    state: tauri::State<'_, AppState>,
+    html: String,
+) -> Result<String, String> {
+    let output_dir = state.data_dir.join("generated_invoices");
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let output_path = output_dir.join(format!("foda_{}.pdf", timestamp));
+    let output_str = output_path.to_string_lossy().to_string();
+
+    let t = std::time::Instant::now();
+    pdf::generate_molduras_pdf(&html, &output_str)?;
+    eprintln!("[pdf-chrome] foda: {:.0}ms", t.elapsed().as_millis());
+    Ok(output_str)
+}
+
 #[tauri::command]
 async fn generate_invoices_pdf(
     app: tauri::AppHandle,
@@ -1135,6 +1155,7 @@ pub fn run() {
             generate_pdf,
             warm_webview2,
             generate_molduras_pdf,
+            generate_foda_pdf,
             generate_invoices_pdf,
             open_pdf,
             print_pdf,

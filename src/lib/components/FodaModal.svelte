@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { invoke } from '@tauri-apps/api/core';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
 
@@ -22,7 +23,7 @@
   let saveState = $state<'idle' | 'saving' | 'saved' | 'local'>('idle');
   let loading = $state(true);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  let printRoot = $state<HTMLDivElement | null>(null);
+  let generating = $state(false);
 
   const MANY_THRESHOLD = 5;
   let expanded = $derived(
@@ -128,16 +129,87 @@
     if (e.key === 'Escape') onclose();
   }
 
-  function printFoda() {
-    if (!printRoot) return;
-    const w = window.open('', '_blank', 'width=800,height=900');
-    if (!w) { appStore.showToast('El navegador bloqueó la ventana de impresión', 'error'); return; }
-    const rows = QUADRANTS.map(q => {
-      const lis = items[q.key].map(i => `<li>${escapeHtml(i.texto)}</li>`).join('') || '<li class="empty">— Sin elementos —</li>';
-      return `<section style="border-top:4px solid ${q.color};padding:10px 4px;"><h2 style="color:${q.color};margin:0 0 6px;">${q.letter} · ${q.title}</h2><p style="color:#555;font-size:12px;margin:0 0 8px;">${q.desc}</p><ul>${lis}</ul></section>`;
+  function buildFodaHtml(): string {
+    const fecha = new Date().toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const quads = QUADRANTS.map(q => {
+      const lis = items[q.key].map(i => `<li>${escapeHtml(i.texto)}</li>`).join('')
+        || '<li class="empty">— Sin elementos —</li>';
+      return `<section class="quad" style="border-top-color:${q.color}">
+        <header><span class="letter" style="background:${q.color}">${q.letter}</span><h2 style="color:${q.color}">${q.title}</h2></header>
+        <p class="desc">${q.desc}</p>
+        <ul>${lis}</ul>
+      </section>`;
     }).join('');
-    w.document.write(`<html><head><title>Análisis FODA</title><style>body{font-family:system-ui,sans-serif;max-width:640px;margin:24px auto;padding:0 16px;color:#111}h1{text-align:center}ul{margin:0;padding-left:20px}li{margin:3px 0}.empty{color:#999;list-style:none}</style></head><body><h1>Análisis FODA</h1><p style="text-align:center;color:#666">Total de elementos: ${totalCount()}</p>${rows}<script>onload=()=>{print();}<\/script></body></html>`);
-    w.document.close();
+
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Análisis FODA</title>
+<style>
+  @page { size: A4; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #111827; margin: 0; }
+  h1 { font-size: 22px; text-align: center; margin: 0 0 4px; letter-spacing: 1px; }
+  .meta { text-align: center; color: #6b7280; font-size: 12px; margin: 0 0 18px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .quad { border: 1px solid #e5e7eb; border-top: 4px solid #111827; border-radius: 6px; padding: 10px 12px; page-break-inside: avoid; break-inside: avoid; }
+  .quad header { display: flex; align-items: center; gap: 8px; }
+  .letter { width: 22px; height: 22px; border-radius: 4px; color: #fff; font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0; }
+  .quad h2 { margin: 0; font-size: 15px; }
+  .desc { margin: 4px 0 8px; font-size: 10.5px; color: #4b5563; line-height: 1.35; }
+  ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+  li { font-size: 12px; border: 1px solid #e5e7eb; background: #f9fafb; border-radius: 4px; padding: 4px 7px; overflow-wrap: anywhere; }
+  li.empty { color: #9ca3af; font-style: italic; border-style: dashed; background: none; }
+</style>
+</head>
+<body>
+  <h1>Análisis FODA</h1>
+  <p class="meta">${fecha} · Total de elementos: ${totalCount()}</p>
+  <div class="grid">${quads}</div>
+</body>
+</html>`;
+  }
+
+  async function printFoda(shouldPrint = true) {
+    if (generating) return;
+    generating = true;
+    try {
+      const html = buildFodaHtml();
+      const pdfPath = await invoke<string>('generate_foda_pdf', { html });
+
+      if (shouldPrint) {
+        try {
+          await invoke('print_pdf', { path: pdfPath });
+          appStore.showToast('Enviando a imprimir...', 'success');
+        } catch (e: any) {
+          const errMsg = e?.message ?? (typeof e === 'string' ? e : 'Error desconocido');
+          console.error('Error al imprimir PDF:', e);
+          if (errMsg.startsWith('NO_PRINTER:')) {
+            appStore.alert(errMsg.replace('NO_PRINTER:', ''));
+          } else if (errMsg.startsWith('NO_SE_PUDO_IMPRIMIR:')) {
+            appStore.alert(errMsg.replace('NO_SE_PUDO_IMPRIMIR:', ''));
+          } else {
+            appStore.alert('Error al imprimir: ' + errMsg);
+          }
+        }
+      } else {
+        try {
+          await invoke('open_pdf', { path: pdfPath });
+          appStore.showToast('PDF generado', 'success');
+        } catch (e: any) {
+          const errMsg = e?.message ?? (typeof e === 'string' ? e : 'Error desconocido');
+          console.error('Error al abrir PDF:', e);
+          appStore.showToast('Error al abrir PDF: ' + errMsg, 'error');
+        }
+      }
+    } catch (e: any) {
+      const errMsg = e?.message ?? (typeof e === 'string' ? e : 'Error desconocido');
+      console.error('Error al generar PDF:', e);
+      appStore.showToast('Error al generar PDF: ' + errMsg, 'error');
+    } finally {
+      generating = false;
+    }
   }
 
   function escapeHtml(s: string) {
@@ -148,7 +220,7 @@
 <svelte:window onkeydown={handleEsc} />
 
 <div class="foda-overlay" onclick={closeOnOverlay} role="presentation">
-  <div class="foda-modal" role="dialog" aria-label="Análisis FODA" bind:this={printRoot}>
+  <div class="foda-modal" role="dialog" aria-label="Análisis FODA">
     <div class="foda-header">
       <div class="foda-title">
         <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2A10 10 0 0 0 2 12h6a4 4 0 0 1 4 4v6A10 10 0 0 0 12 2z" fill="#00b8e6"/><path d="M12 2A10 10 0 0 1 22 12h-6a4 4 0 0 0-4-4V2z" fill="#8b00b8"/><path d="M16 12a4 4 0 0 0-4 4v6a10 10 0 0 0 10-10h-6z" fill="#00b3a4" opacity="0.9"/><path d="M12 12a4 4 0 0 0-4 4H2a10 10 0 0 0 10 10v-6a4 4 0 0 1 0-8z" fill="#8fd400" opacity="0.9"/></svg>
@@ -162,9 +234,13 @@
         {:else if saveState === 'local'}
           <span class="save-hint warn">Solo local</span>
         {/if}
-        <button class="foda-btn" onclick={printFoda} title="Imprimir FODA">
+        <button class="foda-btn" onclick={() => printFoda(true)} title="Imprimir FODA" disabled={generating}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
-          Imprimir
+          {generating ? 'Generando…' : 'Imprimir'}
+        </button>
+        <button class="foda-btn" onclick={() => printFoda(false)} title="Abrir PDF del FODA" disabled={generating}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Abrir PDF
         </button>
         <button class="foda-close" onclick={onclose} aria-label="Cerrar">✕</button>
       </div>
@@ -290,6 +366,7 @@
     font-size: 0.85rem; font-weight: 600; cursor: pointer;
   }
   .foda-btn:hover { background: var(--bg-hover, #f3f4f6); }
+  .foda-btn:disabled { opacity: 0.6; cursor: default; }
   .foda-close {
     background: none; border: none; cursor: pointer; font-size: 1rem;
     color: var(--text-muted, #9ca3af); padding: 0.3rem 0.5rem; border-radius: 0.35rem;
