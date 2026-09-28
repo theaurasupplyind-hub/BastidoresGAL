@@ -1,4 +1,6 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.80': `FODA: ahora imprime como facturas y molduras — genera el PDF y lo envía a la impresora (botón Imprimir) o lo abre en el visor (botón Abrir PDF).
+Mapa: se quita el selector de estilos del mapa; siempre OpenStreetMap.`,
   '2.3.79': `Estadísticas: nueva sección "Recurrencia de clientes" (6/12/24 meses o toda la historia, conteo por ocasiones o facturas): tasa de recurrencia, distribución por compras, nuevos vs recuperados, intervalo promedio, top 10 recurrentes y clientes de alta frecuencia + interpretación. Nueva tarjeta KPI de Clientes.
 Ficha semanal: filas animadas (se desactivan con muchas filas) y pago/entrega se reflejan al instante, con recarga en segundo plano.
 Reglas de precio: redondeo con modo Cercano/Arriba y múltiplo aparte, visible en cada regla.
