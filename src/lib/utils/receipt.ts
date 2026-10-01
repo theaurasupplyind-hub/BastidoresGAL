@@ -6,10 +6,11 @@ export function renderReceiptHtml(params: {
   items: { cantidad: number; descripcion: string; precio_unitario: number; total: number }[];
   total: number;
   envio: number;
+  retira?: boolean;
   mode?: 'PRESUPUESTO' | 'BORRADOR';
   saldo?: number;
 }): string {
-  const { num, fecha, cliente, contacto, items, total, envio, mode = 'PRESUPUESTO', saldo } = params;
+  const { num, fecha, cliente, contacto, items, total, envio, retira, mode = 'PRESUPUESTO', saldo } = params;
   const accent = mode === 'BORRADOR' ? '#0d6efd' : '#00C853';
   const envVal = envio || 0;
   const subtotal = total - envVal;
@@ -76,7 +77,9 @@ td{font-size:13px;padding:6px 0;border-bottom:1px solid #f5f5f5;vertical-align:t
 </table>
 <hr class="divider">
 <div class="subtotal-line" style="font-weight:700;color:#1a1a1a"><span>Subtotal</span><span>$${subtotal.toLocaleString('es-AR')}</span></div>
-<div class="shipping-line"><span class="shipping-label">Envio</span><span>${envDisplay}</span></div>
+${retira === true
+    ? '<div class="shipping-line"><span class="shipping-label">Entrega</span><span>Retira</span></div>'
+    : `<div class="shipping-line"><span class="shipping-label">Envio</span><span>${envDisplay}</span></div>`}
 <div class="total-box">
   <span class="total-lbl">TOTAL A PAGAR</span>
   ${mode === 'PRESUPUESTO' && saldo !== undefined

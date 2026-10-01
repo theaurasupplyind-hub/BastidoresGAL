@@ -115,17 +115,17 @@ fn get_css(style: InvoiceStyle) -> String {
     format!("{}{}{}{}", css, page_css, layout_css, totals_css)
 }
 
-fn dia_semana_completo(fecha: &str) -> String {
-    // Espera "D/M/YYYY" (con o sin ceros). Devuelve "Lunes 14".
+fn dia_semana_idx_y_dia(fecha: &str) -> Option<(usize, i32)> {
+    // Espera "D/M/YYYY" (con o sin ceros). Devuelve (índice de día, número de día).
     let p: Vec<&str> = fecha.split('/').collect();
     if p.len() != 3 {
-        return fecha.to_string();
+        return None;
     }
-    let d: i32 = p[0].trim().parse().unwrap_or(0);
-    let m: i32 = p[1].trim().parse().unwrap_or(0);
-    let y: i32 = p[2].trim().parse().unwrap_or(0);
+    let d: i32 = p[0].trim().parse().ok()?;
+    let m: i32 = p[1].trim().parse().ok()?;
+    let y: i32 = p[2].trim().parse().ok()?;
     if d <= 0 || m <= 0 || y <= 0 {
-        return fecha.to_string();
+        return None;
     }
     // Algoritmo de Zeller para no depender de chrono.
     let (mut mm, mut yy) = (m, y);
@@ -137,9 +137,29 @@ fn dia_semana_completo(fecha: &str) -> String {
     let j = yy / 100;
     let h = (d + (13 * (mm + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
     // h: 0=Sábado, 1=Domingo, 2=Lunes, ...
-    let dias = ["Sábado", "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
-    let dia = dias[h.rem_euclid(7) as usize];
-    format!("{} {}", dia, d)
+    Some((h.rem_euclid(7) as usize, d))
+}
+
+fn dia_semana_completo(fecha: &str) -> String {
+    // Devuelve "Lunes 14".
+    match dia_semana_idx_y_dia(fecha) {
+        Some((idx, d)) => {
+            let dias = ["Sábado", "Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
+            format!("{} {}", dias[idx], d)
+        }
+        None => fecha.to_string(),
+    }
+}
+
+fn dia_semana_abrev(fecha: &str) -> String {
+    // Devuelve "Lun 14".
+    match dia_semana_idx_y_dia(fecha) {
+        Some((idx, d)) => {
+            let dias = ["Sáb", "Dom", "Lun", "Mar", "Mié", "Jue", "Vie"];
+            format!("{} {}", dias[idx], d)
+        }
+        None => fecha.to_string(),
+    }
 }
 
 pub fn format_entrega_display(raw: &str) -> String {
@@ -167,7 +187,7 @@ pub fn format_entrega_display(raw: &str) -> String {
                 if desde == hasta {
                     s = dia_semana_completo(&desde);
                 } else {
-                    s = format!("{} al {}", dia_semana_completo(&desde), dia_semana_completo(&hasta));
+                    s = format!("{} - {}", dia_semana_abrev(&desde), dia_semana_abrev(&hasta));
                 }
             } else if !desde.is_empty() {
                 s = dia_semana_completo(&desde);

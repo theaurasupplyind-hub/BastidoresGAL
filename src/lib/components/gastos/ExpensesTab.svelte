@@ -398,7 +398,6 @@
     color: var(--text-secondary);
     min-width: 0;
   }
-  .expense-entity svg { flex-shrink: 0; color: var(--text-muted); }
   .expense-entity.has-entity span {
     white-space: nowrap;
     overflow: hidden;

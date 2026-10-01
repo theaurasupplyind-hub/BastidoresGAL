@@ -80,6 +80,7 @@ export function findCercanosRuta(
   const coords = routeLatLngs.map(([lat, lng]) => [lng, lat]);
   const line = lineString(coords);
   const buf = buffer(line, bufferMeters, { units: 'meters' });
+  if (!buf) return [];
 
   const result: { id: number }[] = [];
   for (const c of candidatos) {

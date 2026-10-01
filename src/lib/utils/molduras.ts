@@ -693,7 +693,7 @@ export interface MatRow {
   tajos?: number;
 }
 
-export function buildMatRowsData(card: MeasurableCard): MatRow[] {
+export function buildMatRowsData(card: MeasurableCard, merged = false): MatRow[] {
   const rows: MatRow[] = [];
   const matItems = card.items.filter(it => (!it.isNonMolding && !it.isCirculo) || it.isTapacanto);
   for (const item of matItems) {
@@ -718,11 +718,26 @@ export function buildMatRowsData(card: MeasurableCard): MatRow[] {
       }
     });
   }
-  return rows;
+  if (!merged) return rows;
+  // V2: consolida por cm solo las filas que no llevan larguero ni travesaño.
+  const out: MatRow[] = [];
+  const byCm = new Map<number, number>();
+  for (const r of rows) {
+    if (!r.larguero && !r.travesano) {
+      const existing = byCm.get(r.varilla.cm);
+      if (existing !== undefined) {
+        out[existing].varilla.qty += r.varilla.qty;
+        continue;
+      }
+      byCm.set(r.varilla.cm, out.length);
+    }
+    out.push(r);
+  }
+  return out;
 }
 
-function buildMatRows(card: MeasurableCard): string {
-  const rows = buildMatRowsData(card);
+function buildMatRows(card: MeasurableCard, merged = false): string {
+  const rows = buildMatRowsData(card, merged);
   if (rows.length === 0) {
     const hasOnlyCirculos = card.items.some(it => it.isCirculo) && card.items.filter(it => !it.isNonMolding || it.isTapacanto || it.isCirculo).every(it => it.isCirculo);
     if (hasOnlyCirculos) {
@@ -744,7 +759,7 @@ function buildMatRows(card: MeasurableCard): string {
   return [...larRows, ...travRows].join('');
 }
 
-export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'left' | 'right' = 'left'): string {
+export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'left' | 'right' = 'left', merged = false): string {
   const cliente = card.cliente.length > 25 ? card.cliente.slice(0, 25) : card.cliente;
   // El resumen muestra TODOS los productos (incluidos los "Sin materiales",
   // que salen con su descripción, igual que en pantalla).
@@ -752,10 +767,13 @@ export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'l
   // Los "Ocultos en producción" nunca llegan a card.items (parseCard los salta), así que no aparecen.
   const validItems = card.items;
   const summaryRows = validItems.map(it => {
+    const medida = it.isTapacanto
+      ? it.medida.replace(/tapacantos?/gi, ' ').replace(/\s+/g, ' ').trim()
+      : it.medida;
     return `
         <tr>
           <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
-          <td width='35%'><span class='sum-dim'>${it.medida}</span></td>
+          <td width='35%'><span class='sum-dim'>${medida}</span></td>
           <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
         </tr>`;
   }).join('');
@@ -773,7 +791,7 @@ export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'l
       <tr><th colspan='2' class='th-var'>VARILLA</th><th colspan='2' class='th-lar'>LARGUERO</th><th colspan='2' class='th-tra'>TRAV.</th></tr>
       <tr><th width='12%' class='td-var'>#</th><th width='21%' class='td-var'>CM</th><th width='12%' class='td-lar'>#</th><th width='21%' class='td-lar'>CM</th><th width='12%' class='td-tra'>#</th><th width='21%' class='td-tra'>CM</th></tr>
     </thead>
-    <tbody>${buildMatRows(card)}</tbody>
+    <tbody>${buildMatRows(card, merged)}</tbody>
   </table>`;
 
   return `
@@ -795,7 +813,7 @@ export interface MeasurableCard {
   materials: CardMaterial[];
 }
 
-export async function measureCardHeights(cards: MeasurableCard[]): Promise<number[]> {
+export async function measureCardHeights(cards: MeasurableCard[], merged = false): Promise<number[]> {
   if (typeof document === 'undefined') return [];
   const host = document.createElement('div');
   host.style.cssText = `position:absolute;visibility:hidden;width:${PDF_COLUMN_WIDTH_PX}px;left:-9999px;top:0;z-index:-1;`;
@@ -804,7 +822,7 @@ export async function measureCardHeights(cards: MeasurableCard[]): Promise<numbe
   host.appendChild(style);
   const wrap = document.createElement('div');
   wrap.className = 'mol-measure';
-  wrap.innerHTML = cards.map((c, i) => renderSingleCardHtml(c, i)).join('');
+  wrap.innerHTML = cards.map((c, i) => renderSingleCardHtml(c, i, 'left', merged)).join('');
   host.appendChild(wrap);
   document.body.appendChild(host);
   try {
@@ -834,17 +852,17 @@ body { font-family: Arial, sans-serif; font-size: 16px; line-height: normal; }
 ${CARD_CSS}
 `;
 
-function buildPagedMoldurasHtml(cards: MeasurableCard[], heights: number[]): string {
+function buildPagedMoldurasHtml(cards: MeasurableCard[], heights: number[], merged = false): string {
   const pages = buildPagedLayout(cards, heights);
   let pagesHtml = '';
   for (const page of pages) {
-    const leftHtml = page.left.map(c => renderSingleCardHtml(c.item, c.idx, 'left')).join('');
-    const rightHtml = page.right.map(c => renderSingleCardHtml(c.item, c.idx, 'right')).join('');
+    const leftHtml = page.left.map(c => renderSingleCardHtml(c.item, c.idx, 'left', merged)).join('');
+    const rightHtml = page.right.map(c => renderSingleCardHtml(c.item, c.idx, 'right', merged)).join('');
     pagesHtml += `<div class="page"><div class="grid"><div class="col-left">${leftHtml}</div><div class="col-right">${rightHtml}</div></div></div>`;
   }
   return `<html><head><meta charset='utf-8'><style>${PDF_BASE_CSS}</style></head><body>${pagesHtml}</body></html>`;
 }
 
-export function buildMoldurasHtmlPaged(cards: MeasurableCard[], heights?: number[]): string {
-  return buildPagedMoldurasHtml(cards, heights ?? []);
+export function buildMoldurasHtmlPaged(cards: MeasurableCard[], heights?: number[], merged = false): string {
+  return buildPagedMoldurasHtml(cards, heights ?? [], merged);
 }

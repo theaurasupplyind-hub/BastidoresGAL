@@ -42,6 +42,8 @@
     try {
       const cfg = await invoke<AppConfig>('get_config');
       appStore.pdfStyle = cfg.selected_template_name;
+      appStore.sortDimsEnabled = cfg.sort_dims_enabled ?? true;
+      appStore.molduraMerged = cfg.moldura_merged ?? false;
     } catch { }
   });
 

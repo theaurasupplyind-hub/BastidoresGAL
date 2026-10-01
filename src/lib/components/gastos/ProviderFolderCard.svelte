@@ -6,7 +6,6 @@
   interface FolderCardInfo {
     debt: number;
     stockQty: number;
-    lastMoveDesc: string;
   }
 
   interface Props {

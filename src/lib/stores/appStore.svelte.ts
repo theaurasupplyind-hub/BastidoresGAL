@@ -17,6 +17,8 @@ let _facturacionSaving = $state(false);
 let _facturacionTipo = $state<'PRESUPUESTO' | 'BORRADOR'>('PRESUPUESTO');
 let _facturacionHasId = $state(false);
 let _pdfStyle = $state('Original');
+let _sortDimsEnabled = $state(true);
+let _molduraMerged = $state(false);
 
 // Ficha Semanal filter state
 let _fsStartDate = $state('');
@@ -75,6 +77,12 @@ export const appStore = {
 
   get pdfStyle() { return _pdfStyle; },
   set pdfStyle(v: string) { _pdfStyle = v; },
+
+  get sortDimsEnabled() { return _sortDimsEnabled; },
+  set sortDimsEnabled(v: boolean) { _sortDimsEnabled = v; },
+
+  get molduraMerged() { return _molduraMerged; },
+  set molduraMerged(v: boolean) { _molduraMerged = v; },
 
   get fsStartDate() { return _fsStartDate; },
   set fsStartDate(v: string) { _fsStartDate = v; },

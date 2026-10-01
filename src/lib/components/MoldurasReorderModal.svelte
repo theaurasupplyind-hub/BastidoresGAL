@@ -17,6 +17,9 @@
     onClose: () => void;
   } = $props();
 
+  // V2 global (Configuración → Molduras V2).
+  let merged = $derived(appStore.molduraMerged);
+
   let generatingPdf = $state(false);
   let cardHeights = $state<number[]>([]);
   let measured = $state(false);
@@ -51,7 +54,7 @@
     if (!show || cards.length === 0) return;
     measured = false;
     let cancelled = false;
-    measureCardHeights(cards).then(h => {
+    measureCardHeights(cards, merged).then(h => {
       if (cancelled) return;
       cardHeights = h;
       measured = true;
@@ -66,7 +69,7 @@
   async function handleViewPdf() {
     generatingPdf = true;
     try {
-      const html = buildMoldurasHtmlPaged(cards, cardHeights);
+      const html = buildMoldurasHtmlPaged(cards, cardHeights, merged);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       await invoke('open_pdf', { path: pdfPath });
       appStore.showToast('PDF generado', 'success');
@@ -81,7 +84,7 @@
   async function handlePrint() {
     generatingPdf = true;
     try {
-      const html = buildMoldurasHtmlPaged(cards, cardHeights);
+      const html = buildMoldurasHtmlPaged(cards, cardHeights, merged);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       try {
         await invoke('print_pdf', { path: pdfPath });
@@ -102,7 +105,7 @@
   async function handleSendRemote() {
     generatingPdf = true;
     try {
-      const html = buildMoldurasHtmlPaged(cards, cardHeights);
+      const html = buildMoldurasHtmlPaged(cards, cardHeights, merged);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;

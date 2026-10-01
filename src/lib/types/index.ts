@@ -15,6 +15,8 @@ export interface AppConfig {
   station_id?: number | null;
   station_api_key?: string | null;
   station_name?: string | null;
+  sort_dims_enabled?: boolean;
+  moldura_merged?: boolean;
 }
 
 export interface ClientAddress {
@@ -228,6 +230,8 @@ export interface Factura {
   estado_moldura: string;
   estado_orden_tela: string;
   estado_kanban: string;
+  /** Flag local de UI: la factura venía como NO_CONFIRMADO y se muestra en PEDIDO. */
+  _no_confirmado?: boolean;
   entregado_at?: string;
   lat?: number | null;
   lng?: number | null;
@@ -236,6 +240,7 @@ export interface Factura {
   impresa_por?: string | null;
   impresa_count?: number;
   created_at?: string | null;
+  created_by?: number | null;
   updated_at?: string | null;
   deleted_at?: string | null;
 }
@@ -451,6 +456,18 @@ export interface PricingRule {
   enabled: boolean;
   rounding: number;
 }
+
+/** Fila de reglas ya cargada: siempre tiene id (del servidor o temporal negativo). */
+export type PricingRuleRow = PricingRule & { id: number };
+
+/** Cuerpo que espera la API en /pricing-rules (snake_case, con listas serializadas). */
+export type PricingRulePayload = Omit<PricingRule, 'id' | 'matchTokens' | 'baseCategoria' | 'baseVariante' | 'operationValue' | 'conditions'> & {
+  match_tokens: string;
+  base_categoria: string;
+  base_variante: string;
+  operation_value: number;
+  conditions: string;
+};
 
 export interface ExpenseCategory {
   id: number;

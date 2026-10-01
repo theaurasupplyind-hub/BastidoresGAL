@@ -222,5 +222,4 @@
   .btn { padding: 0.571rem 1.143rem; border-radius: 0.357rem; border: none; cursor: pointer; font-size: 0.929rem; font-weight: 600; }
   .btn-primary { background: var(--accent); color: #fff; }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-  .btn-secondary { padding: 0.571rem 1.286rem; background: var(--bg-hover); color: var(--text-secondary); border: none; border-radius: 0.429rem; cursor: pointer; font-size: 0.929rem; }
 </style>

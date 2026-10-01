@@ -464,7 +464,7 @@ async fn open_maps_picker(app: tauri::AppHandle, query: String) -> Result<(), St
         msg
     })?;
     // Dockeada estatica a la derecha del main para UX mayores — ancho fijo 420
-    let mut inner_w = 420.0;
+    let inner_w = 420.0;
     let mut inner_h = 700.0;
     let mut pos_x: Option<f64> = None;
     let mut pos_y: Option<f64> = None;

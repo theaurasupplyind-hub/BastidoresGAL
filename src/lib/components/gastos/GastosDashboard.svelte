@@ -312,12 +312,6 @@
     display: flex;
     align-items: center;
   }
-  .g-filter-field svg {
-    position: absolute;
-    left: 0.571rem;
-    color: var(--text-muted);
-    pointer-events: none;
-  }
   .g-filter-field input {
     padding: 0.429rem 0.571rem 0.429rem 1.9rem;
     border: 1px solid var(--border);

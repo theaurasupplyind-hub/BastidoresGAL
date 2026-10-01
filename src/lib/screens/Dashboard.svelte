@@ -55,28 +55,34 @@
   let updateVersion = $state('');
   let updateNotes = $state('');
 
-  onMount(async () => {
-    api.wakeServer();
-    try { config = await invoke('get_config'); } catch {}
-    invoke('warm_webview2').catch(() => {});
-    try {
-      const currentVersion = await getVersion();
-      const lastSeen = localStorage.getItem('app_last_version');
-      if (lastSeen !== currentVersion) {
-        updateVersion = `v${currentVersion}`;
-        updateNotes = CHANGELOG[currentVersion] || 'Nueva versión disponible';
-        showUpdate = true;
-        localStorage.setItem('app_last_version', currentVersion);
-      }
-    } catch {}
-    heartbeatId = setInterval(runHeartbeat, 10000);
-    runHeartbeat();
-    pollStations();
-    stationsPollId = setInterval(pollStations, 10000);
+  onMount(() => {
+    // El listener y los timers se registran de forma síncrona para que el cleanup
+    // de onMount los pueda quitar (un onMount async nunca devolvería el cleanup).
     const handler = (e: Event) => {
       appStore.onlineUsers = (e as CustomEvent).detail;
     };
     window.addEventListener('users-update', handler);
+    heartbeatId = setInterval(runHeartbeat, 10000);
+    stationsPollId = setInterval(pollStations, 10000);
+
+    void (async () => {
+      api.wakeServer();
+      try { config = await invoke('get_config'); } catch {}
+      invoke('warm_webview2').catch(() => {});
+      try {
+        const currentVersion = await getVersion();
+        const lastSeen = localStorage.getItem('app_last_version');
+        if (lastSeen !== currentVersion) {
+          updateVersion = `v${currentVersion}`;
+          updateNotes = CHANGELOG[currentVersion] || 'Nueva versión disponible';
+          showUpdate = true;
+          localStorage.setItem('app_last_version', currentVersion);
+        }
+      } catch {}
+      runHeartbeat();
+      pollStations();
+    })();
+
     return () => {
       window.removeEventListener('users-update', handler);
     };
@@ -435,8 +441,6 @@
   .top-btn svg { flex-shrink: 0; }
   .top-btn-success { color: #16a34a; border-color: #bbf7d0; }
   .top-btn-success:hover { background: #f0fdf4; border-color: #86efac; }
-  .top-btn-wa { color: #25D366; border-color: #b7f0d1; }
-  .top-btn-wa:hover { background: #f0fdf4; border-color: #86efac; }
   .top-btn-imgs { color: #9333ea; border-color: #ddd6fe; }
   .top-btn-imgs:hover { background: #f5f3ff; border-color: #c4b5fd; }
   .top-btn-remote { color: #0369a1; border-color: #bae6fd; }

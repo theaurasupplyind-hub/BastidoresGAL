@@ -11,17 +11,19 @@
   const monthSectionPlugin = {
     id: 'monthSection',
     afterDraw(chart: Chart) {
-      const opts = (chart as any).options?.plugins?.monthSection as { sections: { label: string; start: number; end: number }[] } | undefined;
-      if (!opts?.sections?.length) return;
+      const sections = chart.options.plugins?.monthSection?.sections;
+      if (!sections?.length) return;
       const { ctx, data, chartArea: { top, bottom }, scales: { x } } = chart;
       if (!x) return;
       ctx.save();
       ctx.font = '600 13px Inter, system-ui, sans-serif';
       ctx.fillStyle = '#2c3e50';
       ctx.textAlign = 'center';
-      for (const sec of opts.sections) {
-        const x1 = x.getPixelForValue(sec.start);
-        const lastIdx = Math.min(sec.end, (data?.labels?.length || 1) - 1);
+      for (const sec of sections) {
+        const { label, start, end } = sec;
+        if (start == null || end == null || !label) continue;
+        const x1 = x.getPixelForValue(start);
+        const lastIdx = Math.min(end, (data?.labels?.length || 1) - 1);
         const x2 = x.getPixelForValue(lastIdx);
         const w = (x2 || x1) - x1;
         if (w > 0) {
@@ -29,8 +31,8 @@
           ctx.fillRect(x1 - 4, top - 26, w + 8, 22);
           ctx.fillStyle = '#2c3e50';
         }
-        ctx.fillText(sec.label, x1 + w / 2, top - 10);
-        if (sec.end < (data?.labels?.length || 0) - 1) {
+        ctx.fillText(label, x1 + w / 2, top - 10);
+        if (end < (data?.labels?.length || 0) - 1) {
           ctx.strokeStyle = '#e0e0e0';
           ctx.lineWidth = 1;
           ctx.setLineDash([4, 4]);
@@ -672,7 +674,7 @@
 
   let monthlyTableSum = $derived(monthlyTable.reduce((s, r) => s + r.total, 0));
 
-  let canvasEl: HTMLCanvasElement;
+  let canvasEl = $state<HTMLCanvasElement | undefined>(undefined);
   let chartInstance: Chart | null = null;
 
   function buildChart() {
@@ -722,28 +724,29 @@
             backgroundColor: '#2c3e50',
             padding: 10,
             cornerRadius: 8,
-            titleFont: { size: 12, weight: '600' },
+            titleFont: { size: 12, weight: 600 },
             bodyFont: { size: 12 },
             displayColors: false,
             callbacks: { label: (ctx: any) => '$' + ctx.parsed.y.toLocaleString('es-AR') }
           },
-          datalabels: isLine ? false : {
+          // display:false equivale a `false` (desactiva el plugin) pero es tipado.
+          datalabels: isLine ? { display: false } : {
             anchor: 'end',
             align: 'top',
             color: '#2c3e50',
-            font: { size: 10, weight: '600' },
+            font: { size: 10, weight: 600 },
             formatter: (v: number) => { if (v <= 0) return ''; if (v >= 1000000) return '$' + (v / 1000000).toFixed(1) + 'M'; if (v >= 1000) return '$' + (v / 1000).toFixed(0) + 'k'; return '$' + v; }
           }
         },
         scales: {
           y: {
             beginAtZero: true,
-            grid: { color: '#f0f1f5', drawBorder: false },
+            grid: { color: '#f0f1f5' },
             ticks: { color: '#999', font: { size: 11 }, callback: (val: any) => '$' + Number(val).toLocaleString('es-AR') }
           },
           x: {
             grid: { display: false },
-            ticks: { color: '#666', font: { size: 11, weight: '600' }, maxRotation: 45, autoSkip: true, maxTicksLimit: isLine ? 15 : 30 }
+            ticks: { color: '#666', font: { size: 11, weight: 600 }, maxRotation: 45, autoSkip: true, maxTicksLimit: isLine ? 15 : 30 }
           }
         }
       }
@@ -1484,6 +1487,4 @@
   .est-table th.td-r,
   .est-table td.td-r { white-space: nowrap; }
   .td-r { text-align: right; font-family: monospace; }
-  .td-date { font-family: monospace; font-size: 0.72rem; }
-  .td-num { font-family: monospace; font-size: 0.72rem; }
 </style>

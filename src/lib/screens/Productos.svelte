@@ -254,7 +254,7 @@
   .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
   .modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
   .modal label { display: block; font-size: 0.929rem; color: var(--text-secondary); margin: 0.571rem 0 0.286rem; }
-  .modal input, .modal select {
+  .modal input {
     width: 100%; padding: 0.571rem 0.714rem; border: 1px solid var(--border); border-radius: 0.429rem;
     font-size: 0.929rem; box-sizing: border-box;
   }

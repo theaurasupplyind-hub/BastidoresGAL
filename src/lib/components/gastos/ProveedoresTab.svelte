@@ -24,7 +24,6 @@
   interface CardInfo {
     debt: number;
     stockQty: number;
-    lastMoveDesc: string;
   }
   let cardsInfo = $state<Map<number, CardInfo>>(new Map());
 
@@ -32,6 +31,7 @@
   let viewMode: 'grid' | 'detail' = $state('grid');
   let selectedProvider = $state<Provider | null>(null);
   let providerMoves = $state<ProviderMovement[]>([]);
+  let detailLoading = $state(false);
   let timelineFilter: 'Todo' | 'Financiero' | 'Stock' = $state('Todo');
 
   let filteredMoves = $derived.by(() => {
@@ -146,28 +146,28 @@
   async function loadData() {
     try {
       providers = await cacheStore.fetch('providers', () => api.listProviders(), 900000);
-      const movesMap = new Map<number, ProviderMovement[]>();
       const infoMap = new Map<number, CardInfo>();
       for (const p of providers) {
-        try {
-          const detail = await api.getProvider(p.id);
-          const moves: ProviderMovement[] = detail?.movements || [];
-          movesMap.set(p.id, moves);
-          const purchases = moves.filter(m => m.type === 'PURCHASE').reduce((s, m) => s + (m.amount || 0), 0);
-          const payments = moves.filter(m => m.type === 'PAYMENT').reduce((s, m) => s + (m.amount || 0), 0);
-          const sortedMoves = [...moves].sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
-          const lastMove = sortedMoves.length > 0 ? sortedMoves[0] : null;
-          infoMap.set(p.id, {
-            debt: purchases - payments,
-            stockQty: moves.filter(m => m.type === 'STOCK_IN').reduce((s, m) => s + (m.quantity || 0), 0)
-                     - moves.filter(m => m.type === 'STOCK_OUT').reduce((s, m) => s + (m.quantity || 0), 0),
-            lastMoveDesc: lastMove ? `${moveTypeLabel(lastMove.type)}: ${lastMove.description || ''}` : 'Sin movimientos',
-          });
-        } catch {}
+        infoMap.set(p.id, {
+          debt: p.balance ?? 0,
+          stockQty: p.stock_qty ?? 0,
+        });
       }
-      providerMovesMap = movesMap;
       cardsInfo = infoMap;
     } catch {}
+  }
+
+  async function getProviderMoves(id: number): Promise<ProviderMovement[]> {
+    try {
+      const moves = await cacheStore.fetch(`provider:moves:${id}`, async () => {
+        const detail = await api.getProvider(id);
+        return (detail?.movements || []) as ProviderMovement[];
+      }, 900000);
+      providerMovesMap.set(id, moves);
+      return moves;
+    } catch {
+      return providerMovesMap.get(id) || [];
+    }
   }
 
   // ── Detail ──
@@ -194,12 +194,22 @@
     return {};
   }
 
-  function openDetail(p: Provider) {
+  async function openDetail(p: Provider) {
     selectedProvider = p;
-    const moves = providerMovesMap.get(p.id) || [];
-    providerMoves = [...moves].sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
+    providerMoves = [];
     viewMode = 'detail';
     timelineFilter = 'Todo';
+    const memo = providerMovesMap.get(p.id);
+    if (memo) {
+      providerMoves = [...memo].sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
+      detailLoading = false;
+      return;
+    }
+    detailLoading = true;
+    const moves = await getProviderMoves(p.id);
+    if (selectedProvider?.id !== p.id || viewMode !== 'detail') return;
+    providerMoves = [...moves].sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
+    detailLoading = false;
   }
 
   function closeDetail() {
@@ -217,6 +227,7 @@
 
   function resetDetail() {
     detailClosing = false;
+    detailLoading = false;
     viewMode = 'grid';
     selectedProvider = null;
     providerMoves = [];
@@ -224,11 +235,12 @@
 
   async function refreshDetail() {
     if (!selectedProvider) return;
-    try {
-      const detail = await api.getProvider(selectedProvider.id);
-      providerMoves = [...(detail?.movements || [])].sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
-      providerMovesMap.set(selectedProvider.id, detail?.movements || []);
-    } catch {}
+    const id = selectedProvider.id;
+    detailLoading = true;
+    const moves = await getProviderMoves(id);
+    if (selectedProvider?.id !== id) return;
+    providerMoves = [...moves].sort((a, b) => byDateDesc(a.date, b.date, a.id, b.id));
+    detailLoading = false;
   }
 
   // ── Provider CRUD ──
@@ -352,7 +364,7 @@
       </div>
       <div class="pp-detail-nav-actions">
         <button class="btn btn-xs btn-secondary" onclick={openEditProvider}><GIcon name="edit" size={13} /> Editar</button>
-        <button class="btn btn-xs btn-danger" onclick={() => deleteProvider(selectedProvider.id)}><GIcon name="trash" size={13} /></button>
+        <button class="btn btn-xs btn-danger" onclick={() => selectedProvider && deleteProvider(selectedProvider.id)}><GIcon name="trash" size={13} /></button>
       </div>
     </div>
 
@@ -393,7 +405,7 @@
                   </div>
                 {/each}
               {:else}
-                <div class="pp-panel-empty">Sin movimientos</div>
+                <div class="pp-panel-empty">{detailLoading ? 'Cargando…' : 'Sin movimientos'}</div>
               {/each}
             </div>
           </div>
@@ -418,7 +430,7 @@
                   </div>
                 {/each}
               {:else}
-                <div class="pp-panel-empty">Sin movimientos</div>
+                <div class="pp-panel-empty">{detailLoading ? 'Cargando…' : 'Sin movimientos'}</div>
               {/each}
             </div>
           </div>

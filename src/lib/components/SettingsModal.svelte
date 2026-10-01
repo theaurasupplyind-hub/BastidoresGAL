@@ -12,6 +12,8 @@
     selected_template_name: 'Original',
     selected_template_file: 'invoice_template.html',
     selected_printer: null,
+    sort_dims_enabled: true,
+    moldura_merged: false,
   });
 
   let zoomLevel = $state(1);
@@ -72,6 +74,8 @@
       localStorage.setItem('zoom-level', String(zoomLevel));
       await invoke('save_config', { config });
       appStore.pdfStyle = config.selected_template_name;
+      appStore.sortDimsEnabled = config.sort_dims_enabled ?? true;
+      appStore.molduraMerged = config.moldura_merged ?? false;
       initialZoomPercent = zoomPercent;
       appStore.showToast('Configuración guardada');
       appStore.showSettings = false;
@@ -113,6 +117,18 @@
 
         <label>Tecla Nueva Factura</label>
         <input type="text" bind:value={config.hotkey_new} />
+
+        <label>Ordenar medidas</label>
+        <label class="check-row">
+          <input type="checkbox" bind:checked={config.sort_dims_enabled} />
+          <span>Mayor x menor al pegar o salir del campo</span>
+        </label>
+
+        <label>Molduras V2</label>
+        <label class="check-row">
+          <input type="checkbox" bind:checked={config.moldura_merged} />
+          <span>Consolidar varillas iguales de bastidores sin larguero/travesaño (2×45 + 2×45 → 4×45)</span>
+        </label>
 
         <label>Impresora</label>
         {#if loadingPrinters}
@@ -176,22 +192,11 @@
   }
   .loading { text-align: center; color: var(--text-muted); padding: 1.429rem; }
 
-  .toggle-btn {
-    display: flex; align-items: center; gap: 0.5rem; background: none; border: none;
-    cursor: pointer; padding: 0; font-size: 0.85rem; color: var(--text-secondary);
+  .check-row {
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: 0.929rem; color: var(--text-secondary); cursor: pointer;
   }
-  .toggle-track {
-    width: 2.4rem; height: 1.3rem; background: var(--border); border-radius: 0.65rem;
-    position: relative; transition: background 0.2s;
-  }
-  .toggle-btn.active .toggle-track { background: var(--accent); }
-  .toggle-thumb {
-    position: absolute; top: 0.15rem; left: 0.15rem;
-    width: 1rem; height: 1rem; background: white; border-radius: 50%;
-    transition: transform 0.2s;
-  }
-  .toggle-btn.active .toggle-thumb { transform: translateX(1.1rem); }
-  .toggle-label { font-weight: 500; }
+  .check-row input { width: 1rem; height: 1rem; accent-color: var(--accent); cursor: pointer; }
   .zoom-row {
     display: flex;
     align-items: center;

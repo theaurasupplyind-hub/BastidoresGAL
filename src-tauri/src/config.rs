@@ -21,6 +21,14 @@ pub struct AppConfig {
     pub station_api_key: Option<String>,
     #[serde(default)]
     pub station_name: Option<String>,
+    #[serde(default = "default_true")]
+    pub sort_dims_enabled: bool,
+    #[serde(default)]
+    pub moldura_merged: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AppConfig {
@@ -37,6 +45,8 @@ impl Default for AppConfig {
             station_id: None,
             station_api_key: None,
             station_name: None,
+            sort_dims_enabled: true,
+            moldura_merged: false,
         }
     }
 }

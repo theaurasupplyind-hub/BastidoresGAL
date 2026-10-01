@@ -71,7 +71,7 @@
     if (!t && !pastedImage) return;
     newTaskText = '';
     try {
-      const task = await api.createTask({ text: t || '(imagen)', assigned_by: appStore.user?.user_name || null });
+      const task = await api.createTask({ text: t || '(imagen)', assigned_by: appStore.user?.user_name || undefined });
       if (pastedImage) {
         await api.uploadTaskImage(task.id, pastedImage, 'clipboard.webp');
         pastedImage = null;
@@ -669,7 +669,7 @@
 
       for (const f of (facturas || []).filter((x: any) => x.estado_kanban !== 'NO_CONFIRMADO')) {
         if ((f.created_at || '').startsWith(todayStr)) {
-          const userName = usersMap.get(f.created_by) || '';
+          const userName = (f.created_by != null ? usersMap.get(f.created_by) : '') || '';
           items.push({
             id: f.id,
             type: 'factura',
@@ -694,7 +694,7 @@
 
       for (const p of (pagos || [])) {
         if ((p.created_at || '').startsWith(todayStr)) {
-          const isAuto = p.user_id === 0 || p.user_id === '0'
+          const isAuto = Number(p.user_id) === 0
           items.push({
             id: p.id,
             type: 'pago',
@@ -1157,7 +1157,7 @@
             </button>
             <button class="task-pin-btn" class:pinned={(task as any).pinned} class:pinning={pinningTaskId === task.id} onclick={() => togglePin(task.id)} aria-pressed={(task as any).pinned} aria-label={(task as any).pinned ? 'Desfijar tarea' : 'Fijar tarea'} title={(task as any).pinned ? 'Desfijar ★' : pinnedCount >= 3 ? 'Máximo 3 fijadas' : 'Fijar como importante ★'} disabled={pinningTaskId === task.id}>
               {#if pinningTaskId === task.id}
-                <span class="task-upload-spinner" />
+                <span class="task-upload-spinner"></span>
               {:else if (task as any).pinned}
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="#f59e0b" stroke="#f59e0b" stroke-width="1.5" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
               {:else}
@@ -1188,9 +1188,9 @@
             </button>
             <button class="task-image-add" onclick={() => triggerImageUpload(task.id)} aria-label="Agregar imagen">
               {#if uploadingTaskId === task.id}
-                <span class="task-upload-spinner" />
+                <span class="task-upload-spinner"></span>
               {:else}
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
               {/if}
             </button>
             <button class="task-remove" onclick={() => removeTask(task.id)} aria-label="Eliminar tarea">✕</button>
@@ -1225,7 +1225,7 @@
                     </div>
                     <button class="thread-img-add" onclick={() => triggerReplyImageUpload(task.id, reply.id)} aria-label="Agregar imagen a respuesta">
                       {#if uploadingReplyKey === `${task.id}:${reply.id}`}
-                        <span class="task-upload-spinner" />
+                        <span class="task-upload-spinner"></span>
                       {:else}
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                       {/if}
@@ -2193,7 +2193,6 @@
     font-size:.52rem; font-weight:800; letter-spacing:-.02em; line-height:1;
     box-shadow:0 1px 2px rgba(0,0,0,.16); pointer-events:none;
   }
-  .reply-count[data-count="1"] { min-width:.92rem; }
   .task-reply-btn:not(.has-replies) .reply-count { display:none; }
   .task-thread {
     margin:0 0 .5rem 1.85rem; padding:.45rem .6rem .5rem; border-left:2.5px solid #6366f1; background:#f8fafc; border-radius:0 .4rem .4rem 0; display:flex; flex-direction:column; gap:.35rem;
@@ -2672,7 +2671,6 @@
     justify-content: space-between;
     margin-bottom: 0.857rem;
   }
-  .notes-modal-header h3 { margin: 0; color: var(--text-primary); }
   .notes-modal-close {
     width: 1.714rem;
     height: 1.714rem;
@@ -2993,7 +2991,6 @@
     box-shadow: 0 0.571rem 2.143rem rgba(0,0,0,0.15);
   }
   .modal-notes { min-width: 38rem; }
-  .modal h3 { margin: 0 0 1rem; color: var(--text-primary); }
   .modal-body { display: flex; flex-direction: column; gap: 0.714rem; }
   .modal-footer {
     display: flex; justify-content: flex-end; gap: 0.571rem;

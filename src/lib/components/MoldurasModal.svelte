@@ -75,10 +75,12 @@
   });
 
   const parsedCards = $derived.by(() => {
-    return selectedCards.map(f => {
-      const p = getParsed(f.id);
-      return { ...p, hasMoldura: hasMolduraItems(f) };
-    });
+    return selectedCards
+      .map(f => {
+        const p = getParsed(f.id);
+        return p ? { ...p, hasMoldura: hasMolduraItems(f) } : null;
+      })
+      .filter((x): x is NonNullable<typeof x> => x !== null);
   });
 
   let searchTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -126,8 +128,8 @@
         };
       });
 
-      const heights = await measureCardHeights(cards);
-      const html = buildMoldurasHtmlPaged(cards, heights);
+      const heights = await measureCardHeights(cards, appStore.molduraMerged);
+      const html = buildMoldurasHtmlPaged(cards, heights, appStore.molduraMerged);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
 
       if (shouldPrint) {
@@ -177,8 +179,8 @@
           materials: p?.materials || [],
         };
       });
-      const heights = await measureCardHeights(cards);
-      const html = buildMoldurasHtmlPaged(cards, heights);
+      const heights = await measureCardHeights(cards, appStore.molduraMerged);
+      const html = buildMoldurasHtmlPaged(cards, heights, appStore.molduraMerged);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;

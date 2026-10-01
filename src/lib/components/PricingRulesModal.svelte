@@ -4,13 +4,13 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { api } from '$lib/api/client';
   import { evaluateRules, parseQuery, type RuleEvalStep } from '$lib/utils/precios';
-  import type { PrecioReferencia, PricingRule, RuleCondition } from '$lib/types';
+  import type { PrecioReferencia, PricingRule, PricingRulePayload, PricingRuleRow, RuleCondition } from '$lib/types';
 
   let refs = $state<PrecioReferencia[]>([]);
   let loadingRefs = $state(false);
   let loadingRules = $state(true);
   let saving = $state(false);
-  let rules = $state<PricingRule[]>([]);
+  let rules = $state<PricingRuleRow[]>([]);
   let testQuery = $state('');
   let steps = $state<RuleEvalStep[]>([]);
   let dirty = $state(false);
@@ -74,9 +74,9 @@
 
   function tempId(): number { return -(Date.now() + tempIdCounter++); }
 
-  function rawToRules(raw: any[]): PricingRule[] {
+  function rawToRules(raw: any[]): PricingRuleRow[] {
     return raw.map((r: any) => ({
-      id: r.id,
+      id: Number(r.id),
       name: r.name || '',
       matchTokens: typeof (r.matchTokens ?? r.match_tokens) === 'string'
         ? JSON.parse((r.matchTokens ?? r.match_tokens) || '[]')
@@ -107,9 +107,10 @@
 
   onMount(() => { loadRefs(); loadRules(); });
 
-  function defaultRules(): PricingRule[] {
+  function defaultRules(): PricingRuleRow[] {
     return [
       {
+        id: tempId(),
         name: 'Pintura',
         matchTokens: ['pintura'],
         baseCategoria: 'BASTIDOR',
@@ -121,6 +122,7 @@
         rounding: 1000,
       },
       {
+        id: tempId(),
         name: 'Tapacantos',
         matchTokens: ['tapacanto'],
         baseCategoria: 'BASTIDOR',
@@ -132,6 +134,7 @@
         rounding: 1000,
       },
       {
+        id: tempId(),
         name: 'Caja fibro fácil',
         matchTokens: ['fibro facil', 'fibrofacil'],
         baseCategoria: 'BASTIDOR',
@@ -148,7 +151,7 @@
   async function saveRules() {
     saving = true;
     try {
-      const existingIds = new Set(rules.filter(r => r.id && r.id > 0).map(r => r.id!));
+      const existingIds = new Set(rules.filter(r => r.id > 0).map(r => r.id));
       const toDelete = [...existingIds];
       const toSave = [...rules];
 
@@ -156,25 +159,21 @@
         try { await api.deletePricingRule(rid); } catch {}
       }
 
-    const fresh: any[] = [];
-    for (const rule of toSave) {
-      const payload = {
-        name: rule.name,
-        match_tokens: JSON.stringify(rule.matchTokens),
-        base_categoria: rule.baseCategoria,
-        base_variante: rule.baseVariante,
-        operation: rule.operation,
-        operation_value: rule.operationValue,
-        conditions: JSON.stringify(rule.conditions),
-        enabled: rule.enabled,
-        rounding: rule.rounding,
-      };
-      const saved = await api.savePricingRule(payload);
-        fresh.push({
-          id: saved.id!,
-          ...rule,
-          id: saved.id!,
-        });
+      const fresh: PricingRuleRow[] = [];
+      for (const rule of toSave) {
+        const payload: PricingRulePayload = {
+          name: rule.name,
+          match_tokens: JSON.stringify(rule.matchTokens),
+          base_categoria: rule.baseCategoria,
+          base_variante: rule.baseVariante,
+          operation: rule.operation,
+          operation_value: rule.operationValue,
+          conditions: JSON.stringify(rule.conditions),
+          enabled: rule.enabled,
+          rounding: rule.rounding,
+        };
+        const saved = await api.savePricingRule(payload);
+        fresh.push({ ...rule, id: saved.id! });
       }
       rules = rawToRules(fresh);
       dirty = false;
@@ -187,7 +186,7 @@
   }
 
   function addRule() {
-    const r: PricingRule = {
+    const r: PricingRuleRow = {
       id: tempId(),
       name: '',
       matchTokens: [],

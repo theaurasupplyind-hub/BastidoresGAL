@@ -1,4 +1,15 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.3.81': `Nuevo menú de navegación: todas las secciones en un solo menú, con iconos y descripción.
+Facturación: botón "No confirmado" al guardar, para que la factura nueva caiga directo en No Confirmado del Kanban.
+Facturación: el teléfono autocompleta y busca por nombre o número; elige el cliente solo.
+Facturación: arreglo en "Ordenar medidas" — ahora sí se aplica al salir del campo o al guardar con F1 (antes solo ordenaba la pantalla y se guardaba sin ordenar).
+Facturación: arreglo en el catálogo de productos — "bastidor 100x50" ya no crea un producto duplicado del que estaba guardado como "50x100".
+Facturación: se factura la dirección cuando faltan coordenadas, no solo cuando cambia.
+Facturación: los presupuestos con entrega "Retira" imprimen "Entrega: Retira" en vez de "Envio".
+Configuración: nueva opción "Molduras V2" — consolida varillas iguales de bastidores sin larguero ni travesaño (2×45 + 2×45 → 4×45).
+Mapa: botón "Ubicar todas" para geocodificar en lote las direcciones pendientes, con progreso. Usa la dirección por defecto del cliente si la factura no tiene domicilio, y estandariza al formato corto (calle, barrio, CABA) al corregir.
+Proveedores: los movimientos se cargan al abrir el proveedor, no todos al arrancar — la lista inicial abre mucho más rápido.
+PDF: los rangos de fecha de entrega usan el día abreviado (Lun 14 - Vie 18).`,
   '2.3.80': `FODA: ahora imprime como facturas y molduras — genera el PDF y lo envía a la impresora (botón Imprimir) o lo abre en el visor (botón Abrir PDF).
 Mapa: se quita el selector de estilos del mapa; siempre OpenStreetMap.`,
   '2.3.79': `Estadísticas: nueva sección "Recurrencia de clientes" (6/12/24 meses o toda la historia, conteo por ocasiones o facturas): tasa de recurrencia, distribución por compras, nuevos vs recuperados, intervalo promedio, top 10 recurrentes y clientes de alta frecuencia + interpretación. Nueva tarjeta KPI de Clientes.

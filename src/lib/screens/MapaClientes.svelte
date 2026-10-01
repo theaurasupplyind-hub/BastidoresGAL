@@ -9,7 +9,7 @@
   import RecomendacionRutasModal from '$lib/components/RecomendacionRutasModal.svelte';
   import EditClienteModal from '$lib/components/EditClienteModal.svelte';
   import AddressAutocomplete from '$lib/components/AddressAutocomplete.svelte';
-  import { nominatimSearchUrl, limpiarDireccion } from '$lib/utils/geocoding';
+  import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
   import { facturasActivas } from '$lib/utils/facturas';
   import { decodePolyline, findCercanosRuta, haversine } from '$lib/utils/geo';
   import { recomendarRutas, type ClienteParaAgrupar } from '$lib/utils/barrios';
@@ -37,8 +37,8 @@
   function kanbanText(estado: string) { return KANBAN_LABELS[estado] || estado; }
 
   let mapContainer: any;
-  let map: any;
-  let L: any;
+  let map: import('leaflet').Map;
+  let L: typeof import('leaflet');
 
   const TILES_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
   const TILES_ATTRIBUTION = '&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>';
@@ -78,7 +78,7 @@
   let marcadoresClientes: Record<string, any> = {};
   let marcadorOrigen: any = null;
   let marcadorBusqueda: any = null;
-  let rutaLinea: any = null;
+  let rutaLinea = $state<import('leaflet').Polyline | null>(null);
   let infoRuta = $state('');
   let calculandoRuta = $state(false);
   let tiempoEstimado = $state('');
@@ -106,6 +106,8 @@
   let showEditClienteModal = $state(false);
   let editClienteData: any = $state(null);
   let geocodificandoFacturaId: number | null = $state(null);
+  let ubicandoTodas = $state(false);
+  let ubicandoProgreso = $state({ hechas: 0, total: 0 });
 
   let facturaMap = $derived.by(() => {
     const m = new Map<number, any>();
@@ -811,7 +813,7 @@
         .addTo(map)
         .bindPopup(facturas.length > 1 ? facturasPopupHtml(facturas) : facturaPopupHtml(primary))
         .bindTooltip(
-          `${facturas.map(f => f.numero_factura).join(' · ')}<br>${primary.cliente_nombre}${primary.cliente_domicilio ? '<br>' + primary.cliente_domicilio : ''}`,
+          `${facturas.map(f => f.numero_factura).join(' · ')}<br>${primary.cliente_nombre}${domicilioFactura(primary) ? '<br>' + domicilioFactura(primary) : ''}`,
           { direction: 'top', offset: [0, -18], className: 'cliente-tooltip' }
         );
 
@@ -855,8 +857,9 @@
     items.push(`<span style="color:#374151;font-weight:500;">${factura.cliente_nombre}</span>`);
     items.push(`<span style="color:${kanbanColor(factura.estado_kanban)};font-weight:600;">${kanbanText(factura.estado_kanban)}</span>`);
 
-    if (factura.cliente_domicilio) {
-      items.push(`<span style="color:var(--text-secondary);">📍 ${factura.cliente_domicilio}${factura.cliente_piso_depto ? ', ' + factura.cliente_piso_depto : ''}</span>`);
+    const dir = domicilioFactura(factura);
+    if (dir) {
+      items.push(`<span style="color:var(--text-secondary);">📍 ${dir}${factura.cliente_piso_depto ? ', ' + factura.cliente_piso_depto : ''}</span>`);
     }
     if (factura.cliente_telefono) items.push(`&#128222; ${factura.cliente_telefono}`);
 
@@ -881,7 +884,8 @@
       const rows: string[] = [];
       rows.push(`<strong style="font-size:14px;">${f.numero_factura}</strong> <span style="display:inline-block;background:${kanbanColor(f.estado_kanban)};color:#fff;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;margin-left:4px;line-height:1.5;">${kanbanText(f.estado_kanban)}</span>`);
       rows.push(`<span style="color:#374151;font-weight:500;">${f.cliente_nombre}</span>`);
-      if (f.cliente_domicilio) rows.push(`<span style="color:var(--text-secondary);">📍 ${f.cliente_domicilio}${f.cliente_piso_depto ? ', ' + f.cliente_piso_depto : ''}</span>`);
+      const dir = domicilioFactura(f);
+      if (dir) rows.push(`<span style="color:var(--text-secondary);">📍 ${dir}${f.cliente_piso_depto ? ', ' + f.cliente_piso_depto : ''}</span>`);
       if (f.total) rows.push(`<span style="color:#059669;font-weight:600;">$${f.total.toLocaleString('es-AR')}</span>`);
       if (f.geocode_error) {
         rows.push(`<hr style="margin:6px 0;border-color:#fee2e2;">`);
@@ -926,6 +930,23 @@
   function clientePorId(id: number): any {
     return clientesRecomendables.find((c: any) => c.id === id)
       ?? todosLosClientes.find((c: any) => c.id === id);
+  }
+
+  // Domicilio por defecto del cliente (address is_default, o la primera con coords, o domicilio principal)
+  function domicilioClientePorId(id: number): string {
+    const c = todosLosClientes.find((cc: any) => cc.id === id);
+    if (!c) return '';
+    const def = c.addresses?.find((a: any) => a.is_default)
+      ?? c.addresses?.find((a: any) => a.lat != null && a.lng != null)
+      ?? c.addresses?.[0];
+    return (def?.address || c.domicilio || '').trim();
+  }
+
+  // Dirección a mostrar/geocodificar de una factura: la propia o la del cliente si está vacía
+  function domicilioFactura(f: any): string {
+    const propia = (f?.cliente_domicilio || '').trim();
+    if (propia) return propia;
+    return f?.cliente_id ? domicilioClientePorId(f.cliente_id) : '';
   }
 
   function toggleFiltroKanban(estado: string) {
@@ -989,6 +1010,54 @@
     }
   }
 
+  async function ubicarTodasSinGeo() {
+    if (ubicandoTodas) return;
+    const pendientes = [...facturasSinGeocodificar];
+    if (pendientes.length === 0) return;
+    ubicandoTodas = true;
+    ubicandoProgreso = { hechas: 0, total: pendientes.length };
+    let ok = 0;
+    let fail = 0;
+    for (const f of pendientes) {
+      // Completar el domicilio desde el cliente si la factura no lo tiene
+      if (!(f.cliente_domicilio || '').trim() && f.cliente_id) {
+        const dir = domicilioClientePorId(f.cliente_id);
+        if (dir) {
+          try {
+            await api.patchInvoiceField(f.id, 'cliente_domicilio', dir);
+            f.cliente_domicilio = dir;
+          } catch {}
+        }
+      }
+      try {
+        const res = await api.geocodificarFactura(f.id);
+        if (res?.lat && res?.lng) {
+          f.lat = res.lat;
+          f.lng = res.lng;
+          f.geocode_error = null;
+          ok++;
+        } else {
+          fail++;
+        }
+      } catch (e: any) {
+        f.geocode_error = e.message || 'Error de geocodificación';
+        fail++;
+      }
+      ubicandoProgreso = { hechas: ubicandoProgreso.hechas + 1, total: pendientes.length };
+      renderizarMarcadores();
+      // Nominatim: máximo ~1 request por segundo
+      if (ubicandoProgreso.hechas < pendientes.length) {
+        await new Promise(r => setTimeout(r, 1100));
+      }
+    }
+    ubicandoTodas = false;
+    invalidarMapaBase();
+    appStore.showToast(
+      fail === 0 ? `📍 ${ok} dirección(es) ubicada(s)` : `📍 ${ok} ubicada(s), ${fail} sin encontrar`,
+      ok > 0 ? 'success' : 'error'
+    );
+  }
+
   async function geocodificarClienteEnMapa(clienteId: number) {
     try {
       const res = await api.geocodificarCliente(clienteId);
@@ -1043,8 +1112,9 @@
       const data = await res.json();
       if (data.length > 0) {
         editDireccionPreviewCoords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        editDireccionValor = formatearDireccionNominatim(data[0]);
       } else {
-        editDireccionPreviewError = 'No se encontró la dirección. Probá escribirla de otra forma.';
+        editDireccionPreviewError = 'No se encontró la dirección. Revisá el código postal, el barrio o que diga CABA.';
       }
     } catch {
       editDireccionPreviewError = 'Error de conexión al probar la ubicación.';
@@ -1058,6 +1128,15 @@
     editDireccionGuardando = true;
     const facturaId = editDireccionFactura.id;
     try {
+      // Estandarizar al formato corto (calle, barrio, CABA) si no se probó la ubicación
+      if (!editDireccionPreviewCoords && editDireccionValor.trim()) {
+        try {
+          const url = nominatimSearchUrl(editDireccionLimpia());
+          const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
+          const data = await res.json();
+          if (data.length > 0) editDireccionValor = formatearDireccionNominatim(data[0]);
+        } catch {}
+      }
       await api.patchInvoiceField(facturaId, 'cliente_domicilio', editDireccionValor);
       if (editDireccionPiso !== (editDireccionFactura.cliente_piso_depto || '')) {
         await api.patchInvoiceField(facturaId, 'cliente_piso_depto', editDireccionPiso);
@@ -2481,6 +2560,9 @@
       <div class="geo-alert-header" onclick={() => geoAlertReadColapsado = !geoAlertReadColapsado} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && (geoAlertReadColapsado = !geoAlertReadColapsado)}>
         <span>⚠️ {facturasSinGeocodificar.length} dirección(es) no encontradas</span>
         <div class="geo-alert-header-actions">
+          <button class="geo-alert-btn" onclick={(e) => { e.stopPropagation(); ubicarTodasSinGeo(); }} disabled={ubicandoTodas} title="Ubicar todas las direcciones pendientes">
+            {ubicandoTodas ? `⏳ ${ubicandoProgreso.hechas}/${ubicandoProgreso.total}` : '📍 Ubicar todas'}
+          </button>
           <span class="geo-alert-chevron">{geoAlertReadColapsado ? '▲' : '▼'}</span>
           <button class="geo-alert-btn geo-alert-btn-omit" onclick={(e) => { e.stopPropagation(); geoAlertReadOculto = true; }} title="Ocultar">✕</button>
         </div>
@@ -2491,7 +2573,7 @@
             <div class="geo-alert-item">
               <div class="geo-alert-item-info">
                 <strong>{factura.cliente_nombre}</strong>
-                <span>{factura.cliente_domicilio || 'Sin dirección'}</span>
+                <span>{domicilioFactura(factura) || 'Sin dirección'}</span>
               </div>
               <div class="geo-alert-item-actions">
                 <button class="geo-alert-btn" onclick={() => abrirEditarDireccionFactura(factura.id)}>✏️ Corregir</button>
@@ -2519,7 +2601,7 @@
             <div class="geo-alert-item">
               <div class="geo-alert-item-info">
                 <strong>{factura.cliente_nombre}</strong>
-                <span>{factura.cliente_domicilio || 'Sin dirección'}</span>
+                <span>{domicilioFactura(factura) || 'Sin dirección'}</span>
               </div>
               <div class="geo-alert-item-actions">
                 <button class="geo-alert-btn" onclick={() => { abrirEditarDireccionFactura(factura.id); showGeoAlert = false; }}>✏️ Corregir</button>
@@ -2613,25 +2695,26 @@
     role="menu"
   >
     {#if menuContextual.tipo === 'factura'}
-      {@const factura = facturaMap.get(menuContextual.id)}
+      {@const mcFacturaId = menuContextual.id}
+      {@const factura = facturaMap.get(mcFacturaId)}
       {#if modoProgramar}
         {@const clienteId = factura?.cliente_id}
         {#if clienteId}
           {@const grupoCliente = grupoDelCliente(clienteId)}
           {@const grupoActivo = grupoActivoId ? grupos.get(grupoActivoId) : null}
           {#if grupoCliente}
-            <button class="context-item" onclick={() => { const cid = facturaMap.get(menuContextual.id)?.cliente_id; menuContextual = null; if (cid) quitarClienteDeGrupo(grupoCliente.id, cid); }}>
+            <button class="context-item" onclick={() => { const cid = facturaMap.get(mcFacturaId)?.cliente_id; menuContextual = null; if (cid) quitarClienteDeGrupo(grupoCliente.id, cid); }}>
               ❌ Quitar de {grupoCliente.nombre}
             </button>
             {#each [...grupos.values()] as g}
               {#if g.id !== grupoCliente.id}
-                <button class="context-item" onclick={() => { const cid = facturaMap.get(menuContextual.id)?.cliente_id; menuContextual = null; if (cid) moverClienteAGrupo(cid, g.id); }}>
+                <button class="context-item" onclick={() => { const cid = facturaMap.get(mcFacturaId)?.cliente_id; menuContextual = null; if (cid) moverClienteAGrupo(cid, g.id); }}>
                   ➡️ Mover a {g.nombre}
                 </button>
               {/if}
             {/each}
           {:else if grupoActivoId}
-            <button class="context-item" onclick={() => { const cid = facturaMap.get(menuContextual.id)?.cliente_id; menuContextual = null; if (cid) toggleClienteEnGrupo(cid); }}>
+            <button class="context-item" onclick={() => { const cid = facturaMap.get(mcFacturaId)?.cliente_id; menuContextual = null; if (cid) toggleClienteEnGrupo(cid); }}>
               ➕ Agregar a {grupoActivo?.nombre ?? 'grupo activo'}
             </button>
           {:else}
@@ -2642,24 +2725,25 @@
         {/if}
         <hr class="context-menu-sep">
       {/if}
-      <button class="context-item" onclick={() => { const id = menuContextual.id; menuContextual = null; openEditClienteModal(id); }}>
+      <button class="context-item" onclick={() => { const id = mcFacturaId; menuContextual = null; openEditClienteModal(id); }}>
         ✏️ Editar cliente
       </button>
-      <button class="context-item" onclick={() => { const id = menuContextual.id; menuContextual = null; geocodificarFacturaEnMapa(id); }}>
+      <button class="context-item" onclick={() => { const id = mcFacturaId; menuContextual = null; geocodificarFacturaEnMapa(id); }}>
         📍 Ubicar factura
       </button>
       {#if factura?.cliente_telefono}
-        <button class="context-item" onclick={() => { const id = menuContextual!.id; menuContextual = null; copiarTelefono(facturaMap.get(id)?.cliente_telefono || ''); }}>
+        <button class="context-item" onclick={() => { const id = mcFacturaId; menuContextual = null; copiarTelefono(facturaMap.get(id)?.cliente_telefono || ''); }}>
           📋 Copiar teléfono
         </button>
       {/if}
     {:else}
-      {@const cliente = clientePorId(menuContextual.id)}
-      <button class="context-item" onclick={() => { const id = menuContextual.id; menuContextual = null; geocodificarClienteEnMapa(id); }}>
+      {@const mcClienteId = menuContextual.id}
+      {@const cliente = clientePorId(mcClienteId)}
+      <button class="context-item" onclick={() => { const id = mcClienteId; menuContextual = null; geocodificarClienteEnMapa(id); }}>
         📍 Ubicar cliente
       </button>
       {#if cliente?.telefono}
-        <button class="context-item" onclick={() => { const id = menuContextual!.id; menuContextual = null; copiarTelefono(clientePorId(id)?.telefono || ''); }}>
+        <button class="context-item" onclick={() => { const id = mcClienteId; menuContextual = null; copiarTelefono(clientePorId(id)?.telefono || ''); }}>
           📋 Copiar teléfono
         </button>
       {/if}
@@ -2755,7 +2839,7 @@
         <div class="geo-modal-item">
           <div class="geo-modal-item-info">
             <strong>{factura.cliente_nombre}</strong>
-            <span>{factura.cliente_domicilio || 'Sin dirección'}</span>
+            <span>{domicilioFactura(factura) || 'Sin dirección'}</span>
           </div>
           <div class="geo-modal-item-actions">
             <button class="geo-alert-btn" onclick={() => { volverAGeoTrasEditar = true; showGeoModal = false; abrirEditarDireccionFactura(factura.id); }}>
@@ -2935,16 +3019,6 @@
     color: var(--text-secondary);
   }
 
-  .geo-progress {
-    font-size: 11px;
-    color: #2563eb;
-    font-weight: 500;
-    background: #eff6ff;
-    padding: 4px 8px;
-    border-radius: 6px;
-    text-align: center;
-  }
-
   .lista-facturas {
     list-style: none;
     margin: 0;
@@ -2965,10 +3039,6 @@
     transition: background 0.15s;
   }
   .factura-item:hover { background: #f9fafb; }
-  .factura-item.seleccionado {
-    background: #fffbeb;
-    border-color: #f59e0b;
-  }
 
   .factura-geo {
     width: 18px;
@@ -3045,7 +3115,6 @@
     width: 100%; padding: 0.571rem 0.714rem; border: 1px solid var(--border); border-radius: 0.429rem;
     font-size: 0.929rem; box-sizing: border-box;
   }
-  .modal-actions { display: flex; gap: 0.571rem; justify-content: flex-end; margin-top: 1.143rem; }
   .btn-primary {
     padding: 0.571rem 1.286rem; background: var(--accent); color: white; border: none;
     border-radius: 0.429rem; cursor: pointer; font-size: 0.929rem; font-weight: 500;
@@ -3069,7 +3138,6 @@
   .btn-centrar:hover { background: var(--bg-hover); }
 
   .btn-group { display: flex; gap: 6px; width: 100%; }
-  .flex-1 { flex: 1; min-width: 0; }
 
   .btn-google {
     padding: 10px 12px;
@@ -3696,6 +3764,7 @@
     font-size: 11px;
     line-height: 1.4;
   }
+  .geo-alert-header-actions .geo-alert-btn:disabled { opacity: 0.6; cursor: default; }
   .geo-alert-reopen {
     position: absolute;
     top: 16px;
@@ -4039,14 +4108,10 @@
 
   /* ── Factura actions in sidebar ── */
   .factura-actions { display: flex; gap: 4px; margin-top: 6px; }
-  .btn-geo-suggest, .btn-edit-factura { padding: 3px 8px; font-size: 11px; border: 1px solid #d1d5db; border-radius: 5px; background: var(--bg-card); cursor: pointer; font-family: var(--font); color: var(--text-secondary); }
-  .btn-geo-suggest:hover, .btn-edit-factura:hover { background: var(--bg-hover); color: var(--text-primary); }
+  .btn-geo-suggest { padding: 3px 8px; font-size: 11px; border: 1px solid #d1d5db; border-radius: 5px; background: var(--bg-card); cursor: pointer; font-family: var(--font); color: var(--text-secondary); }
+  .btn-geo-suggest:hover { background: var(--bg-hover); color: var(--text-primary); }
   .btn-geo-suggest { border-color: #fde68a; color: #92400e; }
   .btn-geo-suggest:hover { background: #fffbeb; }
-  .btn-edit-factura { border-color: #bfdbfe; color: #1e40af; }
-  .btn-edit-factura:hover { background: #eff6ff; }
-  .btn-ver-factura { padding: 3px 8px; font-size: 11px; background: transparent; border: none; border-radius: 5px; cursor: pointer; font-family: var(--font); color: #9ca3af; }
-  .btn-ver-factura:hover { color: #6b7280; }
 
   /* ── Planning mode UI ── */
   .plan-header { padding: 0; }

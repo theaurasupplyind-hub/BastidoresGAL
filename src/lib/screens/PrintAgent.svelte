@@ -6,7 +6,7 @@
   import { appStore } from '$lib/stores/appStore.svelte';
   import type { AppConfig } from '$lib/types';
 
-  let config = $state<AppConfig>({});
+  let config = $state<Partial<AppConfig>>({});
   let printers = $state<string[]>([]);
   let stationName = $state('');
   let agentStatus = $state<any>(null);

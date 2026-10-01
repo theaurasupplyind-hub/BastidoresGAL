@@ -5,6 +5,15 @@ const API_URL = 'https://api-bastidores.onrender.com';
 
 type TaskImageRef = { id: number; created_at?: string | null; url?: string | null };
 
+// Uint8Array viene tipado como ArrayBufferLike (puede ser SharedArrayBuffer), que
+// BlobPart no acepta. Copiamos al heap para obtener un ArrayBuffer plano.
+function toBlobPart(bytes: Uint8Array): BlobPart {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -427,7 +436,7 @@ export const api = {
     const formData = new FormData();
     formData.append('position', String(position));
     formData.append('name', name);
-    formData.append('file', new Blob([file], { type: 'image/png' }), name + '.png');
+    formData.append('file', new Blob([toBlobPart(file)], { type: 'image/png' }), name + '.png');
     const url = `${API_URL}/price-list-images`;
     const resp = await tauriFetch(url, { method: 'POST', body: formData });
     if (!resp.ok) {
@@ -514,7 +523,7 @@ export const api = {
   getPricingRules: () =>
     handleResponse(request<import('$lib/types').PricingRule[]>('GET', '/pricing-rules', undefined, 10), []),
 
-  savePricingRule: (data: Omit<import('$lib/types').PricingRule, 'id'>) =>
+  savePricingRule: (data: import('$lib/types').PricingRulePayload) =>
     request<import('$lib/types').PricingRule>('POST', '/pricing-rules', data, 10),
 
   updatePricingRule: (id: number, data: Partial<import('$lib/types').PricingRule>) =>
@@ -580,7 +589,7 @@ export const api = {
 
   async uploadTaskImage(taskId: number, file: Uint8Array, name: string) {
     const formData = new FormData();
-    formData.append('file', new Blob([file], { type: 'image/webp' }), name);
+    formData.append('file', new Blob([toBlobPart(file)], { type: 'image/webp' }), name);
     const url = `${API_URL}/tasks/${taskId}/images`;
     const resp = await tauriFetch(url, { method: 'POST', body: formData });
     if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }
@@ -608,7 +617,7 @@ export const api = {
 
   async uploadTaskReplyImage(taskId: number, replyId: number, file: Uint8Array, name: string) {
     const formData = new FormData();
-    formData.append('file', new Blob([file], { type: 'image/webp' }), name);
+    formData.append('file', new Blob([toBlobPart(file)], { type: 'image/webp' }), name);
     const url = `${API_URL}/tasks/${taskId}/replies/${replyId}/images`;
     const resp = await tauriFetch(url, { method: 'POST', body: formData });
     if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }

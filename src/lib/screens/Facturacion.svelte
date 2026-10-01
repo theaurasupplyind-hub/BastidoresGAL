@@ -18,6 +18,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import GIcon from '$lib/components/gastos/GIcon.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, buildSuggestionDesc, type PriceSuggestion } from '$lib/utils/precios';
+  import { sortDimsDesc } from '$lib/utils/dims';
 import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
 import { diasRestantesNoConfirmada } from '$lib/utils/facturas';
 import type { ClientAddress } from '$lib/types';
@@ -138,6 +139,8 @@ const tallerApi: TallerApi = api;
   let addressDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let selectedNominatimLat = $state<number | null>(null);
   let selectedNominatimLng = $state<number | null>(null);
+  let facturaLat = $state<number | null>(null);
+  let facturaLng = $state<number | null>(null);
   let domicilioOriginal = $state('');
   let envio = $state(0);
   function envioNorm(v: any): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
@@ -147,6 +150,7 @@ const tallerApi: TallerApi = api;
   let pagoRapidoAplicado = $state(false);
   let showPagoDialog = $state(false);
   let estado_kanban = $state('');
+  let guardarNoConfirmado = $state(false);
 
   function handlePagoSaved() {
     if (parseFloat(pagoRapidoMonto) > 0) {
@@ -310,6 +314,8 @@ const tallerApi: TallerApi = api;
   let tallerSearch = $state('');
   let showTallerResults = $state(false);
   let selectedTallerIndex = $state(-1);
+  let showTelefonoResults = $state(false);
+  let selectedTelefonoIndex = $state(-1);
   let talleres = $state<TallerDireccion[]>([]);
 
   function togglePrintSelection(invoiceId: number) {
@@ -389,8 +395,7 @@ const tallerApi: TallerApi = api;
       .finally(() => { loadingNoConfirmadas = false; });
   });
 
-  function esRetirarFactura(f: Factura): boolean {
-    if ((f.total || 0) > 0.01) return false;
+  function tieneRetirar(f: Factura): boolean {
     return (f.items || []).some(i => /\bretirar\b/i.test((i.descripcion || '').trim()));
   }
 
@@ -420,6 +425,27 @@ const tallerApi: TallerApi = api;
     }
     scored.sort((a, b) => b[0] - a[0]);
     return scored.slice(0, 10).map(([, c]) => c);
+  });
+
+  let filteredTelefonos = $derived.by(() => {
+    const raw = (cliente_telefono || '').trim();
+    const q = normalizeText(raw);
+    const qDigits = raw.replace(/\D/g, '');
+    const seen = new Set<string>();
+    const entries: Array<{ telefono: string; nombre: string; cliente: Cliente }> = [];
+    for (const c of clientes) {
+      const tel = (c.telefono || '').trim();
+      if (!tel) continue;
+      const key = tel.replace(/\D/g, '');
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      entries.push({ telefono: tel, nombre: c.nombre, cliente: c });
+    }
+    if (!q && !qDigits) return entries.slice(0, 10);
+    return entries.filter(e => {
+      if (normalizeText(e.nombre).includes(q)) return true;
+      return qDigits.length > 0 && e.telefono.replace(/\D/g, '').includes(qDigits);
+    }).slice(0, 10);
   });
 
   let tallerIndex = $derived.by(() => {
@@ -671,6 +697,46 @@ const tallerApi: TallerApi = api;
     setTimeout(() => focusRowInput(index + 1), 50);
   }
 
+  // Sincroniza el texto del input con la fila y refresca sugerencias.
+  function syncProductText(index: number) {
+    items[index].descripcion = productSearch[index];
+    items = items;
+    productSuggestions[index] = suggestPrice(productSearch[index], refsToProductos(preciosReferencia), pricingRules);
+    productSuggestions = productSuggestions;
+    selectedProdIndex[index] = -1;
+    selectedProdIndex = selectedProdIndex;
+    showProdResults[index] = true;
+    showProdResults = showProdResults;
+  }
+
+  // Reordena "A x B" a "mayor x menor" cuando el texto ya está cargado
+  // (pegado o al salir del campo), no mientras se tipea.
+  // Además de actualizar el input hay que escribir en items[index].descripcion:
+  // el input se bindea a productSearch, pero lo que se guarda (y de donde se
+  // auto-crean productos) es items[i].descripcion. Sin esto, la fila guardaba
+  // el texto sin ordenar aunque la pantalla mostrara el ordenado.
+  function normalizeRowDims(index: number) {
+    if (!appStore.sortDimsEnabled) return;
+    const sorted = sortDimsDesc(productSearch[index]);
+    if (sorted === productSearch[index]) return;
+    productSearch[index] = sorted;
+    productSearch = productSearch;
+    items[index].descripcion = sorted;
+    items = items;
+    // La sugerencia de precio depende de la medida, así que hay que recalcularla
+    // con el texto nuevo (si cambió la medida, cambian los precios sugeridos).
+    productSuggestions[index] = suggestPrice(sorted, refsToProductos(preciosReferencia), pricingRules);
+    productSuggestions = productSuggestions;
+  }
+
+  function handleProdPaste(e: ClipboardEvent, index: number) {
+    const text = e.clipboardData?.getData('text');
+    if (text === undefined || text === null) return;
+    e.preventDefault();
+    productSearch[index] = appStore.sortDimsEnabled ? sortDimsDesc(text) : text;
+    syncProductText(index);
+  }
+
   function focusRowInput(idx: number) {
     const row = document.querySelector(`.items-row[data-index="${idx}"]`);
     if (row) {
@@ -739,6 +805,30 @@ const tallerApi: TallerApi = api;
       selectCliente(results[selectedClienteIndex]);
     } else if (e.key === 'Escape') {
       showClienteResults = false;
+    }
+  }
+
+  function selectTelefono(entry: { telefono: string; nombre: string; cliente: Cliente }) {
+    if (entry.cliente.id !== cliente_id) selectCliente(entry.cliente);
+    cliente_telefono = entry.telefono;
+    showTelefonoResults = false;
+    selectedTelefonoIndex = -1;
+  }
+
+  function handleTelefonoKeydown(e: KeyboardEvent) {
+    const results = filteredTelefonos;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      selectedTelefonoIndex = Math.min(selectedTelefonoIndex + 1, results.length - 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      selectedTelefonoIndex = Math.max(selectedTelefonoIndex - 1, -1);
+    } else if (e.key === 'Enter' && selectedTelefonoIndex >= 0 && results[selectedTelefonoIndex]) {
+      e.preventDefault();
+      e.stopPropagation();
+      selectTelefono(results[selectedTelefonoIndex]);
+    } else if (e.key === 'Escape') {
+      showTelefonoResults = false;
     }
   }
 
@@ -967,6 +1057,8 @@ const tallerApi: TallerApi = api;
     cliente_nombre = f.cliente_nombre;
     cliente_domicilio = f.cliente_domicilio;
     domicilioOriginal = f.cliente_domicilio || '';
+    facturaLat = f.lat ?? null;
+    facturaLng = f.lng ?? null;
     cliente_telefono = f.cliente_telefono;
     cliente_piso_depto = f.cliente_piso_depto || '';
     cliente_taller = f.cliente_taller || '';
@@ -1000,6 +1092,8 @@ const tallerApi: TallerApi = api;
     cliente_nombre = '';
     cliente_domicilio = '';
     domicilioOriginal = '';
+    facturaLat = null;
+    facturaLng = null;
     cliente_piso_depto = '';
     cliente_telefono = '';
     cliente_taller = '';
@@ -1016,11 +1110,14 @@ const tallerApi: TallerApi = api;
     pagoRapidoMonto = '';
     pagoRapidoAplicado = false;
     estado_kanban = '';
+    guardarNoConfirmado = false;
     clienteSearch = '';
     tallerSearch = '';
     showTallerResults = false;
     selectedTallerIndex = -1;
     selectedClienteIndex = -1;
+    showTelefonoResults = false;
+    selectedTelefonoIndex = -1;
     showAddressDropdown = false;
     addressSuggestions = [];
     selectedAddressIdx = -1;
@@ -1058,6 +1155,7 @@ const tallerApi: TallerApi = api;
       numero_factura = nextNum;
       numero_presupuesto = nextNum.replace('F', 'P');
       fecha = new Date().toLocaleDateString('es-AR');
+      fechasEntrega = { desde: '', hasta: '', extras: [] };
       currentIndex = -1;
       appStore.showToast('Copia creada. Guarde para confirmar.', 'info');
     } catch {
@@ -1069,6 +1167,14 @@ const tallerApi: TallerApi = api;
     if (!cliente_nombre.trim()) {
       appStore.showToast('Ingrese un cliente', 'error');
       return;
+    }
+    // Normaliza TODAS las filas antes de leer los items. El blur de cada input
+    // ya lo hace (normalizeRowDims), pero guardar con F1 o con el botón mientras
+    // el foco sigue en el campo no dispara blur: sin esta pasada, una fila
+    // escrita a mano ("50x100") se guardaría sin ordenar aunque la opción
+    // "Ordenar medidas" esté activa.
+    if (appStore.sortDimsEnabled) {
+      for (let i = 0; i < items.length; i++) normalizeRowDims(i);
     }
     const validItems = items.filter(i => i.descripcion.trim());
     if (!validItems.length) {
@@ -1105,7 +1211,12 @@ const tallerApi: TallerApi = api;
       }
 
       // ── Auto-crear productos nuevos (lógica completa) ──
-      const existingDescs = new Set(productos.map(p => p.descripcion.trim().toLowerCase()));
+      // La clave de dedup se normaliza con sortDimsDesc: los productos creados
+      // antes del fix de "Ordenar medidas" están guardados como "50x100", y sin
+      // normalizar, escribir "100x50" no matchearía con ellos y crearía un
+      // producto duplicado del mismo bastidor.
+      const keyOf = (desc: string) => (appStore.sortDimsEnabled ? sortDimsDesc(desc) : desc).trim().toLowerCase();
+      const existingDescs = new Set(productos.map(p => keyOf(p.descripcion)));
       const allCats = [...new Set(productos
         .filter(p => p.categoria)
         .map(p => p.categoria)
@@ -1113,7 +1224,7 @@ const tallerApi: TallerApi = api;
       let lastVariant = '';
 
       for (const item of validItems) {
-        const key = item.descripcion.trim().toLowerCase();
+        const key = keyOf(item.descripcion);
         if (existingDescs.has(key)) continue;
 
         let catDetected = 'Varios';
@@ -1188,7 +1299,7 @@ const tallerApi: TallerApi = api;
         user_id: appStore.user?.user_id || 0,
         tipo_entrega,
         fecha_entrega: serializeFechasEntrega(fechasEntrega),
-        ...(!id ? { estado_kanban: 'PEDIDO' } : {}),
+        ...(!id ? { estado_kanban: guardarNoConfirmado ? 'NO_CONFIRMADO' : 'PEDIDO' } : {}),
       };
       const esEdicion = id != null;
 
@@ -1198,6 +1309,7 @@ const tallerApi: TallerApi = api;
       } else {
         const result = await api.saveFactura(payload);
         id = result.id;
+        estado_kanban = guardarNoConfirmado ? 'NO_CONFIRMADO' : 'PEDIDO';
         appStore.showToast('Factura guardada', 'success');
       }
       const tallerNombre = cliente_taller.trim();
@@ -1206,15 +1318,21 @@ const tallerApi: TallerApi = api;
         tallerApi.addTaller?.({ taller: tallerNombre, direccion: tallerDireccion })?.catch(() => {});
         cacheStore.invalidate('talleres');
       }
-      // Geocodificar solo cuando se fija/cambia la dirección de entrega (al crear o al
-      // editar con dirección distinta). No se regeocodifica en masa al abrir el mapa.
+      // Geocodificar cuando cambia la dirección de entrega o cuando faltan coordenadas
+      // (factura/cliente sin ubicar). No se regeocodifica en masa al abrir el mapa.
       const domNuevo = (cliente_domicilio || '').trim();
       const defAddr = clienteAddresses.find(a => a.is_default) || clienteAddresses[0];
       const domicilioCliente = (defAddr?.address || clienteDomicilioPrincipal()).trim();
       const cambioDireccion = esEdicion
         ? normDireccion(domicilioOriginal) !== normDireccion(domNuevo)
         : normDireccion(domNuevo) !== normDireccion(domicilioCliente);
-      if (domNuevo && domNuevo.toLowerCase() !== 'retira' && cambioDireccion) {
+      // Geocodificar cuando cambió la dirección o cuando no hay coordenadas conocidas
+      // (autocompletado, dirección por defecto del cliente o la factura en edición).
+      const tieneCoords =
+        (selectedNominatimLat != null && selectedNominatimLng != null) ||
+        (defAddr?.lat != null && defAddr?.lng != null) ||
+        (esEdicion && !cambioDireccion && facturaLat != null && facturaLng != null);
+      if (domNuevo && domNuevo.toLowerCase() !== 'retira' && (cambioDireccion || !tieneCoords)) {
         try {
           await api.geocodificarFactura(id);
         } catch {}
@@ -1653,6 +1771,7 @@ const tallerApi: TallerApi = api;
         })),
         total: totalConEnvio,
         envio: envioNorm(envio),
+        retira: tipo_entrega === 'Retira',
         mode: tipo,
         ...(tipo === 'PRESUPUESTO' ? { saldo: currentSaldo } : {}),
       });
@@ -1739,7 +1858,13 @@ const tallerApi: TallerApi = api;
                 {estado_kanban === 'NO_CONFIRMADO' ? '✓ Confirmar' : '⏳ Desconfirmar'}
               </button>
             {/if}
-            <span class="shortcuts-hint">F1 Guardar · F2 Nueva</span>
+            <div class="header-center">
+              {#if id === null}
+                <button class="top-btn-confirm toggle-noconf" class:active={guardarNoConfirmado} onclick={() => guardarNoConfirmado = !guardarNoConfirmado} type="button" title="Al guardar, la factura nueva queda como No Confirmado">
+                  ⏳ No confirmado
+                </button>
+              {/if}
+            </div>
             <div class="header-fields">
               <div class="field field-num">
                 <label>N° Factura</label>
@@ -1789,10 +1914,28 @@ const tallerApi: TallerApi = api;
                 <input
                   type="text"
                   bind:value={cliente_telefono}
+                  oninput={() => { showTelefonoResults = true; selectedTelefonoIndex = -1; }}
+                  onfocus={() => showTelefonoResults = true}
+                  onblur={() => setTimeout(() => showTelefonoResults = false, 200)}
+                  onkeydown={handleTelefonoKeydown}
                   placeholder="Teléfono"
                   class="input-with-icon-left"
                 />
                 <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z"/></svg>
+                {#if showTelefonoResults && filteredTelefonos.length > 0}
+                  <div class="autocomplete-results">
+                    {#each filteredTelefonos as t, i}
+                      <div
+                        class="autocomplete-item"
+                        class:selected={i === selectedTelefonoIndex}
+                        onmousedown={(e) => { e.preventDefault(); selectTelefono(t); }}
+                      >
+                        <span class="tel-number">{t.telefono}</span>
+                        <span class="tel-name">{t.nombre}</span>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
               </div>
             </div>
           </div>
@@ -1930,21 +2073,13 @@ const tallerApi: TallerApi = api;
                   <input
                     type="text"
                     bind:value={productSearch[i]}
-                    oninput={() => {
-                      items[i].descripcion = productSearch[i];
-                      items = items;
-                      productSuggestions[i] = suggestPrice(productSearch[i], refsToProductos(preciosReferencia), pricingRules);
-                      productSuggestions = productSuggestions;
-                      selectedProdIndex[i] = -1;
-                      selectedProdIndex = selectedProdIndex;
-                      showProdResults[i] = true;
-                      showProdResults = showProdResults;
-                    }}
+                    oninput={() => syncProductText(i)}
+                    onpaste={(e) => handleProdPaste(e, i)}
                     onfocus={() => { selectedProdIndex[i] = -1; selectedProdIndex = selectedProdIndex; showProdResults[i] = true; showProdResults = showProdResults; }}
-                    onblur={() => setTimeout(() => { showProdResults[i] = false; showProdResults = showProdResults; }, 300)}
+                    onblur={() => { normalizeRowDims(i); setTimeout(() => { showProdResults[i] = false; showProdResults = showProdResults; }, 300); }}
                     onkeydown={(e) => {
                       if (e.key === 'Enter' && e.shiftKey) { e.preventDefault(); e.stopPropagation(); insertItemAt(i + 1); return; }
-                      if (e.key === 'Enter' && !e.shiftKey && i === items.length - 1 && selectedProdIndex[i] < 0) { e.preventDefault(); addItem(); } else { handleProdKeydown(e, i); }
+                      if (e.key === 'Enter' && !e.shiftKey && i === items.length - 1 && selectedProdIndex[i] < 0) { e.preventDefault(); normalizeRowDims(i); addItem(); } else { handleProdKeydown(e, i); }
                     }}
                     placeholder="Buscar producto..."
                     title="Shift+Enter: insertar fila debajo"
@@ -2238,18 +2373,17 @@ const tallerApi: TallerApi = api;
               <span class="history-date">{f.fecha || ''}</span>
             </div>
             <div class="history-client">{f.cliente_nombre || 'Sin cliente'}</div>
-            {#if esRetirarFactura(f)}
+            {#if tieneRetirar(f)}
               <div class="history-total history-total-retirar">RETIRAR</div>
-            {:else}
+            {/if}
+            {#if !tieneRetirar(f) || (f.total || 0) > 0.01}
               <div class="history-total">${(f.total || 0).toFixed(0)}</div>
             {/if}
             <div class="history-status">
-              {#if !esRetirarFactura(f)}
-                {#if (f.total || 0) - (pagoMap[f.id] || 0) <= 0.01}
-                  <span class="status-paid">✓ Pagado</span>
-                {:else}
-                  <span class="status-debt">Debe ${((f.total || 0) - (pagoMap[f.id] || 0)).toFixed(0)}</span>
-                {/if}
+              {#if (f.total || 0) - (pagoMap[f.id] || 0) <= 0.01}
+                <span class="status-paid">✓ Pagado</span>
+              {:else}
+                <span class="status-debt">Debe ${((f.total || 0) - (pagoMap[f.id] || 0)).toFixed(0)}</span>
               {/if}
               {#if f.impresa_at}
                 <PrinterBadge impresaAt={f.impresa_at} impresaPor={f.impresa_por} />
@@ -2392,35 +2526,6 @@ const tallerApi: TallerApi = api;
   }
 
 
-  .pdf-style-label {
-    font-size: 0.857rem;
-    font-weight: 600;
-    color: var(--text-muted, #888);
-    margin-right: 0.286rem;
-    text-transform: uppercase;
-    letter-spacing: 0.036rem;
-  }
-  .pdf-style-btn {
-    font-size: 0.786rem;
-    padding: 0.214rem 0.714rem;
-    border: 0.071rem solid var(--border, #ddd);
-    border-radius: var(--radius-sm, 0.286rem);
-    background: var(--bg-card, #fff);
-    color: var(--text, #333);
-    cursor: pointer;
-    transition: all 0.15s;
-    font-weight: 500;
-  }
-  .pdf-style-btn:hover {
-    border-color: var(--primary, #e91e63);
-    color: var(--primary, #e91e63);
-  }
-  .pdf-style-btn.active {
-    background: var(--primary, #e91e63);
-    color: #fff;
-    border-color: var(--primary, #e91e63);
-  }
-
   /* ===== ROWS & FIELDS ===== */
   .row {
     display: flex;
@@ -2443,7 +2548,7 @@ const tallerApi: TallerApi = api;
     color: var(--text-secondary);
     letter-spacing: 0.01em;
   }
-  .field input, .field select {
+  .field input {
     padding: 0.5rem 0.714rem;
     border: 1.5px solid var(--border);
     border-radius: var(--radius-sm);
@@ -2459,7 +2564,7 @@ const tallerApi: TallerApi = api;
   }
   .field-num { max-width: 11.429rem; }
   .field-fecha { max-width: 10rem; }
-  .field input:focus, .field select:focus {
+  .field input:focus {
     border-color: var(--border-focus);
     box-shadow: 0 0 0 0.214rem rgba(37,99,235,0.12);
   }
@@ -2486,11 +2591,15 @@ const tallerApi: TallerApi = api;
     letter-spacing: 0.02em;
     white-space: nowrap;
   }
-  .shortcuts-hint {
-    font-size: 0.786rem;
-    color: var(--text-muted);
-    white-space: nowrap;
+  .header-center {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.571rem;
   }
+  .toggle-noconf { color: #92400e; border-color: #fde68a; background: #fffbeb; }
+  .toggle-noconf:hover { background: #fef3c7; border-color: #f59e0b; }
+  .toggle-noconf.active { background: #f59e0b; border-color: #d97706; color: #fff; }
+  .toggle-noconf.active:hover { background: #d97706; }
   .confirm-badge {
     font-size: 0.72rem;
     font-weight: 700;
@@ -2524,29 +2633,6 @@ const tallerApi: TallerApi = api;
     gap: 0.857rem;
     align-items: flex-end;
   }
-
-  .tipo-toggle {
-    display: inline-flex;
-    border: 1.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    overflow: hidden;
-  }
-  .tipo-btn {
-    padding: 0.357rem 0.857rem;
-    border: none;
-    background: var(--bg-card);
-    cursor: pointer;
-    font-size: var(--text-xs);
-    font-weight: 600;
-    color: var(--text-secondary);
-    transition: all 0.15s;
-  }
-  .tipo-btn:first-child { border-right: 0.071rem solid var(--border); }
-  .tipo-btn.active {
-    background: var(--accent);
-    color: white;
-  }
-  .tipo-btn:not(.active):hover { background: var(--bg-hover); }
 
   /* ===== ICON INSIDE INPUT (LEFT) ===== */
   .autocomplete-wrap, .icon-input-wrap {
@@ -2592,13 +2678,20 @@ const tallerApi: TallerApi = api;
     background: var(--accent-light);
   }
   .autocomplete-item .prod-desc { flex: 1; }
+  .autocomplete-item .tel-number { font-family: var(--font-mono); }
+  .autocomplete-item .tel-name {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .autocomplete-item .prod-price {
     font-family: var(--font-mono);
     color: var(--text-muted);
     margin-left: 0.571rem;
     font-size: var(--text-sm);
-  }
-  .autocomplete-item.suggested {
   }
   .autocomplete-item.suggested:hover {
     background: var(--accent-light);
@@ -2957,8 +3050,7 @@ const tallerApi: TallerApi = api;
     letter-spacing: 0.03em;
     margin-bottom: 0.143rem;
   }
-  .summary-sidebar input,
-  .summary-sidebar select {
+  .summary-sidebar input {
     padding: 0.429rem 0.571rem;
     font-size: var(--text-sm);
   }

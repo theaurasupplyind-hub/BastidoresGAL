@@ -616,8 +616,8 @@
         molduraStore.applyCorrectionsToCard(p);
         return { ...p, hasMoldura: hasMolduraItems(f) };
       });
-      const heights = await measureCardHeights(parsed);
-      const html = buildMoldurasHtmlPaged(parsed, heights);
+      const heights = await measureCardHeights(parsed, appStore.molduraMerged);
+      const html = buildMoldurasHtmlPaged(parsed, heights, appStore.molduraMerged);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       genOk = true;
       if (shouldPrint) {
@@ -662,8 +662,8 @@
         molduraStore.applyCorrectionsToCard(p);
         return { ...p, hasMoldura: hasMolduraItems(f) };
       });
-      const heights = await measureCardHeights(parsed);
-      const html = buildMoldurasHtmlPaged(parsed, heights);
+      const heights = await measureCardHeights(parsed, appStore.molduraMerged);
+      const html = buildMoldurasHtmlPaged(parsed, heights, appStore.molduraMerged);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       genOk = true;
       const u = appStore.user;
@@ -1710,7 +1710,6 @@
     justify-content: center;
     line-height: 1;
   }
-  .kanban-card.dragging { opacity: 0.4; }
   .kanban-card.no-confirmado { opacity: 0.55; }
   .card-no-confirmado-badge {
     font-size: 0.7rem;

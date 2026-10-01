@@ -15,6 +15,9 @@
   import * as molduraRules from '$lib/stores/molduraMaterialRules';
   import * as molduraHidden from '$lib/stores/molduraHiddenRules';
 
+  // V2 (global, Configuración → Molduras V2): consolida varillas de bastidores sin larguero/travesaño por cm.
+  let merged = $derived(appStore.molduraMerged);
+
   let loading = $state(false);
   let cards = $state<ParsedCard[]>([]);
   let selectedIds = $state<Set<number>>(new Set());
@@ -211,8 +214,8 @@
         items: c.items,
         materials: c.materials,
       }));
-      const heights = await measureCardHeights(data);
-      const html = buildMoldurasHtmlPaged(data, heights);
+      const heights = await measureCardHeights(data, merged);
+      const html = buildMoldurasHtmlPaged(data, heights, merged);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
 
       if (shouldPrint) {
@@ -260,8 +263,8 @@
         items: c.items,
         materials: c.materials,
       }));
-      const heights = await measureCardHeights(data);
-      const html = buildMoldurasHtmlPaged(data, heights);
+      const heights = await measureCardHeights(data, merged);
+      const html = buildMoldurasHtmlPaged(data, heights, merged);
       const pdfPath = await invoke<string>('generate_molduras_pdf', { html });
       const u = appStore.user;
       const targetKey = (appStore.selectedStation || appStore.activeStations[0])?.api_key ?? null;
@@ -667,7 +670,7 @@
                       </tr>
                     </thead>
                     <tbody>
-                      {#each buildMatRowsData(card) as row}
+                      {#each buildMatRowsData(card, merged) as row}
                         <tr>
                           <td class="td-var td-val">{row.varilla.qty}</td>
                           <td class="td-var td-val">{row.varilla.cm}</td>
@@ -1120,7 +1123,6 @@
   .sm-measure-top { display: flex; align-items: center; gap: 0.286rem; }
   .sm-edit { margin-left: 0.286rem; font-size: 0.8rem; }
   .sm-tipo { font-weight: 400; color: var(--text-secondary); font-size: 0.78rem; }
-  .sm-cortes { display: block; font-size: 0.72rem; font-weight: 600; color: var(--text-secondary); margin-top: 0.071rem; }
   .sm-c-l { color: #27ae60; font-weight: 700; }
   .sm-c-c { color: #d35400; font-weight: 700; }
   .mol-summary-table tr.non-molding { opacity: 0.5; }
@@ -1150,7 +1152,6 @@
   .td-lar { background: #e9f7ef; }
   .td-tra { background: #fdf2e9; }
   .td-val { font-weight: 900; font-size: 1rem; }
-  .mat-arrow { font-size: 1.15rem; font-weight: 900; color: #000; }
   .tajos-cell { background: #ebf5fb !important; }
   .mat-tajos { color: #2c3e50; font-weight: 800; font-size: 0.82rem; }
   .mat-empty { text-align: center; color: var(--text-muted); padding: 0.429rem; font-size: 0.72rem; }
