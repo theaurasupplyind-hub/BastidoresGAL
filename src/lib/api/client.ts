@@ -336,7 +336,13 @@ export const api = {
     if (![200, 204].includes(res.status)) throw new Error(`Error al eliminar: ${res.status}`);
   },
 
-  listTrash: () => handleResponse(request<import('$lib/types').Factura[]>('GET', '/invoices/trash'), []),
+  listTrash: (params?: { estado_kanban?: string; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.estado_kanban) q.set('estado_kanban', params.estado_kanban);
+    if (params?.limit) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    return handleResponse(request<import('$lib/types').Factura[]>('GET', `/invoices/trash${qs ? '?' + qs : ''}`), []);
+  },
 
   restoreInvoice: (id: number) =>
     request('POST', `/invoices/${id}/restore`),
@@ -349,7 +355,7 @@ export const api = {
   patchInvoiceField: (id: number, field: string, value: string) =>
     request('PATCH', `/invoices/${id}`, { [field]: value }),
 
-  cleanupNoConfirmadas: (days = 15) =>
+  cleanupNoConfirmadas: (days = 30) =>
     request<{ deleted: number; ids: number[] }>('POST', `/invoices/cleanup-no-confirmado?days=${days}`, undefined, 25).catch(() => ({ deleted: 0, ids: [] as number[] })),
 
   setImpresas: (ids: number[], mark: boolean, user_name?: string) =>
@@ -483,6 +489,29 @@ export const api = {
 
   deleteMolduraCorrection: (id: number) =>
     request<{ status: string }>('DELETE', `/moldura-corrections/${id}`),
+
+  // ---- Moldura Formula (fórmula configurable, compartida) ----
+  getMolduraFormula: () =>
+    handleResponse(request<import('$lib/utils/molduras').MolduraFormulaConfig | null>('GET', '/moldura-formula', undefined, 8), null),
+
+  saveMolduraFormula: (data: import('$lib/utils/molduras').MolduraFormulaConfig, changedBy?: string) =>
+    request<import('$lib/utils/molduras').MolduraFormulaConfig>(
+      'PUT',
+      `/moldura-formula${changedBy ? `?changed_by=${encodeURIComponent(changedBy)}` : ''}`,
+      data,
+      8
+    ),
+
+  getMolduraFormulaHistory: (limit = 100) =>
+    handleResponse(
+      request<import('$lib/stores/molduraFormula').MolduraFormulaHistoryEntry[]>(
+        'GET',
+        `/moldura-formula/history?limit=${limit}`,
+        undefined,
+        8
+      ),
+      []
+    ),
 
   // ---- Moldura Material Rules (Sin materiales, por keyword) ----
   getMolduraMaterialRules: () =>

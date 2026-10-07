@@ -1,4 +1,10 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.4.0': `Fórmula de molduras configurable: editor con preview en vivo, reglas de largueros y filas editables, offsets y grosor, historial de versiones con restaurar y volver a por defecto. Se comparte entre equipos (backend) con caché local.
+Ordenar medidas ahora deja "menor x mayor" (antes "mayor x menor"), al pegar o salir del campo.
+Purga de presupuestos no confirmados: pasa de 15 a 30 días antes de archivarse.
+Papelera: pestañas Todos / No Confirmados, búsqueda por número o cliente, y columnas Estado y "Eliminado el".
+Tareas: edición inline de tareas y de comentarios; los comentarios aceptan imágenes pegadas, arrastradas o adjuntadas.
+Facturación: la entrega "Retiro y Envio" se imprime correctamente en presupuestos.`,
   '2.3.81': `Nuevo menú de navegación: todas las secciones en un solo menú, con iconos y descripción.
 Facturación: botón "No confirmado" al guardar, para que la factura nueva caiga directo en No Confirmado del Kanban.
 Facturación: el teléfono autocompleta y busca por nombre o número; elige el cliente solo.

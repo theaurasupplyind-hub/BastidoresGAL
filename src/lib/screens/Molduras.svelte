@@ -5,15 +5,16 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData, hasMaterialItems } from '$lib/utils/molduras';
+  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData, hasMaterialItems, cloneMolduraFormula, normalizeMolduraFormulaConfig, evalLargueros, evalFilas, evalLarCm, evalTravCm } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
   import MoldurasReorderModal from '$lib/components/MoldurasReorderModal.svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { confirm as dialogConfirm } from '@tauri-apps/plugin-dialog';
-  import type { CardItem, CardMaterial } from '$lib/utils/molduras';
+  import type { CardItem, CardMaterial, MolduraFormulaConfig } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
   import * as molduraRules from '$lib/stores/molduraMaterialRules';
   import * as molduraHidden from '$lib/stores/molduraHiddenRules';
+  import * as molduraFormula from '$lib/stores/molduraFormula';
 
   // V2 (global, Configuración → Molduras V2): consolida varillas de bastidores sin larguero/travesaño por cm.
   let merged = $derived(appStore.molduraMerged);
@@ -56,6 +57,136 @@
   let savedTravQty = $state(0);
   let savingCorrection = $state(false);
 
+  // Fórmula configurable
+  let editingFormula = $state(false);
+  let formulaDraft = $state<MolduraFormulaConfig>(cloneMolduraFormula());
+  let previewW = $state(150);
+  let previewH = $state(196);
+  let savingFormula = $state(false);
+  let showFormulaHistory = $state(false);
+  let historyList = $state<molduraFormula.MolduraFormulaHistoryEntry[]>([]);
+  let loadingHistory = $state(false);
+
+  function openFormulaModal() {
+    formulaDraft = cloneMolduraFormula(molduraFormula.getConfig());
+    editingFormula = false;
+    showFormulaHistory = false;
+    showFormulaModal = true;
+  }
+
+  function startEditFormula() {
+    formulaDraft = cloneMolduraFormula(molduraFormula.getConfig());
+    editingFormula = true;
+  }
+
+  function cancelEditFormula() {
+    formulaDraft = cloneMolduraFormula(molduraFormula.getConfig());
+    editingFormula = false;
+  }
+
+  function addLargueroRule() {
+    const last = formulaDraft.largueros[formulaDraft.largueros.length - 1];
+    const from = last ? (last.to ?? (last.from + 50)) : 0;
+    formulaDraft.largueros.push({ from, to: null, qty: 0, shortMin: null });
+  }
+  function removeLargueroRule(i: number) { formulaDraft.largueros.splice(i, 1); }
+
+  function addFilaRule() {
+    const last = formulaDraft.filas[formulaDraft.filas.length - 1];
+    const from = last ? (last.to ?? (last.from + 50)) : 0;
+    formulaDraft.filas.push({ from, to: null, filas: 0 });
+  }
+  function removeFilaRule(i: number) { formulaDraft.filas.splice(i, 1); }
+
+  let previewWc = $derived(previewW > 0 ? previewW : 1);
+  let previewHc = $derived(previewH > 0 ? previewH : 1);
+  let previewLonger = $derived(Math.max(previewWc, previewHc));
+  let previewShorter = $derived(Math.min(previewWc, previewHc));
+  let previewLargueros = $derived(evalLargueros(formulaDraft, previewLonger, previewShorter));
+  let previewFilas = $derived(evalFilas(formulaDraft, previewShorter));
+  let previewLarCm = $derived(evalLarCm(formulaDraft, previewShorter));
+  let previewTravCm = $derived(evalTravCm(formulaDraft, previewLonger, previewLargueros, previewFilas));
+  let previewTravQty = $derived(previewFilas * (previewLargueros > 0 ? previewLargueros + 1 : 0));
+
+  async function saveFormula() {
+    savingFormula = true;
+    try {
+      await molduraFormula.save(normalizeMolduraFormulaConfig(formulaDraft), appStore.user?.user_name);
+      formulaDraft = cloneMolduraFormula(molduraFormula.getConfig());
+      editingFormula = false;
+      await loadCards();
+      appStore.showToast('Fórmula guardada', 'success');
+    } catch {
+      appStore.showToast('No se pudo guardar la fórmula', 'error');
+    } finally {
+      savingFormula = false;
+    }
+  }
+
+  async function resetFormula() {
+    if (!await dialogConfirm('¿Restablecer la fórmula a los valores por defecto?')) return;
+    formulaDraft = molduraFormula.resetDefaults();
+    await molduraFormula.save(formulaDraft, appStore.user?.user_name);
+    await loadCards();
+    appStore.showToast('Fórmula restablecida', 'success');
+  }
+
+  // ── Historial de la fórmula ──
+  function formatHistoryDate(iso: string | null): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function diffConfigs(a: MolduraFormulaConfig | null, b: MolduraFormulaConfig | null): string[] {
+    if (!b) return ['(versión ilegible)'];
+    if (!a) return ['Versión inicial'];
+    const A = normalizeMolduraFormulaConfig(a);
+    const B = normalizeMolduraFormulaConfig(b);
+    const out: string[] = [];
+    if (JSON.stringify(A.largueros) !== JSON.stringify(B.largueros)) out.push('Reglas de largueros');
+    if (JSON.stringify(A.filas) !== JSON.stringify(B.filas)) out.push('Reglas de filas');
+    if (A.largueroOffset !== B.largueroOffset) out.push(`Offset larguero: ${A.largueroOffset} → ${B.largueroOffset}`);
+    if (A.travesanoOffset !== B.travesanoOffset) out.push(`Offset travesaño: ${A.travesanoOffset} → ${B.travesanoOffset}`);
+    if (A.grosorLarguero !== B.grosorLarguero) out.push(`Grosor larguero: ${A.grosorLarguero} → ${B.grosorLarguero}`);
+    return out.length ? out : ['Sin cambios'];
+  }
+
+  // La lista viene del más nuevo al más viejo: lo que introdujo la versión i
+  // es la diferencia contra la versión i+1 (más antigua).
+  function describeChange(i: number): string[] {
+    const newer = historyList[i]?.data ?? null;
+    const older = i + 1 < historyList.length ? (historyList[i + 1]?.data ?? null) : null;
+    return diffConfigs(older, newer);
+  }
+
+  async function openFormulaHistory() {
+    showFormulaHistory = true;
+    editingFormula = false;
+    loadingHistory = true;
+    try {
+      historyList = await molduraFormula.getHistory(100);
+    } finally {
+      loadingHistory = false;
+    }
+  }
+
+  function closeFormulaHistory() {
+    showFormulaHistory = false;
+  }
+
+  async function restoreFormulaVersion(entry: molduraFormula.MolduraFormulaHistoryEntry) {
+    if (!entry.data) return;
+    if (!await dialogConfirm(`¿Restaurar la versión del ${formatHistoryDate(entry.created_at)}${entry.changed_by ? ` (${entry.changed_by})` : ''}?`)) return;
+    await molduraFormula.save(normalizeMolduraFormulaConfig(entry.data), appStore.user?.user_name);
+    formulaDraft = cloneMolduraFormula(molduraFormula.getConfig());
+    editingFormula = false;
+    await loadCards();
+    appStore.showToast('Fórmula restaurada', 'success');
+    await openFormulaHistory();
+  }
+
   let hasChanges = $derived(editLargNum !== savedLargNum || editTravQty !== savedTravQty);
 
   let editTravFilas = $derived.by(() => {
@@ -97,6 +228,7 @@
       await molduraStore.load();
       await molduraRules.load();
       await molduraHidden.load();
+      await molduraFormula.load();
       const facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       const pending = facturas.filter(f => f.estado_moldura === 'PENDING' && f.estado_entrega !== 'ENTREGADO');
       cards = pending.map(parseCardLocal);
@@ -590,7 +722,7 @@
           📤 Enviar a sucursal
         </button>
       {/if}
-      <button class="btn btn-sm btn-secondary" onclick={() => showFormulaModal = true}>📐 Fórmula</button>
+      <button class="btn btn-sm btn-secondary" onclick={openFormulaModal}>📐 Fórmula</button>
       <button class="btn btn-sm btn-warning" onclick={openCorrectionsModal}>✏️ Correcciones</button>
       <button class="btn btn-sm btn-secondary" onclick={openRulesModal}>⚙️ Sin materiales</button>
       <button class="btn btn-sm btn-secondary" onclick={openHiddenModal}>🙈 Ocultos</button>
@@ -742,41 +874,153 @@
 <!-- Formula Modal -->
 {#if showFormulaModal}
   <div class="modal-overlay" role="presentation">
-    <div class="modal modal-formula" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showFormulaModal = false)}>
+    <div class="modal modal-formula" class:modal-formula-wide={editingFormula} onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1" onkeydown={(e) => e.key === 'Escape' && (showFormulaModal = false)}>
       <div class="modal-header">
         <h3>📐 Fórmula de Materiales</h3>
         <button class="modal-close" onclick={() => showFormulaModal = false} aria-label="Cerrar">✕</button>
       </div>
       <div class="modal-body">
-        <div class="formula-section">
-          <h4 style="color:#2c3e50;">Varillas (V)</h4>
-          <p>2 × <em>ancho</em> + 2 × <em>alto</em> por cada bastidor</p>
-          <p class="formula-example">Siempre 4 varillas por bastidor (2 de cada medida)</p>
-        </div>
-        <div class="formula-section">
-          <h4 style="color:#27ae60;">Largueros (L)</h4>
-          <p>Cantidad según el lado <strong>más largo</strong>:</p>
-          <ul>
-            <li><strong>Regla especial:</strong> lado corto ≥ 50 cm y lado largo 75 – 84 cm → 1 larguero (0 travesaños)</li>
-            <li>85 – 129 cm → 1 larguero</li>
-            <li>130 cm – &lt; 190 cm → 2 largueros</li>
-            <li>≥ 190 cm → 3 largueros</li>
-          </ul>
-          <p class="formula-example">Largo = lado_corto − 5.2 cm</p>
-        </div>
-        <div class="formula-section">
-          <h4 style="color:#d35400;">Travesaños (T)</h4>
-          <p>Filas según el lado <strong>más corto</strong>:</p>
-          <ul>
-            <li>90 – 129 cm → 1 fila</li>
-            <li>≥ 130 cm → 2 filas</li>
-          </ul>
-          <p class="formula-example">Largo = (lado_largo − descuento) ÷ (largueros + 1)</p>
-          <p class="formula-example">Descuento: 9.0cm (1L) · 12.8cm (2L) · 16.5cm (3L)</p>
-        </div>
+        {#if showFormulaHistory}
+          {#if loadingHistory}
+            <p class="loading">Cargando historial...</p>
+          {:else if historyList.length === 0}
+            <p class="formula-hint">No hay versiones guardadas todavía.</p>
+          {:else}
+            <div class="history-list">
+              {#each historyList as entry, i}
+                <div class="history-item">
+                  <div class="history-meta">
+                    <span class="history-date">{formatHistoryDate(entry.created_at)}</span>
+                    <span class="history-user">{entry.changed_by ?? 'Sin usuario'}</span>
+                  </div>
+                  <ul class="history-diff">
+                    {#each describeChange(i) as line}
+                      <li>{line}</li>
+                    {/each}
+                  </ul>
+                  <button class="btn btn-sm btn-secondary" onclick={() => restoreFormulaVersion(entry)}>↺ Restaurar</button>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        {:else if !editingFormula}
+          <div class="formula-section">
+            <h4 style="color:#2c3e50;">Varillas (V)</h4>
+            <p>2 × <em>ancho</em> + 2 × <em>alto</em> por cada bastidor</p>
+            <p class="formula-example">Siempre 4 varillas por bastidor (2 de cada medida)</p>
+          </div>
+          <div class="formula-section">
+            <h4 style="color:#27ae60;">Largueros (L)</h4>
+            <p>Cantidad según el lado <strong>más largo</strong>:</p>
+            <ul>
+              {#each formulaDraft.largueros as r}
+                <li>
+                  {#if r.shortMin != null}<strong>lado corto ≥ {r.shortMin} cm y </strong>{/if}
+                  {#if r.to == null}lado largo ≥ {r.from} cm{:else}lado largo {r.from} – &lt; {r.to} cm{/if}
+                  → {r.qty} larguero{r.qty === 1 ? '' : 's'}
+                </li>
+              {/each}
+            </ul>
+            <p class="formula-example">Largo = lado_corto − {formulaDraft.largueroOffset} cm</p>
+          </div>
+          <div class="formula-section">
+            <h4 style="color:#d35400;">Travesaños (T)</h4>
+            <p>Filas según el lado <strong>más corto</strong>:</p>
+            <ul>
+              {#each formulaDraft.filas as r}
+                <li>
+                  {#if r.to == null}lado corto ≥ {r.from} cm{:else}lado corto {r.from} – &lt; {r.to} cm{/if}
+                  → {r.filas} fila{r.filas === 1 ? '' : 's'}
+                </li>
+              {/each}
+            </ul>
+            <p class="formula-example">Largo = (lado_largo − descuento) ÷ (largueros + 1)</p>
+            <p class="formula-example">Descuento = {formulaDraft.travesanoOffset} + largueros × {formulaDraft.grosorLarguero} cm</p>
+          </div>
+        {:else}
+          <div class="formula-editor">
+            <div class="formula-editor-main">
+              <div class="formula-section">
+                <h4 style="color:#27ae60;">Largueros (L)</h4>
+                <p class="formula-hint">La primera regla que coincide gana. "Hasta" vacío = sin límite.</p>
+                <table class="cfg-table">
+                  <thead><tr><th>Corto ≥</th><th>Desde</th><th>Hasta</th><th>Cant.</th><th></th></tr></thead>
+                  <tbody>
+                    {#each formulaDraft.largueros as r, i}
+                      <tr>
+                        <td><input type="number" value={r.shortMin ?? ''} placeholder="—" oninput={(e) => r.shortMin = e.currentTarget.value === '' ? null : Number(e.currentTarget.value)} /></td>
+                        <td><input type="number" bind:value={r.from} /></td>
+                        <td><input type="number" value={r.to ?? ''} placeholder="∞" oninput={(e) => r.to = e.currentTarget.value === '' ? null : Number(e.currentTarget.value)} /></td>
+                        <td><input type="number" bind:value={r.qty} /></td>
+                        <td><button class="cfg-del" onclick={() => removeLargueroRule(i)} title="Eliminar regla">✕</button></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+                <button class="btn btn-sm btn-secondary" onclick={addLargueroRule}>＋ Regla</button>
+                <p class="formula-example">Largo = lado_corto − <input type="number" class="cfg-inline" bind:value={formulaDraft.largueroOffset} /> cm</p>
+                <p class="formula-hint"><strong>Offset:</strong> cm que se recortan por los ingletes del marco (las dos puntas).</p>
+              </div>
+
+              <div class="formula-section">
+                <h4 style="color:#d35400;">Travesaños (T)</h4>
+                <p class="formula-hint">Filas según el lado corto (primera coincidencia).</p>
+                <table class="cfg-table">
+                  <thead><tr><th>Desde</th><th>Hasta</th><th>Filas</th><th></th></tr></thead>
+                  <tbody>
+                    {#each formulaDraft.filas as r, i}
+                      <tr>
+                        <td><input type="number" bind:value={r.from} /></td>
+                        <td><input type="number" value={r.to ?? ''} placeholder="∞" oninput={(e) => r.to = e.currentTarget.value === '' ? null : Number(e.currentTarget.value)} /></td>
+                        <td><input type="number" bind:value={r.filas} /></td>
+                        <td><button class="cfg-del" onclick={() => removeFilaRule(i)} title="Eliminar regla">✕</button></td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+                <button class="btn btn-sm btn-secondary" onclick={addFilaRule}>＋ Regla</button>
+
+                <p class="formula-hint" style="margin-top:0.7rem;">Descuento del largo de travesaño = offset + largueros × grosor:</p>
+                <div class="cfg-inline-row">
+                  <label>Offset</label>
+                  <input type="number" bind:value={formulaDraft.travesanoOffset} />
+                  <label>Grosor larguero</label>
+                  <input type="number" bind:value={formulaDraft.grosorLarguero} />
+                </div>
+                <p class="formula-hint" style="margin-top:0.4rem;">
+                  <strong>Offset:</strong> cm que se recortan por los ingletes del marco (las dos puntas).
+                  <strong>Grosor:</strong> cm que ocupa cada larguero a lo ancho. La suma es lo que se descuenta del largo del travesaño.
+                </p>
+              </div>
+            </div>
+
+            <div class="preview-panel">
+              <h4>👁 Preview</h4>
+              <div class="preview-inputs">
+                <input type="number" min="0" bind:value={previewW} /> × <input type="number" min="0" bind:value={previewH} /> cm
+              </div>
+              <Bastidor w={previewWc} h={previewHc} largueroQty={previewLargueros} travesanoQty={previewFilas} larCm={previewLarCm} travCm={previewTravCm} />
+              <p class="formula-example">
+                Largueros: <strong>{previewLargueros}</strong> × {previewLarCm} cm ·
+                Travesaños: <strong>{previewTravQty}</strong> × {previewTravCm} cm ({previewFilas} fila{previewFilas === 1 ? '' : 's'})
+              </p>
+            </div>
+          </div>
+        {/if}
       </div>
       <div class="modal-footer">
-        <button class="btn btn-primary" onclick={() => showFormulaModal = false}>Cerrar</button>
+        {#if showFormulaHistory}
+          <button class="btn btn-secondary" onclick={closeFormulaHistory}>← Volver</button>
+          <button class="btn btn-primary" onclick={() => showFormulaModal = false}>Cerrar</button>
+        {:else if !editingFormula}
+          <button class="btn btn-secondary" onclick={() => showFormulaModal = false}>Cerrar</button>
+          <button class="btn btn-secondary" onclick={openFormulaHistory}>🕘 Historial</button>
+          <button class="btn btn-primary" onclick={startEditFormula}>✏️ Editar fórmula</button>
+        {:else}
+          <button class="btn btn-secondary" onclick={resetFormula} disabled={savingFormula}>↺ Restablecer</button>
+          <button class="btn btn-secondary" onclick={cancelEditFormula} disabled={savingFormula}>Cancelar</button>
+          <button class="btn btn-primary" onclick={saveFormula} disabled={savingFormula}>{savingFormula ? 'Guardando…' : '💾 Guardar'}</button>
+        {/if}
       </div>
     </div>
   </div>
@@ -1167,7 +1411,8 @@
   }
 
   .modal-add { min-width: 35.714rem; max-height: 70vh; }
-  .modal-formula { min-width: 26rem; max-width: 90vw; }
+  .modal-formula { min-width: 26rem; max-width: 90vw; max-height: 88vh; overflow-y: auto; }
+  .modal-formula-wide { min-width: 52rem; width: 52rem; }
   .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.857rem; }
   .modal-header h3 { margin: 0; font-size: 1.1rem; color: var(--text-primary); }
   .modal-close { background: none; border: none; font-size: 1.143rem; cursor: pointer; color: var(--text-muted); padding: 0.286rem; border-radius: 0.286rem; }
@@ -1178,6 +1423,37 @@
   .formula-section ul { margin: 0.143rem 0; padding-left: 1.429rem; font-size: 0.82rem; color: var(--text-primary); }
   .formula-section ul li { margin: 0.071rem 0; }
   .formula-example { font-size: 0.75rem !important; color: var(--text-muted) !important; font-style: italic; }
+  .formula-hint { font-size: 0.75rem !important; color: var(--text-muted) !important; }
+  .formula-editor { display: grid; grid-template-columns: minmax(0, 1fr) 21rem; gap: 1.143rem; align-items: start; }
+  .formula-editor-main { min-width: 0; }
+  .preview-panel {
+    display: flex; flex-direction: column; align-items: center; gap: 0.571rem;
+    background: var(--bg-hover); border-radius: 0.571rem; padding: 0.857rem;
+  }
+  .preview-panel h4 { margin: 0; font-size: 0.95rem; }
+  @media (max-width: 900px) {
+    .modal-formula-wide { min-width: 26rem; width: auto; }
+    .formula-editor { grid-template-columns: 1fr; }
+  }
+  .preview-inputs { display: flex; align-items: center; gap: 0.429rem; font-size: 0.82rem; color: var(--text-primary); }
+  .preview-inputs input { width: 4.5rem; }
+  .cfg-table { width: 100%; border-collapse: collapse; margin: 0.286rem 0 0.571rem; }
+  .cfg-table th { font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); text-align: left; padding: 0.143rem 0.286rem; font-weight: 600; }
+  .cfg-table td { padding: 0.143rem 0.286rem; }
+  .cfg-table input { width: 100%; min-width: 3.5rem; padding: 0.286rem 0.357rem; font-size: 0.82rem; }
+  .cfg-inline { width: 4rem !important; display: inline-block; padding: 0.143rem 0.286rem !important; }
+  .cfg-inline-row { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.286rem; }
+  .cfg-inline-row label { font-size: 0.75rem; color: var(--text-muted); }
+  .cfg-inline-row input { width: 4.5rem; padding: 0.286rem 0.357rem; font-size: 0.82rem; }
+  .cfg-del { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85rem; padding: 0.214rem 0.357rem; border-radius: 0.286rem; }
+  .cfg-del:hover { background: rgba(220,53,69,0.12); color: #dc3545; }
+  .history-list { display: flex; flex-direction: column; gap: 0.571rem; max-height: 60vh; overflow-y: auto; }
+  .history-item { display: flex; flex-direction: column; gap: 0.286rem; padding: 0.571rem 0.714rem; border: 1px solid var(--border-light); border-radius: 0.429rem; }
+  .history-meta { display: flex; justify-content: space-between; gap: 0.571rem; font-size: 0.78rem; }
+  .history-date { font-weight: 600; color: var(--text-primary); }
+  .history-user { color: var(--text-muted); }
+  .history-diff { margin: 0; padding-left: 1.143rem; font-size: 0.78rem; color: var(--text-secondary); }
+  .history-item .btn { align-self: flex-start; }
   .modal-detail { min-width: 38rem; max-width: 90vw; min-height: 28rem; }
 
   .detail-body { display: flex; gap: 1.143rem; flex: 1; min-height: 0; }

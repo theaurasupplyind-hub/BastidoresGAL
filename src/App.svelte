@@ -4,6 +4,7 @@
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { api } from '$lib/api/client';
+  import * as molduraFormula from '$lib/stores/molduraFormula';
   import type { AppConfig } from '$lib/types';
   import Login from '$lib/screens/Login.svelte';
   import Splash from '$lib/screens/Splash.svelte';
@@ -45,6 +46,9 @@
       appStore.sortDimsEnabled = cfg.sort_dims_enabled ?? true;
       appStore.molduraMerged = cfg.moldura_merged ?? false;
     } catch { }
+
+    // Fórmula de molduras configurable (backend compartido + caché local).
+    molduraFormula.load().catch(() => {});
   });
 
   // Precarga al iniciar: UNA llamada para cada lista compartida, que todas las
@@ -56,7 +60,7 @@
     cacheStore.fetch('productos', () => api.listProductos(), 1800000).catch(() => {});
     cacheStore.fetch('pagos', () => api.listPagos(), 120000).catch(() => {});
     cacheStore.fetch('preciosReferencia', () => api.getPreciosReferencia(), 1800000).catch(() => {});
-    // Purga automática de NO_CONFIRMADO >15 días (soft-delete a papelera, throttled 12h)
+    // Purga automática de NO_CONFIRMADO >30 días (soft-delete a papelera, throttled 12h)
     // Fire-and-forget; no bloquea login. Usa backend si existe, si no fallback local.
     import('$lib/utils/purgeNoConfirmadas').then(m => m.purgeNoConfirmadasVencidas({ silent: false }).catch(() => {})).catch(() => {});
   }

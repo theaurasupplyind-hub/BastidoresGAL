@@ -44,7 +44,7 @@ export async function purgeNoConfirmadasVencidas(opts?: { force?: boolean; silen
       // si backend no borró nada, caer a fallback local para cubrir facturas ya cacheadas
     } catch {}
 
-    // 2) Fallback local: filtrar NO_CONFIRMADO >15 días y soft-delete a papelera
+    // 2) Fallback local: filtrar NO_CONFIRMADO >DIAS_PURGA_NO_CONFIRMADO y soft-delete a papelera
     let noConfirmadas: Factura[] = [];
     try {
       noConfirmadas = await api.listFacturas({ estado_kanban: 'NO_CONFIRMADO', limit: 2000, with_items: false }) as Factura[];

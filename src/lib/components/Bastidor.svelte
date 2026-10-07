@@ -1,11 +1,13 @@
 <script lang="ts">
   import { getMolduraFormula, computeLarCm, computeTravCm } from '$lib/utils/molduras';
 
-  let { w, h, largueroQty, travesanoQty }: {
+  let { w, h, largueroQty, travesanoQty, larCm, travCm }: {
     w: number;
     h: number;
     largueroQty?: number;
     travesanoQty?: number;
+    larCm?: number;
+    travCm?: number;
   } = $props();
 
   let longer = $derived(Math.max(w, h));
@@ -19,8 +21,8 @@
   let cols = $derived(isLandscape ? largueros + 1 : filas + 1);
   let rows = $derived(isLandscape ? filas + 1 : largueros + 1);
 
-  let larCm = $derived(computeLarCm(shorter));
-  let travCm = $derived(computeTravCm(longer, largueros, filas));
+  let larCmVal = $derived(larCm ?? computeLarCm(shorter));
+  let travCmVal = $derived(travCm ?? computeTravCm(longer, largueros, filas));
 
   let horzVar = $derived(isLandscape ? w : h);
   let vertVar = $derived(isLandscape ? h : w);
@@ -56,9 +58,9 @@
     <!-- Larguero labels -->
     {#each Array(largueros) as _, i}
       {#if isLandscape}
-        <span class="lbl lbl-lar" style="left:{((i+1)/cols*100)}%;bottom:-15px;transform:translateX(-50%)">{larCm}</span>
+        <span class="lbl lbl-lar" style="left:{((i+1)/cols*100)}%;bottom:-15px;transform:translateX(-50%)">{larCmVal}</span>
       {:else}
-        <span class="lbl lbl-lar" style="top:{((i+1)/rows*100)}%;right:-15px;transform:translateY(-50%)">{larCm}</span>
+        <span class="lbl lbl-lar" style="top:{((i+1)/rows*100)}%;right:-15px;transform:translateY(-50%)">{larCmVal}</span>
       {/if}
     {/each}
 
@@ -67,9 +69,9 @@
       {#each Array(cols) as _, col}
         {#each Array(filas) as _, j}
           {#if isLandscape}
-            <span class="lbl lbl-tra" style="left:{((col + 0.5) / cols * 100)}%;top:{((j+1) / rows * 100)}%;transform:translate(-50%, -120%)">{travCm}</span>
+            <span class="lbl lbl-tra" style="left:{((col + 0.5) / cols * 100)}%;top:{((j+1) / rows * 100)}%;transform:translate(-50%, -120%)">{travCmVal}</span>
           {:else}
-            <span class="lbl lbl-tra" style="top:{((col + 0.5) / rows * 100)}%;left:{((j+1) / cols * 100)}%;transform:translate(4px, -50%)">{travCm}</span>
+            <span class="lbl lbl-tra" style="top:{((col + 0.5) / rows * 100)}%;left:{((j+1) / cols * 100)}%;transform:translate(4px, -50%)">{travCmVal}</span>
           {/if}
         {/each}
       {/each}

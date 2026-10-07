@@ -18,7 +18,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import GIcon from '$lib/components/gastos/GIcon.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, buildSuggestionDesc, type PriceSuggestion } from '$lib/utils/precios';
-  import { sortDimsDesc } from '$lib/utils/dims';
+  import { sortDimsAsc } from '$lib/utils/dims';
 import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
 import { diasRestantesNoConfirmada } from '$lib/utils/facturas';
 import type { ClientAddress } from '$lib/types';
@@ -709,7 +709,7 @@ const tallerApi: TallerApi = api;
     showProdResults = showProdResults;
   }
 
-  // Reordena "A x B" a "mayor x menor" cuando el texto ya está cargado
+  // Reordena "A x B" a "menor x mayor" cuando el texto ya está cargado
   // (pegado o al salir del campo), no mientras se tipea.
   // Además de actualizar el input hay que escribir en items[index].descripcion:
   // el input se bindea a productSearch, pero lo que se guarda (y de donde se
@@ -717,7 +717,7 @@ const tallerApi: TallerApi = api;
   // el texto sin ordenar aunque la pantalla mostrara el ordenado.
   function normalizeRowDims(index: number) {
     if (!appStore.sortDimsEnabled) return;
-    const sorted = sortDimsDesc(productSearch[index]);
+    const sorted = sortDimsAsc(productSearch[index]);
     if (sorted === productSearch[index]) return;
     productSearch[index] = sorted;
     productSearch = productSearch;
@@ -733,7 +733,7 @@ const tallerApi: TallerApi = api;
     const text = e.clipboardData?.getData('text');
     if (text === undefined || text === null) return;
     e.preventDefault();
-    productSearch[index] = appStore.sortDimsEnabled ? sortDimsDesc(text) : text;
+    productSearch[index] = appStore.sortDimsEnabled ? sortDimsAsc(text) : text;
     syncProductText(index);
   }
 
@@ -1211,11 +1211,11 @@ const tallerApi: TallerApi = api;
       }
 
       // ── Auto-crear productos nuevos (lógica completa) ──
-      // La clave de dedup se normaliza con sortDimsDesc: los productos creados
-      // antes del fix de "Ordenar medidas" están guardados como "50x100", y sin
-      // normalizar, escribir "100x50" no matchearía con ellos y crearía un
+      // La clave de dedup se normaliza con sortDimsAsc: los productos creados
+      // antes del fix de "Ordenar medidas" están guardados como "100x50", y sin
+      // normalizar, escribir "50x100" no matchearía con ellos y crearía un
       // producto duplicado del mismo bastidor.
-      const keyOf = (desc: string) => (appStore.sortDimsEnabled ? sortDimsDesc(desc) : desc).trim().toLowerCase();
+      const keyOf = (desc: string) => (appStore.sortDimsEnabled ? sortDimsAsc(desc) : desc).trim().toLowerCase();
       const existingDescs = new Set(productos.map(p => keyOf(p.descripcion)));
       const allCats = [...new Set(productos
         .filter(p => p.categoria)
@@ -1772,6 +1772,7 @@ const tallerApi: TallerApi = api;
         total: totalConEnvio,
         envio: envioNorm(envio),
         retira: tipo_entrega === 'Retira',
+        tipoEntrega: tipo_entrega,
         mode: tipo,
         ...(tipo === 'PRESUPUESTO' ? { saldo: currentSaldo } : {}),
       });

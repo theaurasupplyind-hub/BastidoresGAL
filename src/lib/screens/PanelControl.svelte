@@ -35,6 +35,21 @@
   let replyOpen = $state<Set<number>>(new Set());
   let loadingReplies = $state<Set<number>>(new Set());
 
+  // Imágenes pendientes del compositor de comentarios (pegar / arrastrar / adjuntar)
+  type PendingImage = { id: string; data: Uint8Array; url: string; name: string };
+  let replyPendingImages = $state<Record<number, PendingImage[]>>({});
+  let replyDragOverTaskId = $state<number | null>(null);
+  let replyComposerFileInput = $state<HTMLInputElement>();
+  let replyComposerTaskId = $state<number | null>(null);
+
+  // Edición inline de tareas y comentarios
+  let editingTaskId = $state<number | null>(null);
+  let editingTaskText = $state('');
+  let savingTaskId = $state<number | null>(null);
+  let editingReplyKey = $state<string | null>(null);
+  let editingReplyText = $state('');
+  let savingReplyKey = $state<string | null>(null);
+
   let taskSortRecentFirst = $state(true);
 
   let pinnedCount = $derived(tasks.filter(t => t.pinned).length);
@@ -116,6 +131,34 @@
     } catch {}
   }
 
+  // ── Edición inline de tareas ──
+  function startEditTask(task: { id: number; text: string }) {
+    editingTaskId = task.id;
+    editingTaskText = task.text;
+  }
+  function cancelEditTask() {
+    editingTaskId = null;
+    editingTaskText = '';
+  }
+  async function saveEditTask(id: number) {
+    if (editingTaskId !== id) return;
+    const original = tasks.find(t => t.id === id)?.text ?? '';
+    const text = editingTaskText.trim();
+    editingTaskId = null;
+    if (!text || text === original) { editingTaskText = ''; return; }
+    savingTaskId = id;
+    try {
+      await api.updateTask(id, { text });
+      await loadTasks();
+      appStore.showToast('Tarea actualizada', 'success');
+    } catch (e: any) {
+      appStore.showToast('Error al editar: ' + (e?.message || e), 'error');
+    } finally {
+      savingTaskId = null;
+      editingTaskText = '';
+    }
+  }
+
   function triggerImageUpload(taskId: number) {
     pendingUploadTaskId = taskId;
     imageFileInput?.click();
@@ -182,9 +225,14 @@
   }
   async function sendReply(taskId: number) {
     const text = (replyDraft[taskId] || '').trim();
-    if (!text) return;
+    const imgs = replyPendingImages[taskId] ?? [];
+    if (!text && imgs.length === 0) return;
     try {
-      await api.createTaskReply(taskId, { text, assigned_by: appStore.user?.user_name || null });
+      const reply = await api.createTaskReply(taskId, { text: text || '(imagen)', assigned_by: appStore.user?.user_name || null });
+      for (const img of imgs) {
+        await api.uploadTaskReplyImage(taskId, reply.id, img.data, img.name);
+      }
+      clearReplyPending(taskId);
       replyDraft[taskId] = '';
       replyDraft = { ...replyDraft };
       await loadReplies(taskId);
@@ -206,6 +254,34 @@
       await loadReplies(taskId);
       await loadTasks();
     } catch {}
+  }
+
+  // ── Edición inline de comentarios ──
+  function startEditReply(taskId: number, reply: TaskReply) {
+    editingReplyKey = `${taskId}:${reply.id}`;
+    editingReplyText = reply.text;
+  }
+  function cancelEditReply() {
+    editingReplyKey = null;
+    editingReplyText = '';
+  }
+  async function saveEditReply(taskId: number, replyId: number) {
+    const key = `${taskId}:${replyId}`;
+    if (editingReplyKey !== key) return;
+    const original = (taskReplies.get(taskId) || []).find(r => r.id === replyId)?.text ?? '';
+    const text = editingReplyText.trim();
+    editingReplyKey = null;
+    if (!text || text === original) { editingReplyText = ''; return; }
+    savingReplyKey = key;
+    try {
+      await api.updateTaskReply(taskId, replyId, { text });
+      await loadReplies(taskId);
+    } catch (e: any) {
+      appStore.showToast('Error al editar comentario: ' + (e?.message || e), 'error');
+    } finally {
+      savingReplyKey = null;
+      editingReplyText = '';
+    }
   }
   function triggerReplyImageUpload(taskId: number, replyId: number) {
     pendingReplyUpload = { taskId, replyId };
@@ -232,6 +308,94 @@
   }
   function openReplyImage(taskId: number, replyId: number, imageId: number, url?: string|null) {
     selectedImageUrl = url ?? api.getTaskReplyImageViewUrl(taskId, replyId, imageId);
+  }
+
+  // ── Imágenes pendientes en el compositor de comentarios ──
+  function imageFilesFrom(dt: DataTransfer | null): File[] {
+    if (!dt) return [];
+    const out: File[] = [];
+    if (dt.items?.length) {
+      for (const it of dt.items) {
+        if (it.kind === 'file' && it.type.startsWith('image/')) {
+          const f = it.getAsFile();
+          if (f) out.push(f);
+        }
+      }
+    }
+    if (out.length === 0 && dt.files?.length) {
+      for (const f of dt.files) if (f.type.startsWith('image/')) out.push(f);
+    }
+    return out;
+  }
+
+  async function filesToPending(files: File[]): Promise<PendingImage[]> {
+    const out: PendingImage[] = [];
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      try {
+        const buf = await file.arrayBuffer();
+        out.push({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          data: new Uint8Array(buf),
+          url: URL.createObjectURL(file),
+          name: file.name || 'clipboard.webp',
+        });
+      } catch {}
+    }
+    return out;
+  }
+
+  function addReplyPending(taskId: number, imgs: PendingImage[]) {
+    if (imgs.length === 0) return;
+    replyPendingImages = { ...replyPendingImages, [taskId]: [...(replyPendingImages[taskId] ?? []), ...imgs] };
+  }
+
+  function removeReplyPending(taskId: number, id: string) {
+    const list = replyPendingImages[taskId] ?? [];
+    const found = list.find(i => i.id === id);
+    if (found) URL.revokeObjectURL(found.url);
+    replyPendingImages = { ...replyPendingImages, [taskId]: list.filter(i => i.id !== id) };
+  }
+
+  function clearReplyPending(taskId: number) {
+    for (const i of replyPendingImages[taskId] ?? []) URL.revokeObjectURL(i.url);
+    const copy = { ...replyPendingImages };
+    delete copy[taskId];
+    replyPendingImages = copy;
+  }
+
+  async function handleReplyPaste(taskId: number, e: ClipboardEvent) {
+    const files = imageFilesFrom(e.clipboardData);
+    if (files.length === 0) return;
+    e.preventDefault();
+    addReplyPending(taskId, await filesToPending(files));
+  }
+
+  function handleReplyDragOver(taskId: number, e: DragEvent) {
+    if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
+      e.preventDefault();
+      replyDragOverTaskId = taskId;
+    }
+  }
+
+  async function handleReplyDrop(taskId: number, e: DragEvent) {
+    e.preventDefault();
+    replyDragOverTaskId = null;
+    addReplyPending(taskId, await filesToPending(imageFilesFrom(e.dataTransfer)));
+  }
+
+  function triggerReplyComposerUpload(taskId: number) {
+    replyComposerTaskId = taskId;
+    replyComposerFileInput?.click();
+  }
+
+  async function handleReplyComposerFile(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const taskId = replyComposerTaskId;
+    replyComposerTaskId = null;
+    if (!taskId || !input.files?.length) return;
+    addReplyPending(taskId, await filesToPending(Array.from(input.files)));
+    input.value = '';
   }
 
   function handleTaskPaste(e: ClipboardEvent) {
@@ -1079,6 +1243,9 @@
     if (activityInterval) clearInterval(activityInterval);
     if (panelInterval) clearInterval(panelInterval);
     document.removeEventListener('visibilitychange', onVisibilityPanel);
+    for (const list of Object.values(replyPendingImages)) {
+      for (const img of list) URL.revokeObjectURL(img.url);
+    }
   });
 </script>
 
@@ -1165,7 +1332,26 @@
               {/if}
             </button>
             <div class="task-content">
-              <span class="task-text">{task.text}</span>
+              {#if savingTaskId === task.id}
+                <span class="task-text task-saving"><span class="task-upload-spinner"></span> {task.text}</span>
+              {:else if editingTaskId === task.id}
+                <input
+                  class="task-edit-input"
+                  bind:value={editingTaskText}
+                  onkeydown={(e) => { if (e.key === 'Enter') saveEditTask(task.id); if (e.key === 'Escape') cancelEditTask(); }}
+                  onblur={() => saveEditTask(task.id)}
+                  autofocus
+                />
+              {:else}
+                <span
+                  class="task-text"
+                  role="button"
+                  tabindex="0"
+                  title="Doble clic para editar"
+                  ondblclick={() => startEditTask(task)}
+                  onkeydown={(e) => { if (e.key === 'Enter') startEditTask(task); }}
+                >{task.text}</span>
+              {/if}
               {#if task.assigned_by}
                 <span class="task-assigned-by">{task.assigned_by}</span>
               {/if}
@@ -1193,6 +1379,9 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
               {/if}
             </button>
+            <button class="task-edit-btn" onclick={() => startEditTask(task)} aria-label="Editar tarea" title="Editar tarea">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            </button>
             <button class="task-remove" onclick={() => removeTask(task.id)} aria-label="Eliminar tarea">✕</button>
           </div>
           {#if replyOpen.has(task.id)}
@@ -1210,7 +1399,26 @@
                       {/if}
                     </button>
                     <div class="thread-body">
-                      <span class="thread-text">{reply.text}</span>
+                      {#if savingReplyKey === `${task.id}:${reply.id}`}
+                        <span class="thread-text thread-saving"><span class="task-upload-spinner"></span> {reply.text}</span>
+                      {:else if editingReplyKey === `${task.id}:${reply.id}`}
+                        <input
+                          class="thread-edit-input"
+                          bind:value={editingReplyText}
+                          onkeydown={(e) => { if (e.key === 'Enter') saveEditReply(task.id, reply.id); if (e.key === 'Escape') cancelEditReply(); }}
+                          onblur={() => saveEditReply(task.id, reply.id)}
+                          autofocus
+                        />
+                      {:else}
+                        <span
+                          class="thread-text"
+                          role="button"
+                          tabindex="0"
+                          title="Doble clic para editar"
+                          ondblclick={() => startEditReply(task.id, reply)}
+                          onkeydown={(e) => { if (e.key === 'Enter') startEditReply(task.id, reply); }}
+                        >{reply.text}</span>
+                      {/if}
                       <span class="thread-meta">{reply.assigned_by ?? ''}{reply.assigned_by ? ' · ' : ''}{reply.created_at ? shortTime(reply.created_at) : ''}</span>
                       {#if reply.images?.length}
                         <div class="task-thumbs">
@@ -1230,6 +1438,9 @@
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                       {/if}
                     </button>
+                    <button class="thread-edit" onclick={() => startEditReply(task.id, reply)} aria-label="Editar comentario" title="Editar comentario">
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    </button>
                     <button class="thread-del" onclick={() => removeReply(task.id, reply.id)} aria-label="Eliminar respuesta">✕</button>
                   </div>
                 {/each}
@@ -1237,9 +1448,32 @@
                   <div class="thread-empty">Sin respuestas</div>
                 {/if}
               {/if}
-              <div class="thread-input-row">
-                <input class="thread-input" type="text" placeholder="Responder..." bind:value={replyDraft[task.id]} onkeydown={(e)=> { if(e.key==='Enter') sendReply(task.id); }} />
-                <button class="thread-send" onclick={() => sendReply(task.id)} aria-label="Enviar respuesta">Enviar</button>
+              <div
+                class="thread-composer"
+                role="group"
+                aria-label="Escribir comentario"
+                class:drag-over={replyDragOverTaskId === task.id}
+                ondragover={(e) => handleReplyDragOver(task.id, e)}
+                ondragleave={() => { if (replyDragOverTaskId === task.id) replyDragOverTaskId = null; }}
+                ondrop={(e) => handleReplyDrop(task.id, e)}
+              >
+                {#if (replyPendingImages[task.id]?.length ?? 0) > 0}
+                  <div class="reply-pending-strip">
+                    {#each replyPendingImages[task.id] as img (img.id)}
+                      <div class="reply-pending-item">
+                        <img src={img.url} alt="" />
+                        <button class="reply-pending-remove" onclick={() => removeReplyPending(task.id, img.id)} aria-label="Quitar imagen">✕</button>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+                <div class="thread-input-row">
+                  <button class="thread-attach" onclick={() => triggerReplyComposerUpload(task.id)} aria-label="Adjuntar imagen" title="Adjuntar imagen (o pegá / arrastrá una)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                  </button>
+                  <input class="thread-input" type="text" placeholder="Responder… (o pegá / arrastrá una imagen)" bind:value={replyDraft[task.id]} onkeydown={(e)=> { if(e.key==='Enter') sendReply(task.id); }} onpaste={(e) => handleReplyPaste(task.id, e)} />
+                  <button class="thread-send" onclick={() => sendReply(task.id)} aria-label="Enviar respuesta">Enviar</button>
+                </div>
               </div>
             </div>
           {/if}
@@ -1268,6 +1502,8 @@
       onchange={handleFileSelected} class="task-file-input" />
     <input type="file" accept="image/png,image/jpeg,image/webp" bind:this={replyImageFileInput}
       onchange={handleReplyFileSelected} class="task-file-input" />
+    <input type="file" accept="image/png,image/jpeg,image/webp" multiple bind:this={replyComposerFileInput}
+      onchange={handleReplyComposerFile} class="task-file-input" />
 
     {#if selectedImageUrl}
       <div class="image-preview-overlay" onclick={closeImagePreview} role="dialog" aria-label="Vista previa de imagen">
@@ -2082,6 +2318,34 @@
   }
   .task-item:hover .task-image-add { opacity: 1; }
   .task-image-add:hover { border-color: #3b82f6; color: #3b82f6; }
+  .task-edit-btn {
+    flex-shrink: 0;
+    background: none;
+    border: 1px dashed var(--border, #e5e7eb);
+    border-radius: 0.286rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-muted, #9ca3af);
+    opacity: 0;
+    transition: opacity 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .task-item:hover .task-edit-btn { opacity: 1; }
+  .task-edit-btn:hover { border-color: #6366f1; color: #6366f1; }
+  .task-edit-input {
+    width: 100%;
+    padding: 0.286rem 0.429rem;
+    border: 1.5px solid var(--border-focus, #3b82f6);
+    border-radius: 0.286rem;
+    font-size: 0.857rem;
+    background: var(--bg-card, #fff);
+    color: var(--text-primary, #111827);
+    outline: none;
+  }
+  .task-saving, .thread-saving { display: inline-flex; align-items: center; gap: 0.35rem; opacity: 0.7; }
   .task-upload-spinner {
     width: 0.714rem;
     height: 0.714rem;
@@ -2209,11 +2473,24 @@
   .thread-reply:hover .thread-img-add, .thread-reply:hover .thread-del { opacity:1; }
   .thread-img-add:hover { color:#6366f1; background:rgba(99,102,241,.08); }
   .thread-del:hover { color:#ef4444; background:rgba(239,68,68,.08); }
+  .thread-edit { flex-shrink:0; background:none; border:none; cursor:pointer; padding:.15rem .25rem; border-radius:.25rem; color:var(--text-muted,#9ca3af); opacity:0; transition:opacity .12s; display:flex; align-items:center; }
+  .thread-reply:hover .thread-edit { opacity:1; }
+  .thread-edit:hover { color:#6366f1; background:rgba(99,102,241,.08); }
+  .thread-edit-input { width:100%; padding:.25rem .4rem; border:1.5px solid #6366f1; border-radius:.3rem; font-size:.82rem; outline:none; background:#fff; color:var(--text-primary,#111827); }
   .thread-input-row { display:flex; gap:.35rem; margin-top:.15rem; }
   .thread-input { flex:1; padding:.35rem .5rem; border:1.5px solid var(--border,#e5e7eb); border-radius:.35rem; font-size:.82rem; outline:none; background:#fff; }
   .thread-input:focus { border-color:#6366f1; }
   .thread-send { padding:.35rem .7rem; border:none; border-radius:.35rem; background:#6366f1; color:#fff; font-size:.75rem; font-weight:600; cursor:pointer; }
   .thread-send:hover { background:#4f46e5; }
+  .thread-composer { display:flex; flex-direction:column; gap:.35rem; border-radius:.4rem; outline:2px dashed transparent; outline-offset:3px; transition:outline-color .12s, background .12s; }
+  .thread-composer.drag-over { outline-color:#6366f1; background:rgba(99,102,241,.06); }
+  .reply-pending-strip { display:flex; flex-wrap:wrap; gap:.35rem; padding:.1rem 0; }
+  .reply-pending-item { position:relative; width:2.8rem; height:2.8rem; }
+  .reply-pending-item img { width:100%; height:100%; object-fit:cover; border-radius:.35rem; border:1px solid var(--border,#e5e7eb); display:block; }
+  .reply-pending-remove { position:absolute; top:-.3rem; right:-.3rem; width:1rem; height:1rem; border-radius:50%; background:#ef4444; color:#fff; border:1px solid #fff; font-size:.55rem; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; }
+  .reply-pending-remove:hover { background:#dc2626; }
+  .thread-attach { flex-shrink:0; width:1.8rem; border:1.5px solid var(--border,#e5e7eb); border-radius:.35rem; background:#fff; color:var(--text-muted,#9ca3af); cursor:pointer; display:flex; align-items:center; justify-content:center; padding:0; transition:border-color .12s, color .12s; }
+  .thread-attach:hover { border-color:#6366f1; color:#6366f1; }
 
   .image-preview-overlay {
     position: fixed;

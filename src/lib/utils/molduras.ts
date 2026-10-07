@@ -127,33 +127,158 @@ export function parse2DItem(desc: string): { w: number; h: number; label: string
   return { w, h, label: rest || 'Marco' };
 }
 
+// ── Fórmula de molduras configurable por el usuario ──
+// Los defaults reproducen la regla histórica de taller. La config puede venir
+// del backend compartido o de la caché local (stock molduraFormula.ts).
+export interface MolduraLargueroRule {
+  from: number;
+  to: number | null;
+  qty: number;
+  shortMin?: number | null;
+}
+export interface MolduraFilaRule {
+  from: number;
+  to: number | null;
+  filas: number;
+}
+export interface MolduraFormulaConfig {
+  version: number;
+  largueros: MolduraLargueroRule[];
+  filas: MolduraFilaRule[];
+  largueroOffset: number;
+  travesanoOffset: number;
+  grosorLarguero: number;
+}
+
+export const DEFAULT_MOLDURA_FORMULA: MolduraFormulaConfig = {
+  version: 1,
+  largueros: [
+    { from: 75, to: 85, qty: 1, shortMin: 50 },
+    { from: 85, to: 130, qty: 1 },
+    { from: 130, to: 210, qty: 2 },
+    { from: 210, to: null, qty: 3 },
+  ],
+  filas: [
+    { from: 90, to: 130, filas: 1 },
+    { from: 130, to: null, filas: 2 },
+  ],
+  largueroOffset: 5.2,
+  // Descuento del travesaño = travesanoOffset + largueros × grosorLarguero.
+  // Reproduce los valores históricos: 9.0 (1L) · 12.8 (2L) · 16.6 (3L).
+  travesanoOffset: 5.2,
+  grosorLarguero: 3.8,
+};
+
+function cfgNum(v: unknown, d: number): number {
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  return Number.isFinite(n) ? n : d;
+}
+
+function cfgTo(v: unknown): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  return Number.isFinite(n) ? n : null;
+}
+
+export function cloneMolduraFormula(cfg: MolduraFormulaConfig = DEFAULT_MOLDURA_FORMULA): MolduraFormulaConfig {
+  return {
+    version: cfg.version ?? 1,
+    largueros: cfg.largueros.map(r => ({ from: r.from, to: r.to, qty: r.qty, shortMin: r.shortMin ?? null })),
+    filas: cfg.filas.map(r => ({ from: r.from, to: r.to, filas: r.filas })),
+    largueroOffset: cfg.largueroOffset,
+    travesanoOffset: cfg.travesanoOffset,
+    grosorLarguero: cfg.grosorLarguero,
+  };
+}
+
+export function normalizeMolduraFormulaConfig(input: unknown): MolduraFormulaConfig {
+  const d = DEFAULT_MOLDURA_FORMULA;
+  const o = (input && typeof input === 'object') ? input as Record<string, any> : {};
+  const def = cloneMolduraFormula(d);
+
+  const largueros: MolduraLargueroRule[] = Array.isArray(o.largueros) && o.largueros.length
+    ? o.largueros.map((r: any) => ({
+        from: cfgNum(r?.from, 0),
+        to: cfgTo(r?.to),
+        qty: Math.max(0, Math.round(cfgNum(r?.qty, 0))),
+        shortMin: cfgTo(r?.shortMin),
+      }))
+    : def.largueros;
+
+  const filas: MolduraFilaRule[] = Array.isArray(o.filas) && o.filas.length
+    ? o.filas.map((r: any) => ({
+        from: cfgNum(r?.from, 0),
+        to: cfgTo(r?.to),
+        filas: Math.max(0, Math.round(cfgNum(r?.filas, 0))),
+      }))
+    : def.filas;
+
+  return {
+    version: Math.max(1, Math.round(cfgNum(o.version, 1))),
+    largueros: largueros.length ? largueros : def.largueros,
+    filas: filas.length ? filas : def.filas,
+    largueroOffset: cfgNum(o.largueroOffset, d.largueroOffset),
+    travesanoOffset: cfgNum(o.travesanoOffset, d.travesanoOffset),
+    grosorLarguero: cfgNum(o.grosorLarguero, d.grosorLarguero),
+  };
+}
+
+let molduraFormulaCfg: MolduraFormulaConfig = cloneMolduraFormula(DEFAULT_MOLDURA_FORMULA);
+
+export function getMolduraFormulaConfig(): MolduraFormulaConfig {
+  return molduraFormulaCfg;
+}
+
+export function setMolduraFormulaConfig(cfg: MolduraFormulaConfig | null | undefined): MolduraFormulaConfig {
+  molduraFormulaCfg = normalizeMolduraFormulaConfig(cfg);
+  return molduraFormulaCfg;
+}
+
+// Evaluadores puros (no tocan el estado global; sirven para el preview del editor).
+export function evalLargueros(cfg: MolduraFormulaConfig, longer: number, shorter?: number): number {
+  for (const r of cfg.largueros) {
+    if (longer < r.from) continue;
+    if (r.to != null && longer >= r.to) continue;
+    if (r.shortMin != null && (shorter === undefined || shorter < r.shortMin)) continue;
+    return Math.max(0, Math.round(r.qty));
+  }
+  return 0;
+}
+
+export function evalFilas(cfg: MolduraFormulaConfig, shorter: number): number {
+  for (const r of cfg.filas) {
+    if (shorter < r.from) continue;
+    if (r.to != null && shorter >= r.to) continue;
+    return Math.max(0, Math.round(r.filas));
+  }
+  return 0;
+}
+
+export function evalLarCm(cfg: MolduraFormulaConfig, shorter: number): number {
+  return Math.round((shorter - cfg.largueroOffset) * 10) / 10;
+}
+
+export function evalTravCm(cfg: MolduraFormulaConfig, longer: number, largueros: number, filas: number): number {
+  if (largueros <= 0 || filas <= 0) return 0;
+  const divisiones = largueros + 1;
+  const descuento = cfg.travesanoOffset + largueros * cfg.grosorLarguero;
+  return Math.trunc(((longer - descuento) / divisiones) * 10) / 10;
+}
+
 function largueroCount(longer: number, shorter?: number): number {
-  // Regla especial (histórica): lado corto >=50 y lado largo 75..84 => 1 larguero.
-  // Se conserva para no regresionar marcos 75-79 que ya llevaban 1.
-  if (shorter !== undefined && shorter >= 50 && longer >= 75 && longer < 85) return 1;
-  // Generalización de correcciones de taller (85-89 pedían 1 donde antes era 0):
-  if (longer < 85) return 0;
-  if (longer >= 85 && longer <= 129) return 1;
-  // Generalización: 190 ya necesita 3 largueros (antes solo desde 201).
-  if (longer >= 130 && longer < 190) return 2;
-  return 3;
+  return evalLargueros(molduraFormulaCfg, longer, shorter);
 }
 
 function filaCount(shorter: number): number {
-  if (shorter < 90) return 0;
-  if (shorter >= 90 && shorter <= 129) return 1;
-  return 2;
+  return evalFilas(molduraFormulaCfg, shorter);
 }
 
 export function computeLarCm(shorter: number): number {
-  return Math.round((shorter - 5.2) * 10) / 10;
+  return evalLarCm(molduraFormulaCfg, shorter);
 }
 
 export function computeTravCm(longer: number, largueros: number, filas: number): number {
-  if (largueros <= 0 || filas <= 0) return 0;
-  const divisiones = largueros + 1;
-  const descuento = largueros === 1 ? 9.0 : largueros === 2 ? 12.8 : 16.5;
-  return Math.trunc(((longer - descuento) / divisiones) * 10) / 10;
+  return evalTravCm(molduraFormulaCfg, longer, largueros, filas);
 }
 
 export interface MolduraFormula {

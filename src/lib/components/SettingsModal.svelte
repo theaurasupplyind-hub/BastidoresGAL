@@ -121,7 +121,7 @@
         <label>Ordenar medidas</label>
         <label class="check-row">
           <input type="checkbox" bind:checked={config.sort_dims_enabled} />
-          <span>Mayor x menor al pegar o salir del campo</span>
+          <span>Menor x mayor al pegar o salir del campo</span>
         </label>
 
         <label>Molduras V2</label>

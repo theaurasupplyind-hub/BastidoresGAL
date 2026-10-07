@@ -8,6 +8,7 @@
   import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
   import { hasMolduraItems, parseCard, measureCardHeights, buildMoldurasHtmlPaged } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
+  import * as molduraFormula from '$lib/stores/molduraFormula';
   import { invoke } from '@tauri-apps/api/core';
   import InvoicePrintModal from '$lib/components/InvoicePrintModal.svelte';
   import PrinterBadge from '$lib/components/PrinterBadge.svelte';
@@ -611,6 +612,7 @@
     let genOk = false;
     try {
       await molduraStore.load();
+      await molduraFormula.load();
       const parsed = cards.map(f => {
         const p = parseCard(f);
         molduraStore.applyCorrectionsToCard(p);
@@ -657,6 +659,7 @@
     let genOk = false;
     try {
       await molduraStore.load();
+      await molduraFormula.load();
       const parsed = cards.map(f => {
         const p = parseCard(f);
         molduraStore.applyCorrectionsToCard(p);
