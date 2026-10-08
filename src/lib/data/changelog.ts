@@ -1,4 +1,8 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.4.1': `Revisión de saldos: en la Ficha Semanal, las facturas entregadas con saldo parcial o pendiente se pueden enviar a revisión con un check.
+Panel: botón "Revisión" en la tarjeta de Actividad — lista los saldos en revisión con pago rápido en Efectivo, Otro medio (modal de pago) o No pagado (vuelve a la ficha).
+Ficha Semanal: la fecha junto a LISTO ahora es la fecha real de entrega.
+Backend: la factura sale de revisión sola al registrar cualquier pago.`,
   '2.4.0': `Fórmula de molduras configurable: editor con preview en vivo, reglas de largueros y filas editables, offsets y grosor, historial de versiones con restaurar y volver a por defecto. Se comparte entre equipos (backend) con caché local.
 Ordenar medidas ahora deja "menor x mayor" (antes "mayor x menor"), al pegar o salir del campo.
 Purga de presupuestos no confirmados: pasa de 15 a 30 días antes de archivarse.

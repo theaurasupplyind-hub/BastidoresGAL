@@ -304,7 +304,7 @@ export const api = {
       .then(r => r.next_number)
       .catch(() => 'F-00000'),
 
-  listFacturas: (params?: { search?: string; user_id?: number; start?: string; end?: string; limit?: number; estado_entrega?: string; estado_kanban?: string; with_items?: boolean }) => {
+  listFacturas: (params?: { search?: string; user_id?: number; start?: string; end?: string; limit?: number; estado_entrega?: string; estado_kanban?: string; revision_saldo?: boolean; with_items?: boolean }) => {
     const q = new URLSearchParams();
     if (params?.search) q.set('search', params.search);
     if (params?.user_id) q.set('user_id', String(params.user_id));
@@ -313,6 +313,7 @@ export const api = {
     if (params?.limit) q.set('limit', String(params.limit));
     if (params?.estado_entrega) q.set('estado_entrega', params.estado_entrega);
     if (params?.estado_kanban) q.set('estado_kanban', params.estado_kanban);
+    if (params?.revision_saldo !== undefined) q.set('revision_saldo', params.revision_saldo ? 'true' : 'false');
     if (params?.with_items !== undefined) q.set('with_items', params.with_items ? 'true' : 'false');
     const qs = q.toString();
     return handleResponse(request<import('$lib/types').Factura[]>('GET', `/invoices${qs ? '?' + qs : ''}`, undefined, 25), []);
@@ -352,7 +353,7 @@ export const api = {
     if (![200, 204].includes(res.status)) throw new Error(`Error al eliminar definitivamente: ${res.status}`);
   },
 
-  patchInvoiceField: (id: number, field: string, value: string) =>
+  patchInvoiceField: (id: number, field: string, value: string | number | boolean) =>
     request('PATCH', `/invoices/${id}`, { [field]: value }),
 
   cleanupNoConfirmadas: (days = 30) =>

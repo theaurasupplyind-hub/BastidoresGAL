@@ -9,7 +9,7 @@
   import { facturasActivas } from '$lib/utils/facturas';
   import PagoDialog from '$lib/components/PagoDialog.svelte';
   import type { Factura, Pago, FichaSemanalRow, Kpis, Cliente } from '$lib/types';
-  import { parseFechasEntrega, formatFechasEntregaDisplay, byDateDesc } from '$lib/types';
+  import { formatEntregadoAt, byDateDesc } from '$lib/types';
 
   let loading = $state(false);
   let rows = $state<FichaSemanalRow[]>([]);
@@ -182,7 +182,8 @@
         saldo,
         estado,
         estado_entrega: f.estado_entrega || 'PENDIENTE',
-        fecha_entrega: formatFechasEntregaDisplay(parseFechasEntrega(f.fecha_entrega)),
+        entregado_at: f.entregado_at || '',
+        revision_saldo: !!f.revision_saldo,
       };
     });
   }
@@ -358,6 +359,19 @@
     }
   }
 
+  async function toggleRevision(row: FichaSemanalRow) {
+    const value = !row.revision_saldo;
+    try {
+      await api.patchInvoiceField(row.id, 'revision_saldo', value);
+      const idx = rows.findIndex(r => r.id === row.id);
+      if (idx >= 0) rows[idx] = { ...rows[idx], revision_saldo: value };
+      cacheStore.invalidate('facturas');
+      appStore.showToast(value ? 'Saldo enviado a revisión' : 'Saldo quitado de revisión', 'success');
+    } catch (e) {
+      appStore.alert('Error al actualizar revisión: ' + (e as Error).message);
+    }
+  }
+
   async function loadAudit() {
     try {
       const allP = await api.listPagos();
@@ -463,11 +477,18 @@
           >
             {row.estado_entrega === 'ENTREGADO' ? '☑ LISTO' : '☐ PEND'}
           </button>
-          {#if row.fecha_entrega}
-            <span class="entrega-date">({formatDate(row.fecha_entrega)})</span>
+          {#if row.entregado_at}
+            <span class="entrega-date">({formatEntregadoAt(row.entregado_at)})</span>
           {/if}
         </span>
       {/key}
+    {/if}
+  </td>
+  <td class="td-revision">
+    {#if row.estado_entrega === 'ENTREGADO' && row.estado !== 'PAGADO'}
+      <label class="rev-check" title={row.revision_saldo ? 'En revisión de saldo (clic para quitar)' : 'Enviar saldo a revisión'}>
+        <input type="checkbox" checked={row.revision_saldo} onchange={() => toggleRevision(row)} />
+      </label>
     {/if}
   </td>
 {/snippet}
@@ -534,6 +555,7 @@
               <th>Saldo</th>
               <th>Estado</th>
               <th>Entrega</th>
+              <th>Revisión</th>
             </tr>
           </thead>
           <tbody>
@@ -770,6 +792,9 @@
   .td-numero { font-family: monospace; font-size: 0.92rem; }
 
   .td-estado { min-width: 7rem; }
+  .td-revision { text-align: center; }
+  .rev-check { display: inline-flex; cursor: pointer; }
+  .rev-check input { width: 1.1rem; height: 1.1rem; cursor: pointer; accent-color: #d68910; }
   .estado-badge {
     display: inline-block;
     padding: 0.286rem 0.857rem;

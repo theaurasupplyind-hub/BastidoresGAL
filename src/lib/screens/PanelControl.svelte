@@ -6,6 +6,8 @@
   import { mapaStore } from '$lib/stores/mapaStore.svelte';
   import { animate, spring } from 'animejs';
   import FodaModal from '$lib/components/FodaModal.svelte';
+  import PagoDialog from '$lib/components/PagoDialog.svelte';
+  import { formatEntregadoAt, entregadoAtInputDate } from '$lib/types';
   import * as XLSX from 'xlsx';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
 
@@ -1214,12 +1216,97 @@
   }
 
   let activityInterval: ReturnType<typeof setInterval>;
+  // ── Revisión de saldos ──
+  type RevisionRow = { id: number; numero: string; cliente: string; total: number; saldo: number; entregado_at: string };
+  let revisionRows = $state<RevisionRow[]>([]);
+  let loadingRevision = $state(false);
+  let showRevision = $state(false);
+  let showRevPagoDialog = $state(false);
+  let revPagoRow = $state<RevisionRow | null>(null);
+
+  async function loadRevision() {
+    loadingRevision = true;
+    try {
+      const [fs, ps] = await Promise.all([
+        api.listFacturas({ revision_saldo: true, with_items: false, limit: 500 }),
+        cacheStore.fetch('pagos', () => api.listPagos(), 120000),
+      ]);
+      const pagosByInv = new Map<number, number>();
+      for (const p of ps) pagosByInv.set(p.invoice_id, (pagosByInv.get(p.invoice_id) || 0) + (p.amount || 0));
+      revisionRows = fs.map(f => ({
+        id: f.id,
+        numero: f.numero_factura || f.numero_presupuesto || '',
+        cliente: f.cliente_nombre || '',
+        total: f.total || 0,
+        saldo: Math.max(0, (f.total || 0) - (pagosByInv.get(f.id) || 0)),
+        entregado_at: f.entregado_at || '',
+      }));
+    } catch {
+      revisionRows = [];
+    } finally {
+      loadingRevision = false;
+    }
+  }
+
+  function formatCurrency(n: number): string {
+    return '$' + n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  async function revisionEfectivo(row: RevisionRow) {
+    if (row.saldo <= 0) {
+      appStore.alert('Esta factura no tiene saldo pendiente.');
+      return;
+    }
+    try {
+      await api.addPago({
+        invoice_id: row.id,
+        amount: row.saldo,
+        date: entregadoAtInputDate(row.entregado_at) || new Date().toISOString().slice(0, 10),
+        method: 'Efectivo',
+        user_id: appStore.user?.user_id || 0,
+      });
+      revisionRows = revisionRows.filter(r => r.id !== row.id);
+      cacheStore.invalidate('facturas');
+      cacheStore.invalidate('pagos');
+      appStore.showToast('Saldo pagado en efectivo', 'success');
+    } catch (e) {
+      appStore.alert('Error al registrar pago: ' + (e as Error).message);
+    }
+  }
+
+  async function revisionNoPagado(row: RevisionRow) {
+    try {
+      await api.patchInvoiceField(row.id, 'revision_saldo', false);
+      revisionRows = revisionRows.filter(r => r.id !== row.id);
+      cacheStore.invalidate('facturas');
+      appStore.showToast('Devuelta a la ficha como pendiente', 'success');
+    } catch (e) {
+      appStore.alert('Error al actualizar revisión: ' + (e as Error).message);
+    }
+  }
+
+  function revisionOtroMedio(row: RevisionRow) {
+    revPagoRow = row;
+    showRevPagoDialog = true;
+  }
+
+  function handleRevPagoSaved() {
+    const id = revPagoRow?.id;
+    showRevPagoDialog = false;
+    revPagoRow = null;
+    if (id != null) revisionRows = revisionRows.filter(r => r.id !== id);
+    cacheStore.invalidate('facturas');
+    cacheStore.invalidate('pagos');
+    loadRevision();
+  }
+
   let panelInterval: ReturnType<typeof setInterval>;
 
   function refrescarPanel() {
     if (planDirty) return;
     cacheStore.invalidate('mapa-base');
     loadDashboardPanel();
+    loadRevision();
   }
 
   function onVisibilityPanel() {
@@ -1232,6 +1319,7 @@
     loadNotes();
     cacheStore.invalidate('mapa-base');
     loadDashboardPanel();
+    loadRevision();
     loadActivity();
     loadDismissed();
     activityInterval = setInterval(loadActivity, 60000);
@@ -1740,39 +1828,99 @@
       </button>
     </div>
 
-    <!-- ACTIVIDAD -->
+    <!-- ACTIVIDAD / REVISIÓN DE SALDOS -->
     <div class="card card-activity">
       <div class="card-header">
         <div class="card-title-row">
-          <svg class="card-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          <span class="card-title">ACTIVIDAD</span>
+          {#if showRevision}
+            <svg class="card-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d68910" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span class="card-title">REVISIÓN</span>
+          {:else}
+            <svg class="card-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <span class="card-title">ACTIVIDAD</span>
+          {/if}
         </div>
-        <span class="card-badge">HOY</span>
-        <button class="refresh-btn" onclick={refreshActivity} title="Recargar actividad" style="margin-left:auto;background:none;border:none;color:#9ca3af;cursor:pointer;padding:2px 6px;border-radius:4px;">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
-        </button>
+        <div class="card-header-actions">
+          {#if showRevision}
+            <span class="card-badge">{revisionRows.length}</span>
+            <button class="card-back-btn" onclick={() => showRevision = false} aria-label="Volver a actividad">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+            </button>
+          {:else}
+            <span class="card-badge">HOY</span>
+            <button class="refresh-btn" onclick={refreshActivity} title="Recargar actividad" style="background:none;border:none;color:#9ca3af;cursor:pointer;padding:2px 6px;border-radius:4px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+            </button>
+            <button class="revision-btn" onclick={() => { showRevision = true; loadRevision(); }} title="Revisión de saldos" aria-label="Revisión de saldos">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              {#if revisionRows.length > 0}<span class="revision-btn-badge">{revisionRows.length}</span>{/if}
+            </button>
+          {/if}
+        </div>
       </div>
-      <div class="activity-list">
-        {#each activity.filter(a => !dismissed.has(`${a.type}-${a.id}`)) as item, i (i)}
-          <div class="activity-item">
-            <span class="activity-dot" style="background:{item.color}"></span>
-            <div class="activity-body">
-              <span class="activity-msg">{item.message}</span>
-              {#if item.type === 'entrega'}
-                <span class="activity-meta">{item.section}</span>
-              {:else}
-                <span class="activity-meta">{item.section} · {shortTime(item.time)}</span>
-              {/if}
+      {#if showRevision}
+        <div class="revision-list">
+          {#if loadingRevision}
+            <div class="revision-empty">Cargando...</div>
+          {:else if revisionRows.length === 0}
+            <div class="revision-empty">Sin saldos en revisión</div>
+          {:else}
+            {#each revisionRows as row (row.id)}
+              <div class="revision-item">
+                <div class="revision-top">
+                  <span class="revision-cliente">{row.cliente}</span>
+                  <span class="revision-saldo">{formatCurrency(row.saldo)}</span>
+                </div>
+                <span class="revision-meta">{row.numero}{row.entregado_at ? ` · ${formatEntregadoAt(row.entregado_at)}` : ''}</span>
+                <div class="revision-actions">
+                  <button class="rev-btn rev-efectivo" onclick={() => revisionEfectivo(row)}>Efectivo</button>
+                  <button class="rev-btn rev-otro" onclick={() => revisionOtroMedio(row)}>Otro</button>
+                  <button class="rev-btn rev-no" onclick={() => revisionNoPagado(row)}>No pagado</button>
+                </div>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      {:else}
+        <div class="activity-list">
+          {#each activity.filter(a => !dismissed.has(`${a.type}-${a.id}`)) as item, i (i)}
+            <div class="activity-item">
+              <span class="activity-dot" style="background:{item.color}"></span>
+              <div class="activity-body">
+                <span class="activity-msg">{item.message}</span>
+                {#if item.type === 'entrega'}
+                  <span class="activity-meta">{item.section}</span>
+                {:else}
+                  <span class="activity-meta">{item.section} · {shortTime(item.time)}</span>
+                {/if}
+              </div>
+              <button class="activity-dismiss" onclick={() => dismissActivity(`${item.type}-${item.id}`)} aria-label="Descartar">✕</button>
             </div>
-            <button class="activity-dismiss" onclick={() => dismissActivity(`${item.type}-${item.id}`)} aria-label="Descartar">✕</button>
-          </div>
-        {/each}
-        {#if activity.length === 0}
-          <div class="activity-empty">Sin actividad hoy</div>
-        {/if}
-      </div>
+          {/each}
+          {#if activity.length === 0}
+            <div class="activity-empty">Sin actividad hoy</div>
+          {/if}
+        </div>
+      {/if}
     </div>
   </div>
+
+  {#if showRevPagoDialog && revPagoRow}
+    <PagoDialog
+      bind:show={showRevPagoDialog}
+      invoiceId={revPagoRow.id}
+      invoiceNumero={revPagoRow.numero}
+      invoiceCliente={revPagoRow.cliente}
+      invoiceTotal={revPagoRow.total}
+      initialAmount={revPagoRow.saldo}
+      initialDate={entregadoAtInputDate(revPagoRow.entregado_at)}
+      initialMethod="Transferencia"
+      initialEntityType="PROVIDER"
+      initialEntityId={0}
+      onclose={() => { showRevPagoDialog = false; revPagoRow = null; }}
+      onsaved={handleRevPagoSaved}
+    />
+  {/if}
 
   <!-- NOTAS -->
   <div class="card card-notes" onclick={openNotes} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && openNotes()}>
@@ -2179,6 +2327,73 @@
     align-items: center;
     gap: 0.286rem;
   }
+
+  /* ── REVISIÓN DE SALDOS (dentro de ACTIVIDAD) ── */
+  .revision-btn {
+    position: relative;
+    flex-shrink: 0;
+    background: none;
+    border: none;
+    color: var(--text-muted, #9ca3af);
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 0.214rem;
+    display: flex;
+    align-items: center;
+    transition: color 0.12s, background 0.12s;
+  }
+  .revision-btn:hover { color: #d68910; background: rgba(214,137,16,0.08); }
+  .revision-btn-badge {
+    position: absolute;
+    top: -4px;
+    right: -6px;
+    background: #d68910;
+    color: #fff;
+    font-size: 0.6rem;
+    font-weight: 700;
+    min-width: 0.9rem;
+    height: 0.9rem;
+    line-height: 0.9rem;
+    text-align: center;
+    border-radius: 0.5rem;
+    padding: 0 0.2rem;
+  }
+  .revision-list {
+    overflow: auto;
+    padding: 0 0.714rem 0.571rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.357rem;
+  }
+  .revision-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.214rem;
+    padding: 0.429rem 0.5rem;
+    border-radius: 0.429rem;
+    background: var(--bg-hover, #f9fafb);
+  }
+  .revision-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.429rem; min-width: 0; }
+  .revision-cliente { font-size: 0.821rem; font-weight: 600; color: var(--text-primary, #111827); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .revision-meta { font-size: 0.7rem; color: var(--text-muted, #9ca3af); }
+  .revision-saldo { font-family: monospace; font-weight: 700; font-size: 0.821rem; color: #d68910; flex-shrink: 0; }
+  .revision-actions { display: flex; gap: 0.286rem; margin-top: 0.214rem; }
+  .rev-btn {
+    flex: 1;
+    border: none;
+    border-radius: 0.357rem;
+    padding: 0.286rem 0.357rem;
+    font-size: 0.714rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: filter 0.12s;
+    white-space: nowrap;
+  }
+  .rev-btn:hover { filter: brightness(0.94); }
+  .rev-efectivo { background: var(--success, #27ae60); color: #fff; }
+  .rev-otro { background: var(--accent, #3498db); color: #fff; }
+  .rev-no { background: var(--bg-hover, #f3f4f6); color: var(--text-secondary, #6b7280); border: 1px solid var(--border, #e5e7eb); }
+  .revision-empty { padding: 0.714rem; text-align: center; color: var(--text-muted, #9ca3af); font-size: 0.786rem; }
   .card-trash-btn, .card-back-btn {
     flex-shrink: 0;
     background: none;

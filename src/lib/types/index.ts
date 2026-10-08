@@ -207,6 +207,38 @@ export function byDateDesc(aDate: string, bDate: string, aId = 0, bId = 0): numb
   return dateKey(bDate) - dateKey(aDate) || bId - aId;
 }
 
+// entregado_at se guarda en el backend con utcnow() sin marca de zona. Hay que
+// interpretarlo como UTC (agregar 'Z') y convertir a hora de Argentina antes de
+// mostrar/guardar, o las entregas de la tarde caen al día siguiente.
+const TZ_AR = 'America/Argentina/Buenos_Aires';
+
+function parseEntregadoAt(val: string | null | undefined): Date | null {
+  if (!val) return null;
+  const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(val) ? val : val + 'Z';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+export function formatEntregadoAt(val: string | null | undefined): string {
+  const d = parseEntregadoAt(val);
+  if (!d) return '';
+  const p = new Intl.DateTimeFormat('es-AR', {
+    timeZone: TZ_AR, day: '2-digit', month: '2-digit', year: 'numeric',
+  }).formatToParts(d);
+  const get = (t: string) => p.find(x => x.type === t)?.value || '';
+  return `${get('day')}/${get('month')}/${get('year')}`;
+}
+
+export function entregadoAtInputDate(val: string | null | undefined): string {
+  const d = parseEntregadoAt(val);
+  if (!d) return '';
+  const p = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ_AR, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(d);
+  const get = (t: string) => p.find(x => x.type === t)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 export interface Factura {
   id: number;
   numero_factura: string;
@@ -230,6 +262,7 @@ export interface Factura {
   estado_moldura: string;
   estado_orden_tela: string;
   estado_kanban: string;
+  revision_saldo?: boolean;
   /** Flag local de UI: la factura venía como NO_CONFIRMADO y se muestra en PEDIDO. */
   _no_confirmado?: boolean;
   entregado_at?: string;
@@ -331,7 +364,8 @@ export interface FichaSemanalRow {
   saldo: number;
   estado: string;
   estado_entrega: string;
-  fecha_entrega: string;
+  entregado_at: string;
+  revision_saldo: boolean;
 }
 
 export interface Provider {
