@@ -67,13 +67,13 @@
     }
   }
 
-  async function handleGenerate(shouldPrint: boolean) {
-    if (selectedIds.size === 0) return;
+  async function handleGenerate(shouldPrint: boolean): Promise<boolean> {
+    if (selectedIds.size === 0) return false;
     const selected = cards.filter(c => selectedIds.has(c.id));
 
     if (shouldPrint && selected.some(c => c.impresa_at)) {
       const yaImpresas = selected.filter(c => c.impresa_at).length;
-      if (!await dialogConfirm(`${yaImpresas} factura(s) ya fueron impresas. ¿Reimprimir igual?`)) return;
+      if (!await dialogConfirm(`${yaImpresas} factura(s) ya fueron impresas. ¿Reimprimir igual?`)) return false;
     }
 
     const invoices = selected.map(c => ({
@@ -133,15 +133,16 @@
       endPdfTimer(genOk);
       generating = false;
     }
+    return true;
   }
 
-  async function handleSendToRemote() {
-    if (selectedIds.size === 0) return;
+  async function handleSendToRemote(): Promise<boolean> {
+    if (selectedIds.size === 0) return false;
     const selected = cards.filter(c => selectedIds.has(c.id));
 
     if (selected.some(c => c.impresa_at)) {
       const yaImpresas = selected.filter(c => c.impresa_at).length;
-      if (!await dialogConfirm(`${yaImpresas} factura(s) ya fueron impresas. ¿Reenviar a imprimir igual?`)) return;
+      if (!await dialogConfirm(`${yaImpresas} factura(s) ya fueron impresas. ¿Reenviar a imprimir igual?`)) return false;
     }
 
     const invoices = selected.map(c => ({
@@ -190,6 +191,7 @@
       endPdfTimer(genOk);
       generating = false;
     }
+    return true;
   }
 </script>
 
@@ -232,14 +234,14 @@
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-pdf" onclick={() => { handleGenerate(false); onClose(); }} disabled={selectedIds.size === 0 || generating}>
+        <button class="btn btn-pdf" onclick={async () => { if (await handleGenerate(false)) onClose(); }} disabled={selectedIds.size === 0 || generating}>
           {generating ? 'Generando...' : '📄 Ver PDF'}
         </button>
-        <button class="btn btn-print" onclick={() => { handleGenerate(true); onClose(); }} disabled={selectedIds.size === 0 || generating}>
+        <button class="btn btn-print" onclick={async () => { if (await handleGenerate(true)) onClose(); }} disabled={selectedIds.size === 0 || generating}>
           {generating ? 'Generando...' : '🖨 Imprimir'}
         </button>
         {#if appStore.activeStations.length > 0}
-          <button class="btn btn-remote" onclick={() => { handleSendToRemote(); onClose(); }} disabled={selectedIds.size === 0 || generating}>
+          <button class="btn btn-remote" onclick={async () => { if (await handleSendToRemote()) onClose(); }} disabled={selectedIds.size === 0 || generating}>
             {generating ? 'Generando...' : '📤 Enviar a sucursal'}
           </button>
         {/if}

@@ -592,6 +592,14 @@
           if (id) abrirEditarDireccionFactura(id);
         });
       }
+      const clienteDirBtns = popupEl.querySelectorAll('[data-action="editar-direccion-cliente"]');
+      for (const btn of clienteDirBtns) {
+        btn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const id = parseInt((ev.currentTarget as HTMLElement).dataset.id || '');
+          if (id) abrirEditarDireccionCliente(id);
+        });
+      }
     });
 
     await cargarDashboard();
@@ -834,7 +842,8 @@
   function clientePopupHtml(cliente: any) {
     const items: string[] = [];
     items.push(`<strong>${cliente.nombre}</strong>`);
-    items.push(`<span style="color:var(--text-secondary);">${cliente.domicilio ?? ''}</span>`);
+    const dir = (cliente.domicilio || '').trim();
+    items.push(`<button data-action="editar-direccion-cliente" data-id="${cliente.id}" title="Editar dirección" style="display:inline-flex;align-items:flex-start;gap:4px;text-align:left;background:transparent;border:none;padding:0;cursor:pointer;font-family:sans-serif;font-size:13px;color:#6b7280;">📍 <span style="text-decoration:underline;text-decoration-style:dotted;">${dir || 'Sin dirección'}</span> ✏️</button>`);
     if (cliente.telefono) items.push(`&#128222; ${cliente.telefono}`);
     items.push(`<hr style="margin:6px 0;border-color:#eee;">`);
     items.push(`<span style="color:#9ca3af;font-size:11px;">Cliente sin facturas pendientes</span>`);
@@ -846,7 +855,8 @@
     items.push(`★ <strong>${cliente.nombre}</strong>`);
     if (grupoNombre) items.push(`<span style="color:#0d9488;font-weight:600;">Recomendado para: ${grupoNombre}</span>`);
     if (distKm != null) items.push(`<span style="color:var(--text-secondary);">A ${distKm.toFixed(2)} km de ${cercaDeNombre || 'la parada más cercana'}</span>`);
-    items.push(`<span style="color:var(--text-secondary);">${cliente.domicilio ?? ''}</span>`);
+    const dirRec = (cliente.domicilio || '').trim();
+    items.push(`<button data-action="editar-direccion-cliente" data-id="${cliente.id}" title="Editar dirección" style="display:inline-flex;align-items:flex-start;gap:4px;text-align:left;background:transparent;border:none;padding:0;cursor:pointer;font-family:sans-serif;font-size:13px;color:#6b7280;">📍 <span style="text-decoration:underline;text-decoration-style:dotted;">${dirRec || 'Sin dirección'}</span> ✏️</button>`);
     items.push(`<span style="color:#9ca3af;font-size:11px;">Cliente sin facturas pendientes (compró en los últimos 2 meses)</span>`);
     return `<div style="font-family:sans-serif;font-size:13px;min-width:200px;display:flex;flex-direction:column;gap:2px;">${items.join('')}</div>`;
   }
@@ -859,7 +869,7 @@
 
     const dir = domicilioFactura(factura);
     if (dir) {
-      items.push(`<span style="color:var(--text-secondary);">📍 ${dir}${factura.cliente_piso_depto ? ', ' + factura.cliente_piso_depto : ''}</span>`);
+      items.push(`<button data-action="editar-direccion" data-id="${factura.id}" title="Editar dirección" style="display:inline-flex;align-items:flex-start;gap:4px;text-align:left;background:transparent;border:none;padding:0;cursor:pointer;font-family:sans-serif;font-size:13px;color:#6b7280;">📍 <span style="text-decoration:underline;text-decoration-style:dotted;">${dir}${factura.cliente_piso_depto ? ', ' + factura.cliente_piso_depto : ''}</span> ✏️</button>`);
     }
     if (factura.cliente_telefono) items.push(`&#128222; ${factura.cliente_telefono}`);
 
@@ -885,7 +895,7 @@
       rows.push(`<strong style="font-size:14px;">${f.numero_factura}</strong> <span style="display:inline-block;background:${kanbanColor(f.estado_kanban)};color:#fff;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;margin-left:4px;line-height:1.5;">${kanbanText(f.estado_kanban)}</span>`);
       rows.push(`<span style="color:#374151;font-weight:500;">${f.cliente_nombre}</span>`);
       const dir = domicilioFactura(f);
-      if (dir) rows.push(`<span style="color:var(--text-secondary);">📍 ${dir}${f.cliente_piso_depto ? ', ' + f.cliente_piso_depto : ''}</span>`);
+      if (dir) rows.push(`<button data-action="editar-direccion" data-id="${f.id}" title="Editar dirección" style="display:inline-flex;align-items:flex-start;gap:4px;text-align:left;background:transparent;border:none;padding:0;cursor:pointer;font-family:sans-serif;font-size:13px;color:#6b7280;">📍 <span style="text-decoration:underline;text-decoration-style:dotted;">${dir}${f.cliente_piso_depto ? ', ' + f.cliente_piso_depto : ''}</span> ✏️</button>`);
       if (f.total) rows.push(`<span style="color:#059669;font-weight:600;">$${f.total.toLocaleString('es-AR')}</span>`);
       if (f.geocode_error) {
         rows.push(`<hr style="margin:6px 0;border-color:#fee2e2;">`);
@@ -1191,6 +1201,122 @@
     editDireccionFactura = null;
     appStore.pendingInvoiceId = facturaId;
     appStore.currentTab = 'facturacion';
+  }
+
+  // ── Editar dirección de cliente (edición rápida desde el popup) ──
+
+  let showEditDirClienteModal = $state(false);
+  let editDirCliente = $state<any>(null);
+  let editDirClienteValor = $state('');
+  let editDirClienteGuardando = $state(false);
+  let editDirClientePreviewCoords = $state<{ lat: number; lng: number } | null>(null);
+  let editDirClientePreviewError = $state('');
+  let editDirClientePreviewCargando = $state(false);
+
+  function abrirEditarDireccionCliente(clienteId: number) {
+    const c = clientesRecomendables.find((cc: any) => cc.id === clienteId)
+      ?? todosLosClientes.find((cc: any) => cc.id === clienteId);
+    if (!c) return;
+    editDirCliente = c;
+    editDirClienteValor = c.domicilio || '';
+    editDirClientePreviewCoords = null;
+    editDirClientePreviewError = '';
+    showEditDirClienteModal = true;
+    menuContextual = null;
+  }
+
+  function editDirClienteLimpia() {
+    return limpiarDireccion(editDirClienteValor);
+  }
+
+  async function probarGeocodificacionCliente() {
+    const dir = editDirClienteLimpia();
+    if (!dir.trim()) return;
+    editDirClientePreviewCargando = true;
+    editDirClientePreviewError = '';
+    editDirClientePreviewCoords = null;
+    try {
+      const url = nominatimSearchUrl(dir);
+      const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
+      const data = await res.json();
+      if (data.length > 0) {
+        editDirClientePreviewCoords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+        editDirClienteValor = formatearDireccionNominatim(data[0]);
+      } else {
+        editDirClientePreviewError = 'No se encontró la dirección. Revisá el código postal, el barrio o que diga CABA.';
+      }
+    } catch {
+      editDirClientePreviewError = 'Error de conexión al probar la ubicación.';
+    } finally {
+      editDirClientePreviewCargando = false;
+    }
+  }
+
+  async function guardarEditarDireccionCliente() {
+    const c = editDirCliente;
+    if (!c) return;
+    editDirClienteGuardando = true;
+    try {
+      // Estandarizar al formato corto (calle, barrio, CABA) si no se probó la ubicación
+      if (!editDirClientePreviewCoords && editDirClienteValor.trim()) {
+        try {
+          const url = nominatimSearchUrl(editDirClienteLimpia());
+          const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
+          const data = await res.json();
+          if (data.length > 0) editDirClienteValor = formatearDireccionNominatim(data[0]);
+        } catch {}
+      }
+      const valorFinal = editDirClienteValor.trim();
+
+      // Domicilio principal del cliente
+      await api.updateCliente(c.id, {
+        nombre: c.nombre,
+        domicilio: valorFinal,
+        telefono: c.telefono || '',
+        taller: c.taller || '',
+      });
+
+      // Dirección guardada (default o primera) para que el cambio persista
+      const addr = (c.addresses || []).find((a: any) => a.is_default) || (c.addresses || [])[0];
+      const lat = editDirClientePreviewCoords?.lat ?? null;
+      const lng = editDirClientePreviewCoords?.lng ?? null;
+      if (addr) {
+        try {
+          await api.updateAddress(c.id, addr.id, {
+            address: valorFinal,
+            extra: addr.extra || '',
+            label: addr.label || '',
+            is_default: !!addr.is_default,
+            lat,
+            lng,
+          });
+          addr.address = valorFinal;
+          if (lat != null && lng != null) { addr.lat = lat; addr.lng = lng; }
+        } catch {}
+      }
+
+      // Estado local + re-ubicación en el mapa
+      c.domicilio = valorFinal;
+      c.lat = null;
+      c.lng = null;
+      showEditDirClienteModal = false;
+      editDirCliente = null;
+
+      try {
+        const res = await api.geocodificarCliente(c.id);
+        if (res?.lat && res?.lng) { c.lat = res.lat; c.lng = res.lng; }
+      } catch (e: any) {
+        appStore.showToast('No se pudo ubicar la dirección: ' + (e?.message || e), 'error');
+      }
+
+      invalidarMapaBase();
+      renderizarMarcadores();
+      appStore.showToast('Dirección actualizada', 'success');
+    } catch (e: any) {
+      appStore.showToast('Error al guardar dirección: ' + (e?.message || e), 'error');
+    } finally {
+      editDirClienteGuardando = false;
+    }
   }
 
   // ── Edit cliente ──
@@ -2742,6 +2868,9 @@
       <button class="context-item" onclick={() => { const id = mcClienteId; menuContextual = null; geocodificarClienteEnMapa(id); }}>
         📍 Ubicar cliente
       </button>
+      <button class="context-item" onclick={() => abrirEditarDireccionCliente(mcClienteId)}>
+        ✏️ Editar dirección
+      </button>
       {#if cliente?.telefono}
         <button class="context-item" onclick={() => { const id = mcClienteId; menuContextual = null; copiarTelefono(clientePorId(id)?.telefono || ''); }}>
           📋 Copiar teléfono
@@ -2810,6 +2939,56 @@
         <button class="btn-secondary" onclick={() => { showEditDireccionModal = false; editDireccionFactura = null; if (volverAGeoTrasEditar) { showGeoModal = true; volverAGeoTrasEditar = false; } }}>Cancelar</button>
         <button class="btn-primary" onclick={guardarEditarDireccion} disabled={editDireccionGuardando || !editDireccionValor.trim()}>
           {editDireccionGuardando ? 'Guardando...' : '💾 Guardar y ubicar'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Modal editar dirección de cliente (edición rápida) -->
+{#if showEditDirClienteModal}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) { showEditDirClienteModal = false; editDirCliente = null; } }}>
+    <div class="modal edit-dir-modal">
+      <h3>✏️ Editar dirección</h3>
+      <p class="edit-dir-sub">{editDirCliente?.nombre}</p>
+
+      <span class="edit-dir-label">Dirección</span>
+      <AddressAutocomplete
+        value={editDirClienteValor}
+        placeholder="Ej: Av. Corrientes 1234, CABA"
+        onchange={(v: string) => { editDirClienteValor = v; editDirClientePreviewCoords = null; editDirClientePreviewError = ''; }}
+        onselect={(data: { label: string; lat: number; lng: number }) => {
+          editDirClienteValor = data.label;
+          editDirClientePreviewCoords = { lat: data.lat, lng: data.lng };
+          editDirClientePreviewError = '';
+        }}
+      />
+
+      {#if editDirClienteValor.trim() && editDirClienteLimpia() !== editDirClienteValor.trim()}
+        <div class="edit-dir-limpia">
+          <span class="edit-dir-limpia-label">🔍 Sin ruido:</span>
+          <span class="edit-dir-limpia-val">{editDirClienteLimpia()}</span>
+          <p class="edit-dir-limpia-note">Se eliminan: piso, depto, oficina, local, torre, etc.</p>
+        </div>
+      {/if}
+
+      <div class="edit-dir-actions-row">
+        <button class="btn-test-geo" onclick={probarGeocodificacionCliente} disabled={editDirClientePreviewCargando || !editDirClienteValor.trim()}>
+          {editDirClientePreviewCargando ? '⏳ Probando...' : '🔎 Probar ubicación'}
+        </button>
+      </div>
+
+      {#if editDirClientePreviewCoords}
+        <p class="edit-dir-ok">✅ Encontrado: {editDirClientePreviewCoords.lat.toFixed(5)}, {editDirClientePreviewCoords.lng.toFixed(5)}</p>
+      {:else if editDirClientePreviewError}
+        <p class="edit-dir-error">{editDirClientePreviewError}</p>
+      {/if}
+
+      <div class="edit-dir-footer">
+        <button class="btn-secondary" onclick={() => { showEditDirClienteModal = false; editDirCliente = null; }}>Cancelar</button>
+        <button class="btn-primary" onclick={guardarEditarDireccionCliente} disabled={editDirClienteGuardando || !editDirClienteValor.trim()}>
+          {editDirClienteGuardando ? 'Guardando...' : '💾 Guardar y ubicar'}
         </button>
       </div>
     </div>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
+  import Sortable from 'sortablejs';
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
@@ -52,7 +53,128 @@
   let editingReplyText = $state('');
   let savingReplyKey = $state<string | null>(null);
 
-  let taskSortRecentFirst = $state(true);
+  // Tareas como cards reordenables (SortableJS, 1 instancia por grupo)
+  type Task = { id: number; text: string; done: boolean; position: number; pinned: boolean; created_at?: string | null; assigned_by: string | null; images: TaskImageRef[]; reply_count?: number };
+  let savingOrder = $state(false);
+  const SORT_ANIMATION = 180;
+
+  // Orden automático (por fecha) vs manual (por position, drag & drop)
+  let taskAutoSort = $state(false);
+  function setAutoSort(v: boolean) {
+    taskAutoSort = v;
+    try { localStorage.setItem('panel_tasks_auto_sort', v ? '1' : '0'); } catch {}
+  }
+
+  const byPos = (a: Task, b: Task) => (a.position ?? 0) - (b.position ?? 0) || b.id - a.id;
+  const byRecent = (a: Task, b: Task) => {
+    const ta = a.created_at ?? null;
+    const tb = b.created_at ?? null;
+    if (ta && tb && ta !== tb) return tb.localeCompare(ta);
+    if (ta || tb) return tb ? 1 : -1;
+    return b.id - a.id;
+  };
+  const zoneSort = (list: Task[]) => [...list].sort(taskAutoSort ? byRecent : byPos);
+  let pinnedZone = $derived(zoneSort(tasks.filter(t => t.pinned)));
+  let pendingZone = $derived(zoneSort(tasks.filter(t => !t.pinned && !t.done)));
+  let doneZone = $derived(zoneSort(tasks.filter(t => !t.pinned && t.done)));
+
+  let pinnedZoneEl = $state<HTMLElement | null>(null);
+  let pendingZoneEl = $state<HTMLElement | null>(null);
+  let doneZoneEl = $state<HTMLElement | null>(null);
+  let zoneSortables: Sortable[] = [];
+  // Persiste el orden DOM actual de una zona (Sortable ya movió los nodos)
+  async function persistZoneOrder(zoneEl: HTMLElement) {
+    const inst = Sortable.get(zoneEl);
+    const ids = (inst ? inst.toArray() : []).map(Number).filter(n => !Number.isNaN(n));
+    if (ids.length === 0) return;
+    // Arrastrar implica orden manual
+    setAutoSort(false);
+    const prev = new Map(tasks.map(t => [t.id, t.position]));
+    const rank = new Map(ids.map((id, i) => [id, i]));
+    tasks = tasks.map(t => (rank.has(t.id) ? { ...t, position: rank.get(t.id)! * 1024 } : t));
+    savingOrder = true;
+    try {
+      for (const t of tasks as Task[]) {
+        if (prev.get(t.id) !== t.position && rank.has(t.id)) {
+          try { await api.updateTask(t.id, { position: t.position }); } catch {}
+        }
+      }
+    } finally {
+      savingOrder = false;
+      await loadTasks();
+    }
+  }
+
+  function setupZones() {
+    destroyZones();
+    const els = [pinnedZoneEl, pendingZoneEl, doneZoneEl];
+    els.forEach((el, zi) => {
+      if (!el) return;
+      zoneSortables.push(
+        new Sortable(el, {
+          group: { name: 'task-zone-' + zi, pull: false, put: false },
+          sort: true,
+          animation: SORT_ANIMATION,
+          easing: 'cubic-bezier(0.2, 1, 0.1, 1)',
+          handle: '.task-drag-handle',
+          draggable: '.task-card-wrap',
+          ghostClass: 'task-sortable-ghost',
+          chosenClass: 'task-sortable-chosen',
+          dragClass: 'task-sortable-drag',
+          // Sin fantasma nativo: la card (clonada) sigue al cursor
+          forceFallback: true,
+          fallbackOnBody: true,
+          fallbackTolerance: 5,
+          fallbackClass: 'task-sortable-fallback',
+          delay: 150,
+          delayOnTouchOnly: true,
+          scrollSensitivity: 60,
+          scrollSpeed: 8,
+          onEnd: (evt) => {
+            const from = evt.from as HTMLElement | null;
+            if (!from || evt.oldIndex === evt.newIndex) return;
+            void persistZoneOrder(from);
+          },
+        })
+      );
+    });
+  }
+
+  function destroyZones() {
+    for (const s of zoneSortables) {
+      try { s.destroy(); } catch {}
+    }
+    zoneSortables = [];
+  }
+
+  // Las zonas se desmontan al abrir la papelera: (re)crear cuando existan
+  $effect(() => {
+    void showTaskTrash;
+    void pinnedZoneEl;
+    void pendingZoneEl;
+    void doneZoneEl;
+    if (!showTaskTrash) setupZones();
+    else destroyZones();
+    return () => destroyZones();
+  });
+
+  // No arrastrar mientras se edita o se persiste el orden
+  $effect(() => {
+    const dis = editingTaskId !== null || savingOrder;
+    for (const s of zoneSortables) {
+      try { s.option('disabled', dis); } catch {}
+    }
+  });
+
+  function ensureTaskPositions() {
+    // Si el backend devuelve position 0/duplicados, inicializar por id para que el orden sea estable
+    const seen = new Set(tasks.map(t => t.position));
+    if (seen.size <= 1) {
+      const ordered = [...tasks].sort((a, b) => b.id - a.id);
+      ordered.forEach((t, i) => { t.position = (ordered.length - i) * 1024; });
+      tasks = [...tasks];
+    }
+  }
 
   let pinnedCount = $derived(tasks.filter(t => t.pinned).length);
   let sortedTasks = $derived([...tasks].sort((a, b) => {
@@ -60,27 +182,22 @@
     const bPinned = !!(b as any).pinned;
     if (aPinned !== bPinned) return Number(bPinned) - Number(aPinned);
     if (a.done !== b.done) return Number(a.done) - Number(b.done);
-    const ta = a.created_at ?? null;
-    const tb = b.created_at ?? null;
-    let cmp: number;
-    if (ta && tb && ta !== tb) cmp = tb.localeCompare(ta);
-    else if (ta || tb) cmp = tb ? 1 : -1;
-    else cmp = b.id - a.id;
-    return taskSortRecentFirst ? cmp : -cmp;
+    const pa = a.position ?? 0;
+    const pb = b.position ?? 0;
+    if (pa !== pb) return pa - pb;
+    return b.id - a.id;
   }));
   let sortedTrash = $derived([...trashTasks].sort((a, b) => {
     if (a.done !== b.done) return Number(a.done) - Number(b.done);
     const ta = (a as any).deleted_at ?? a.created_at ?? null;
     const tb = (b as any).deleted_at ?? b.created_at ?? null;
-    let cmp: number;
-    if (ta && tb && ta !== tb) cmp = tb.localeCompare(ta);
-    else cmp = b.id - a.id;
-    return taskSortRecentFirst ? cmp : -cmp;
+    if (ta && tb && ta !== tb) return tb.localeCompare(ta);
+    return b.id - a.id;
   }));
 
   async function loadTasks() {
     loadingTasks = true;
-    try { tasks = await api.listTasks(); } catch { tasks = []; }
+    try { tasks = await api.listTasks(); ensureTaskPositions(); } catch { tasks = []; }
     finally { loadingTasks = false; }
   }
   async function addTask() {
@@ -131,6 +248,53 @@
       await api.deleteTask(id);
       await loadTasks();
     } catch {}
+  }
+
+  async function moveTaskTo(fromId: number, toId: number, after: boolean) {
+    const order = sortedTasks.map(t => t.id);
+    const fromIdx = order.indexOf(fromId);
+    let toIdx = order.indexOf(toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const from = tasks.find(t => t.id === fromId);
+    const to = tasks.find(t => t.id === toId);
+    // No cruzar grupos fijados / hechos: el sort los separa y el drop parecería no hacer nada
+    if (!from || !to) return;
+    if (!!from.pinned !== !!to.pinned || from.done !== to.done) {
+      appStore.showToast('Solo puedes reordenar dentro del mismo grupo', 'error');
+      return;
+    }
+    order.splice(fromIdx, 1);
+    toIdx = order.indexOf(toId);
+    order.splice(after ? toIdx + 1 : toIdx, 0, fromId);
+    // Reordenar por teclado también implica orden manual
+    setAutoSort(false);
+    // Reasignar position según nuevo orden visible
+    const pos = new Map<number, number>();
+    order.forEach((id, i) => pos.set(id, (i + 1) * 1024));
+    const prev = new Map(tasks.map(t => [t.id, t.position]));
+    tasks = tasks.map(t => (pos.has(t.id) ? { ...t, position: pos.get(t.id)! } : t));
+    savingOrder = true;
+    try {
+      for (const [id, p] of pos) {
+        if (prev.get(id) !== p) {
+          try { await api.updateTask(id, { position: p }); } catch {}
+        }
+      }
+    } finally {
+      savingOrder = false;
+      await loadTasks();
+    }
+  }
+
+  function onTaskCardKey(e: KeyboardEvent, id: number) {
+    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+      e.preventDefault();
+      const order = sortedTasks.map(t => t.id);
+      const i = order.indexOf(id);
+      const j = i + (e.key === 'ArrowUp' ? -1 : 1);
+      if (i < 0 || j < 0 || j >= order.length) return;
+      void moveTaskTo(id, order[j], e.key === 'ArrowDown');
+    }
   }
 
   // ── Edición inline de tareas ──
@@ -1314,7 +1478,7 @@
   }
 
   onMount(() => {
-    try { const v = localStorage.getItem('panel_tasks_recent_first'); if (v !== null) taskSortRecentFirst = v !== 'false'; } catch {}
+    try { taskAutoSort = localStorage.getItem('panel_tasks_auto_sort') === '1'; } catch {}
     loadTasks();
     loadNotes();
     cacheStore.invalidate('mapa-base');
@@ -1347,7 +1511,7 @@
           <span class="card-title">LISTA DE TAREAS</span>
         </div>
         <div class="card-header-actions">
-          <button class="task-sort-btn" onclick={() => { taskSortRecentFirst = !taskSortRecentFirst; try{ localStorage.setItem('panel_tasks_recent_first', String(taskSortRecentFirst)); }catch{} }} title={taskSortRecentFirst ? 'Recientes arriba — cambiar a abajo' : 'Recientes abajo — cambiar a arriba'} aria-label="Cambiar orden">
+          <button class="task-sort-btn" class:active={taskAutoSort} onclick={() => setAutoSort(!taskAutoSort)} title={taskAutoSort ? 'Orden automático (recientes primero) — clic para orden manual' : 'Orden manual — clic para orden automático'} aria-label="Cambiar orden" aria-pressed={taskAutoSort}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="10" x2="12" y2="3"/><polyline points="8 7 12 3 16 7"/><line x1="12" y1="14" x2="12" y2="21"/><polyline points="8 17 12 21 16 17"/></svg>
           </button>
           <button class="foda-btn" onclick={() => showFoda = true} title="Análisis FODA" aria-label="Abrir análisis FODA">
@@ -1398,8 +1562,7 @@
           {/if}
         </div>
       {:else}
-        <div class="task-list">
-        {#each sortedTasks as task (task.id)}
+        {#snippet taskInner(task: Task)}
           {@const hasReplies = (task.reply_count ?? 0) > 0 || (taskReplies.get(task.id)?.length ?? 0) > 0}
           {@const rc = hasReplies ? (task.reply_count ?? taskReplies.get(task.id)?.length ?? 0) : 0}
           <div class="task-item" class:done={task.done} class:pinned={(task as any).pinned}>
@@ -1447,7 +1610,7 @@
                 <div class="task-thumbs">
                   {#each task.images as img}
                     <button class="task-thumb" onclick={() => openImagePreview(task.id, img.id, img.url)} aria-label="Ver imagen">
-                      <img src={img.url ?? api.getTaskImageViewUrl(task.id, img.id)} alt="" loading="lazy" />
+                      <img src={img.url ?? api.getTaskImageViewUrl(task.id, img.id)} alt="" loading="lazy" draggable="false" />
                       <span class="thumb-remove" onclick={(e) => { e.stopPropagation(); removeTaskImage(task.id, img.id); }} role="button" aria-label="Eliminar imagen">✕</span>
                     </button>
                   {/each}
@@ -1471,6 +1634,13 @@
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
             <button class="task-remove" onclick={() => removeTask(task.id)} aria-label="Eliminar tarea">✕</button>
+            <span
+              class="task-drag-handle"
+              title="Arrastrar para mover"
+              aria-label="Arrastrar para reordenar"
+              role="button"
+              tabindex="0"
+            >⠿</span>
           </div>
           {#if replyOpen.has(task.id)}
             <div class="task-thread">
@@ -1512,7 +1682,7 @@
                         <div class="task-thumbs">
                           {#each reply.images as img}
                             <button class="task-thumb" onclick={() => openReplyImage(task.id, reply.id, img.id, img.url)} aria-label="Ver imagen">
-                              <img src={img.url ?? api.getTaskReplyImageViewUrl(task.id, reply.id, img.id)} alt="" loading="lazy" />
+                              <img src={img.url ?? api.getTaskReplyImageViewUrl(task.id, reply.id, img.id)} alt="" loading="lazy" draggable="false" />
                               <span class="thumb-remove" onclick={(e)=>{e.stopPropagation(); removeReplyImage(task.id, reply.id, img.id);}} role="button" aria-label="Eliminar imagen">✕</span>
                             </button>
                           {/each}
@@ -1565,11 +1735,60 @@
               </div>
             </div>
           {/if}
-        {/each}
-        {#if tasks.length === 0}
-          <div class="task-empty">Sin tareas pendientes</div>
-        {/if}
-      </div>
+        {/snippet}
+        <div class="task-list">
+          <div class="task-zone" bind:this={pinnedZoneEl}>
+            {#each pinnedZone as task (task.id)}
+              <div
+                class="task-card-wrap"
+                class:done={task.done}
+                class:pinned={(task as any).pinned}
+                data-id={task.id}
+                role="listitem"
+                tabindex="0"
+                aria-label="Tarea, Alt más flechas para reordenar"
+                onkeydown={(e) => onTaskCardKey(e, task.id)}
+              >
+                {@render taskInner(task)}
+              </div>
+            {/each}
+          </div>
+          <div class="task-zone" bind:this={pendingZoneEl}>
+            {#each pendingZone as task (task.id)}
+              <div
+                class="task-card-wrap"
+                class:done={task.done}
+                class:pinned={(task as any).pinned}
+                data-id={task.id}
+                role="listitem"
+                tabindex="0"
+                aria-label="Tarea, Alt más flechas para reordenar"
+                onkeydown={(e) => onTaskCardKey(e, task.id)}
+              >
+                {@render taskInner(task)}
+              </div>
+            {/each}
+          </div>
+          <div class="task-zone" bind:this={doneZoneEl}>
+            {#each doneZone as task (task.id)}
+              <div
+                class="task-card-wrap"
+                class:done={task.done}
+                class:pinned={(task as any).pinned}
+                data-id={task.id}
+                role="listitem"
+                tabindex="0"
+                aria-label="Tarea, Alt más flechas para reordenar"
+                onkeydown={(e) => onTaskCardKey(e, task.id)}
+              >
+                {@render taskInner(task)}
+              </div>
+            {/each}
+          </div>
+          {#if tasks.length === 0}
+            <div class="task-empty">Sin tareas pendientes</div>
+          {/if}
+        </div>
     {/if}
     {#if pastedImageUrl}
       <div class="pasted-preview">
@@ -2254,10 +2473,10 @@
                   </div>
                 </div>
               {/each}
+              </div>
             </div>
-          </div>
-        {/if}
-      {/each}
+          {/if}
+        {/each}
     </div>
     </div>
   </div>
@@ -2410,6 +2629,7 @@
   .card-back-btn:hover { color: var(--text-primary, #111827); background: var(--bg-hover, #f3f4f6); }
   .task-sort-btn { flex-shrink:0; background:none; border:none; color:var(--text-muted, #9ca3af); padding:.143rem; border-radius:.214rem; display:flex; align-items:center; justify-content:center; cursor:pointer; transition:color .12s, background .12s; }
   .task-sort-btn:hover { color:var(--text-primary, #374151); background:var(--bg-hover, #f3f4f6); }
+  .task-sort-btn.active { color: #4f46e5; background: rgba(79,70,229,.1); }
   .foda-btn { flex-shrink:0; background:none; border:1px solid var(--border-light, #e5e7eb); color:var(--text-secondary, #4b5563); padding:.143rem .429rem; border-radius:1rem; display:flex; align-items:center; justify-content:center; gap:.25rem; cursor:pointer; font-size:.643rem; font-weight:700; letter-spacing:.03em; transition:color .12s, background .12s, border-color .12s; }
   .foda-btn:hover { color:#8b00b8; background:rgba(139,0,184,0.07); border-color:rgba(139,0,184,0.35); }
   .task-restore-btn {
@@ -2441,6 +2661,51 @@
     padding: 0 0.857rem;
     min-height: 0;
   }
+  /* Card contenedora (incluye hilo de respuestas) */
+  .task-card-wrap {
+    position: relative;
+    background: var(--bg-card, #fff);
+    border: 1px solid var(--border-light, #eef2f7);
+    border-radius: 0.6rem;
+    padding: 0.15rem 0.55rem 0.35rem;
+    margin: 0 0 0.45rem;
+    box-shadow: 0 1px 2px rgba(16,24,40,.05);
+    transition: box-shadow .15s, border-color .15s, transform .15s;
+  }
+  .task-card-wrap:last-child { margin-bottom: 0.25rem; }
+  .task-card-wrap.pinned { border-left: 2px solid rgba(245,158,11,.6); background: rgba(245,158,11,.04); }
+  .task-card-wrap.done { opacity: .75; }
+  /* SortableJS: placeholder en la lista + card elegida + clon en movimiento */
+  .task-sortable-ghost { opacity: .35; border-style: dashed; border-color: #93c5fd; background: rgba(59,130,246,.06); }
+  .task-sortable-chosen { border-color: #6366f1; box-shadow: 0 12px 28px rgba(16,24,40,.18); }
+  .task-sortable-fallback {
+    opacity: 1;
+    box-shadow: 0 18px 40px rgba(16,24,40,.25);
+    border-color: #6366f1;
+    transform: rotate(1.5deg) scale(1.03);
+    cursor: grabbing;
+    /* El clon copia las clases de la card: sin esto, el transition de
+       transform retrasa cada actualización y el clon persigue al cursor */
+    transition: none !important;
+  }
+  .task-drag-handle {
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 1px;
+    cursor: grab;
+    color: #9ca3af;
+    opacity: 0;
+    font-size: 0.95rem;
+    letter-spacing: -0.1em;
+    padding: 0 0.1rem;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
+  }
+  .task-card-wrap:hover .task-drag-handle,
+  .task-drag-handle:focus-visible { opacity: 1; }
+  .task-drag-handle:active { cursor: grabbing; color: #4f46e5; opacity: 1; }
+  @media (hover:none) { .task-drag-handle { opacity: .75; } }
   .task-item {
     display: flex;
     align-items: center;
@@ -2448,6 +2713,9 @@
     padding: 0.429rem 0;
     border-bottom: 1px solid var(--border-light, #f3f4f6);
   }
+  .task-card-wrap .task-item { border-bottom: none; padding: 0.35rem 0 0.3rem; }
+  .task-card-wrap .task-item.pinned { border-left: none; background: none; margin-left: 0; padding-left: 0; }
+  .task-card-wrap .task-thread { margin: 0.1rem 0 0.3rem 1.2rem; }
   .task-item:last-child { border-bottom: none; }
   .task-item.done .task-text { text-decoration: line-through; color: var(--text-muted, #9ca3af); }
   .task-check {

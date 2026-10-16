@@ -113,6 +113,66 @@
     scheduleSave();
   }
 
+  let menuKey = $state<QuadrantKey | null>(null);
+  let menuItem = $state<FodaItem | null>(null);
+  let menuPos = $state<{ x: number; y: number } | null>(null);
+  let editKey = $state<QuadrantKey | null>(null);
+  let editId = $state<number | null>(null);
+  let editText = $state('');
+
+  function autofocusEl(node: HTMLTextAreaElement) {
+    node.focus();
+    node.select();
+  }
+
+  function openItemMenu(key: QuadrantKey, it: FodaItem, e: MouseEvent) {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    menuKey = key;
+    menuItem = it;
+    menuPos = { x: r.right, y: r.bottom + 4 };
+  }
+
+  function closeItemMenu() {
+    menuKey = null;
+    menuItem = null;
+    menuPos = null;
+  }
+
+  function titleDe(key: QuadrantKey): string {
+    return QUADRANTS.find(q => q.key === key)?.title ?? '';
+  }
+
+  function openEditModal(key: QuadrantKey, it: FodaItem) {
+    editKey = key;
+    editId = it.id;
+    editText = it.texto;
+    closeItemMenu();
+  }
+
+  function closeEditModal() {
+    editKey = null;
+    editId = null;
+    editText = '';
+  }
+
+  function saveEditModal() {
+    if (editKey === null || editId === null) return;
+    const t = editText.trim();
+    const idx = items[editKey].findIndex(i => i.id === editId);
+    if (idx >= 0 && t && t !== items[editKey][idx].texto) {
+      const next = [...items[editKey]];
+      next[idx] = { ...next[idx], texto: t };
+      items[editKey] = next;
+      scheduleSave();
+    }
+    closeEditModal();
+  }
+
+  function deleteFromMenu(key: QuadrantKey, id: number) {
+    removeItem(key, id);
+    closeItemMenu();
+  }
+
   function totalCount() {
     return items.fortalezas.length + items.oportunidades.length + items.debilidades.length + items.amenazas.length;
   }
@@ -126,7 +186,10 @@
   }
 
   function handleEsc(e: KeyboardEvent) {
-    if (e.key === 'Escape') onclose();
+    if (e.key !== 'Escape') return;
+    if (editId !== null) { closeEditModal(); return; }
+    if (menuItem !== null) { closeItemMenu(); return; }
+    onclose();
   }
 
   function buildFodaHtml(): string {
@@ -264,8 +327,15 @@
     <ul>
       {#each items[q.key] as it (it.id)}
         <li>
-          <span>{it.texto}</span>
-          <button class="q-del" onclick={() => removeItem(q.key, it.id)} aria-label="Eliminar">✕</button>
+          <span class="q-text">{it.texto}</span>
+          <button
+            class="q-menu-btn"
+            onclick={(e) => openItemMenu(q.key, it, e)}
+            aria-label="Opciones"
+            title="Opciones"
+            aria-haspopup="menu"
+            aria-expanded={menuItem?.id === it.id}
+          >⋯</button>
         </li>
       {/each}
       {#if items[q.key].length === 0}
@@ -335,6 +405,38 @@
     {/if}
   </div>
 </div>
+
+{#if menuItem && menuKey && menuPos}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="q-menu-overlay" role="presentation" onclick={closeItemMenu}></div>
+  <div class="q-menu" role="menu" style="left:{menuPos.x}px;top:{menuPos.y}px;">
+    <button class="q-menu-item" role="menuitem" onclick={() => openEditModal(menuKey!, menuItem!)}>✏️ Editar</button>
+    <button class="q-menu-item q-menu-danger" role="menuitem" onclick={() => deleteFromMenu(menuKey!, menuItem!.id)}>🗑 Eliminar</button>
+  </div>
+{/if}
+
+{#if editId !== null && editKey !== null}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="q-edit-overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) closeEditModal(); }}>
+    <div class="q-edit-modal" role="dialog" aria-label="Editar elemento">
+      <div class="q-edit-modal-header">
+        <h3>Editar {titleDe(editKey)}</h3>
+        <button class="q-edit-modal-close" onclick={closeEditModal} aria-label="Cerrar">✕</button>
+      </div>
+      <textarea
+        class="q-edit-modal-text"
+        bind:value={editText}
+        rows="5"
+        use:autofocusEl
+        aria-label="Texto del elemento"
+      ></textarea>
+      <div class="q-edit-modal-actions">
+        <button class="btn-secondary" onclick={closeEditModal}>Cancelar</button>
+        <button class="btn-primary" onclick={saveEditModal} disabled={!editText.trim()}>Guardar</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .foda-overlay {
@@ -420,9 +522,68 @@
     border-radius: 0.4rem; padding: 0.3rem 0.5rem; font-size: 0.82rem;
   }
   .quad li span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .q-text { min-width: 0; overflow-wrap: anywhere; }
+  .q-menu-btn {
+    flex-shrink: 0; background: none; border: none; cursor: pointer;
+    color: var(--text-muted, #9ca3af); font-size: 1rem; line-height: 1;
+    padding: 0.1rem 0.35rem; border-radius: 0.3rem;
+  }
+  .q-menu-btn:hover { color: var(--text-primary, #111827); background: var(--bg-hover, #f3f4f6); }
+  .q-menu-overlay { position: fixed; inset: 0; z-index: 1200; }
+  .q-menu {
+    position: fixed; z-index: 1201; transform: translateX(-100%);
+    background: var(--bg-card, #fff); border: 1px solid var(--border-light, #e5e7eb);
+    border-radius: 0.45rem; box-shadow: 0 6px 20px rgba(0,0,0,0.18);
+    padding: 0.25rem; min-width: 9rem; display: flex; flex-direction: column; gap: 0.15rem;
+  }
+  .q-menu-item {
+    display: flex; align-items: center; gap: 0.45rem; text-align: left;
+    background: none; border: none; cursor: pointer;
+    padding: 0.4rem 0.55rem; border-radius: 0.35rem;
+    font-size: 0.82rem; color: var(--text-primary, #111827);
+  }
+  .q-menu-item:hover { background: var(--bg-hover, #f3f4f6); }
+  .q-menu-danger { color: #ef4444; }
+  .q-menu-danger:hover { background: rgba(239,68,68,0.08); }
+
+  .q-edit-overlay {
+    position: fixed; inset: 0; z-index: 1300; background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center; padding: 1rem;
+  }
+  .q-edit-modal {
+    background: var(--bg-card, #fff); color: var(--text-primary, #111827);
+    border-radius: 0.7rem; width: min(720px, 92vw); max-height: 88vh;
+    display: flex; flex-direction: column; box-shadow: 0 12px 48px rgba(0,0,0,0.28);
+  }
+  .q-edit-modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.9rem 1.1rem; border-bottom: 1px solid var(--border-light, #e5e7eb);
+  }
+  .q-edit-modal-header h3 { margin: 0; font-size: 1.05rem; }
+  .q-edit-modal-close {
+    background: none; border: none; cursor: pointer; font-size: 1rem;
+    color: var(--text-muted, #9ca3af); padding: 0.3rem 0.5rem; border-radius: 0.35rem;
+  }
+  .q-edit-modal-close:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
+  .q-edit-modal-text {
+    margin: 1rem 1.1rem 0; padding: 0.7rem 0.8rem; min-height: 12rem;
+    font-family: inherit; font-size: 0.95rem; line-height: 1.5;
+    border: 1px solid var(--border, #d0d3d9); border-radius: 0.5rem;
+    background: var(--bg-card, #fff); color: var(--text-primary, #111827);
+    resize: vertical; outline: none;
+  }
+  .q-edit-modal-text:focus { border-color: var(--border-focus, #2563eb); box-shadow: 0 0 0 0.2rem rgba(37,99,235,0.12); }
+  .q-edit-modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 1rem 1.1rem; }
+  .q-edit-modal-actions .btn-secondary {
+    padding: 0.5rem 1rem; background: var(--bg-hover, #f3f4f6); color: var(--text-secondary, #4b5563);
+    border: none; border-radius: 0.45rem; cursor: pointer; font-size: 0.9rem;
+  }
+  .q-edit-modal-actions .btn-primary {
+    padding: 0.5rem 1rem; background: var(--accent, #2563eb); color: #fff;
+    border: none; border-radius: 0.45rem; cursor: pointer; font-size: 0.9rem;
+  }
+  .q-edit-modal-actions .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
   .q-empty { color: var(--text-muted, #9ca3af); font-style: italic; font-size: 0.78rem; border-style: dashed; }
-  .q-del { background: none; border: none; cursor: pointer; color: var(--text-muted, #9ca3af); font-size: 0.75rem; padding: 0.1rem 0.3rem; border-radius: 0.3rem; }
-  .q-del:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
   .q-add { display: flex; gap: 0.35rem; }
   .q-add input {
     flex: 1; min-width: 0; padding: 0.4rem 0.55rem; font-size: 0.82rem;

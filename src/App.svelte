@@ -14,6 +14,7 @@
   import SettingsModal from '$lib/components/SettingsModal.svelte';
   import PreciosReferenciaModal from '$lib/components/PreciosReferenciaModal.svelte';
   import PricingRulesModal from '$lib/components/PricingRulesModal.svelte';
+  import EstimationRulesModal from '$lib/components/EstimationRulesModal.svelte';
   import PdfTimerWidget from '$lib/components/PdfTimerWidget.svelte';
   import UpdatePrompt from '$lib/components/UpdatePrompt.svelte';
 
@@ -60,6 +61,7 @@
     cacheStore.fetch('productos', () => api.listProductos(), 1800000).catch(() => {});
     cacheStore.fetch('pagos', () => api.listPagos(), 120000).catch(() => {});
     cacheStore.fetch('preciosReferencia', () => api.getPreciosReferencia(), 1800000).catch(() => {});
+    cacheStore.fetch('estimationRules', () => api.getEstimationRules(), 1800000).catch(() => {});
     // Purga automática de NO_CONFIRMADO >30 días (soft-delete a papelera, throttled 12h)
     // Fire-and-forget; no bloquea login. Usa backend si existe, si no fallback local.
     import('$lib/utils/purgeNoConfirmadas').then(m => m.purgeNoConfirmadasVencidas({ silent: false }).catch(() => {})).catch(() => {});
@@ -103,6 +105,9 @@
 {/if}
 {#if appStore.showPricingRules}
   <PricingRulesModal />
+{/if}
+{#if appStore.showEstimationRules}
+  <EstimationRulesModal />
 {/if}
 
 <style>

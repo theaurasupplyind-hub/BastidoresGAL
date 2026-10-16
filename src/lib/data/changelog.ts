@@ -1,4 +1,12 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.5.0': `Estimación oversize y cortes: nuevo modal "Estimación" en el menú (métodos perímetro / m2 / lineal mayor, k-vecinos, margen, redondeo, mínimo, desperdicio, tope y recargo oversize), con explicación paso a paso y sugerencias integradas en Facturación.
+Panel: tareas reordenables con drag & drop (SortableJS), orden manual vs automático por fecha, con persistencia de posición.
+Estadísticas: nueva pestaña "Entregas" con tiempos creación→entrega (promedio, mediana, p90, ≤7/≤15/>30 días), histograma, evolución mensual, por producto y por tipo de pedido (entelado, sin tela, pintura, rollo, otros) con subgrupos movibles.
+Precios de referencia: eliminar fila individual o todos (doble confirmación).
+Mapa: editar dirección del cliente desde el popup, con prueba de geocodificación y formato corto estandarizado.
+FODA: menú por ítem (Editar/Eliminar) con modal de edición.
+Kanban: badge verde "ENTREGADO".
+Impresión múltiple: ya no cierra el modal si cancelás la confirmación de reimpresión.`,
   '2.4.1': `Revisión de saldos: en la Ficha Semanal, las facturas entregadas con saldo parcial o pendiente se pueden enviar a revisión con un check.
 Panel: botón "Revisión" en la tarjeta de Actividad — lista los saldos en revisión con pago rápido en Efectivo, Otro medio (modal de pago) o No pagado (vuelve a la ficha).
 Ficha Semanal: la fecha junto a LISTO ahora es la fecha real de entrega.

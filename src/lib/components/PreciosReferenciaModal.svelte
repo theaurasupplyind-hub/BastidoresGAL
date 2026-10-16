@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { appStore } from '$lib/stores/appStore.svelte';
+  import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { api } from '$lib/api/client';
   import type { PrecioReferencia } from '$lib/types';
 
@@ -8,6 +9,8 @@
   let csvText: string = $state('');
   let preview: PrecioReferencia[] = $state([]);
   let importing = $state(false);
+  let deletingId: number | null = $state(null);
+  let deletingAll = $state(false);
   let message = $state('');
   let error = $state('');
 
@@ -82,6 +85,45 @@
     }
     importing = false;
   }
+
+  async function removeAll() {
+    if (rows.length === 0) return;
+    if (!confirm(`¿Eliminar LOS ${rows.length} precios de referencia? Esta acción no se puede deshacer.`)) return;
+    if (!confirm('Confirmá de nuevo: se borran todos los precios cargados.')) return;
+    deletingAll = true;
+    error = '';
+    message = '';
+    try {
+      const res = await api.deleteAllPreciosReferencia();
+      rows = [];
+      cacheStore.invalidate('preciosReferencia');
+      message = `Eliminados: ${res.deleted} precios`;
+    } catch (e) {
+      error = `${String(e)} — si es 404/405, el backend aún no expone el borrado`;
+    } finally {
+      deletingAll = false;
+    }
+  }
+  async function removeRow(r: PrecioReferencia) {
+    if (r.id == null) {
+      error = 'Esa fila no trae id: recargá el modal e intentá de nuevo';
+      return;
+    }
+    if (!confirm(`¿Eliminar "${r.categoria} ${r.medida} ${r.variante}" ($${(r.precio || 0).toLocaleString('es-AR')})?`)) return;
+    deletingId = r.id;
+    error = '';
+    message = '';
+    try {
+      await api.deletePrecioReferencia(r.id);
+      rows = rows.filter(x => x.id !== r.id);
+      cacheStore.invalidate('preciosReferencia');
+      message = 'Precio eliminado';
+    } catch (e) {
+      error = `${String(e)} — si es 404/405, el backend aún no expone el borrado`;
+    } finally {
+      deletingId = null;
+    }
+  }
 </script>
 
 {#if appStore.showPreciosRef}
@@ -148,7 +190,12 @@
 
         {#if rows.length > 0}
           <hr />
-          <p class="status">Actualmente: <b>{rows.length}</b> precios cargados</p>
+          <div class="status-row">
+            <p class="status">Actualmente: <b>{rows.length}</b> precios cargados</p>
+            <button class="del-all-btn" onclick={removeAll} disabled={deletingAll}>
+              {deletingAll ? 'Eliminando…' : '🗑 Eliminar todos'}
+            </button>
+          </div>
           <div class="table-wrap mini">
             <table>
               <thead>
@@ -157,6 +204,7 @@
                   <th>Medida</th>
                   <th>Variante</th>
                   <th>Precio</th>
+                  <th></th>
                 </tr>
               </thead>
               <tbody>
@@ -166,6 +214,14 @@
                     <td>{r.medida}</td>
                     <td>{r.variante || '-'}</td>
                     <td class="num">${r.precio?.toLocaleString('es-AR')}</td>
+                    <td class="act">
+                      <button
+                        class="del-btn"
+                        onclick={() => removeRow(r)}
+                        disabled={deletingId === r.id}
+                        title={`Eliminar ${r.categoria} ${r.medida} ${r.variante || ''}`}
+                      >{deletingId === r.id ? '…' : '✕'}</button>
+                    </td>
                   </tr>
                 {/each}
               </tbody>
@@ -211,12 +267,28 @@
   .err { color: #c0392b; font-size: 0.857rem; margin: 0.571rem 0; }
   .ok { color: #27ae60; font-size: 0.857rem; margin: 0.571rem 0; }
   .status { font-size: 0.857rem; color: var(--text-secondary); margin: 0.571rem 0; }
+  .status-row { display: flex; justify-content: space-between; align-items: center; gap: 0.571rem; }
+  .status-row .status { margin: 0.571rem 0; }
+  .del-all-btn {
+    border: 1px solid #f0c9c9; background: #fef2f2; color: #c0392b; cursor: pointer;
+    font-size: 0.786rem; font-weight: 600; padding: 0.357rem 0.714rem; border-radius: 0.357rem;
+    white-space: nowrap;
+  }
+  .del-all-btn:hover:not(:disabled) { background: #fde8e8; }
+  .del-all-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .table-wrap { max-height: 21rem; overflow-y: auto; margin: 0.571rem 0; border: 0.071rem solid var(--border); border-radius: 0.286rem; }
   .table-wrap.mini { max-height: 14rem; }
   table { width: 100%; border-collapse: collapse; font-size: 0.857rem; }
   th { background: var(--bg-page); padding: 0.5rem 0.571rem; text-align: left; position: sticky; top: 0; font-weight: 600; color: var(--text-secondary); }
   td { padding: 0.357rem 0.571rem; border-bottom: 0.071rem solid var(--border-light); }
   .num { text-align: right; white-space: nowrap; }
+  .act { text-align: right; width: 2.2rem; }
+  .del-btn {
+    border: none; background: none; cursor: pointer; color: var(--text-muted);
+    font-size: 0.85rem; padding: 0.143rem 0.357rem; border-radius: 0.286rem;
+  }
+  .del-btn:hover:not(:disabled) { color: #e74c3c; background: #fef2f2; }
+  .del-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .more { font-size: 0.786rem; color: var(--text-muted); text-align: center; margin: 0.286rem 0; }
   hr { border: none; border-top: 0.071rem solid var(--border-light); margin: 0.857rem 0; }
   .btn { padding: 0.571rem 1.143rem; border-radius: 0.357rem; border: none; cursor: pointer; font-size: 0.929rem; font-weight: 600; }

@@ -877,7 +877,9 @@
             {#if card.fecha_entrega}
               <span class="badge badge-fecha">📅 {formatFechasCard(card)}</span>
             {/if}
-            {#if getUrgencia(card)}
+            {#if card.estado_kanban === 'ENTREGADO'}
+              <span class="badge badge-entregado">✓ ENTREGADO</span>
+            {:else if getUrgencia(card)}
               <span class="badge badge-urgencia" style="background: {getUrgencia(card)!.bg}; color: {getUrgencia(card)!.color};">{getUrgencia(card)!.label}</span>
             {/if}
             {#if card.impresa_at}
@@ -1762,6 +1764,10 @@
   .badge-fecha {
     background: var(--bg-hover);
     color: var(--text-secondary);
+  }
+  .badge-entregado {
+    background: #16a34a;
+    color: #fff;
   }
 
   /* === Legend Popover === */

@@ -549,6 +549,12 @@ export const api = {
   importPreciosReferencia: (rows: import('$lib/types').PrecioReferencia[]) =>
     request<{ status: string; imported: number }>('POST', '/precios-referencia/import', { rows }, 15),
 
+  deletePrecioReferencia: (id: number) =>
+    request<{ status: string }>('DELETE', `/precios-referencia/${id}`, undefined, 10),
+
+  deleteAllPreciosReferencia: () =>
+    request<{ status: string; deleted: number }>('DELETE', '/precios-referencia', undefined, 15),
+
   // ---- Pricing Rules ----
   getPricingRules: () =>
     handleResponse(request<import('$lib/types').PricingRule[]>('GET', '/pricing-rules', undefined, 10), []),
@@ -561,6 +567,19 @@ export const api = {
 
   deletePricingRule: (id: number) =>
     request<{ status: string }>('DELETE', `/pricing-rules/${id}`),
+
+  // ---- Estimation Rules (oversize / cortes desde otra referencia) ----
+  getEstimationRules: () =>
+    handleResponse(request<import('$lib/types').EstimationRule[]>('GET', '/estimation-rules', undefined, 10), []),
+
+  saveEstimationRule: (data: import('$lib/types').EstimationRulePayload) =>
+    request<import('$lib/types').EstimationRule>('POST', '/estimation-rules', data, 10),
+
+  updateEstimationRule: (id: number, data: import('$lib/types').EstimationRulePayload) =>
+    request<import('$lib/types').EstimationRule>('PUT', `/estimation-rules/${id}`, data, 10),
+
+  deleteEstimationRule: (id: number) =>
+    request<{ status: string }>('DELETE', `/estimation-rules/${id}`),
 
   // ---- Expenses ----
   listExpenseCategories: () =>

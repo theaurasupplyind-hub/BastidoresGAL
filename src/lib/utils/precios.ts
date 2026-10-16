@@ -1,4 +1,5 @@
-import type { PrecioReferencia, Producto, PricingRule, ParsedQuery, RuleCondition } from '$lib/types';
+import type { PrecioReferencia, Producto, PricingRule, ParsedQuery, RuleCondition, EstimationRule } from '$lib/types';
+import { normalizeEstimationParams } from '$lib/types';
 
 export interface PriceSuggestion {
   description: string;
@@ -28,12 +29,31 @@ function extractDims(text: string): Set<string> {
   const dims = new Set<string>();
   let m;
   while ((m = dimRegex.exec(text)) !== null) {
-    const d1 = parseFloat(m[1].replace(',', '.'));
-    const d2 = parseFloat(m[2].replace(',', '.'));
-    const sorted = [Math.min(d1, d2), Math.max(d1, d2)];
+    const r1 = parseFloat(m[1].replace(',', '.'));
+    const r2 = parseFloat(m[2].replace(',', '.'));
+    const [c1, c2] = toCmPair(r1, r2);
+    const sorted = [Math.min(c1, c2), Math.max(c1, c2)];
     dims.add(`${sorted[0]}x${sorted[1]}`);
   }
   return dims;
+}
+
+// ── Normalizador mixto m/cm ──
+// "1,5 x 3" (ambos <12) → metros → 150x300 cm.
+// "1,5 x 300" (uno <12, otro >50) → mixto → 150x300 cm.
+// "150 x 300" → ya cm, se deja igual.
+export function toCmPair(d1: number, d2: number): [number, number] {
+  if (!Number.isFinite(d1) || !Number.isFinite(d2)) return [d1, d2];
+  if (d1 < 12 && d2 < 12) return [Math.round(d1 * 100), Math.round(d2 * 100)];
+  if (d1 < 12 && d2 > 50) return [Math.round(d1 * 100), Math.round(d2)];
+  if (d2 < 12 && d1 > 50) return [Math.round(d1), Math.round(d2 * 100)];
+  return [d1, d2];
+}
+
+export function wasAutoConvertedToCm(d1: number, d2: number): boolean {
+  if (d1 < 12 && d2 < 12) return true;
+  if ((d1 < 12 && d2 > 50) || (d2 < 12 && d1 > 50)) return true;
+  return false;
 }
 
 export function getBaseAndDims(text: string): { base: string; dims: Set<string> } {
@@ -50,9 +70,10 @@ export function parseQuery(query: string): ParsedQuery {
   let dims: string[] = [];
   let grosor: number | null = null;
   if (m) {
-    const d1 = parseFloat(m[1].replace(',', '.'));
-    const d2 = parseFloat(m[2].replace(',', '.'));
-    dims.push(`${Math.min(d1, d2)}x${Math.max(d1, d2)}`);
+    const r1 = parseFloat(m[1].replace(',', '.'));
+    const r2 = parseFloat(m[2].replace(',', '.'));
+    const [c1, c2] = toCmPair(r1, r2);
+    dims.push(`${Math.min(c1, c2)}x${Math.max(c1, c2)}`);
     if (m[3] !== undefined) {
       grosor = parseFloat(m[3].replace(',', '.'));
     }
@@ -616,7 +637,7 @@ function nearestStandard(val: number, standards: number[]): number {
   return best;
 }
 
-// ── Cálculo de precio estimado por perímetro ──
+// ── Cálculo de precio estimado por perímetro (legacy: 5 vecinos, redondeo 1000/400) ──
 
 function calcPriceByPerimeter(
   dimSmall: number, dimLarge: number,
@@ -650,9 +671,273 @@ function calcPriceByPerimeter(
   }
 }
 
+// ── Estimación configurable (tabla estimation_rules) ──
+
+export interface EstimationPoolItem {
+  product: Producto;
+  dimSmall: number;
+  dimLarge: number;
+}
+
+function parseAxB(medida: string): { s: number; l: number } | null {
+  const norm = normalizeText(medida || '');
+  const p = norm.match(/(\d+(?:[.,]\d+)?)x(\d+(?:[.,]\d+)?)/);
+  if (!p) return null;
+  const r1 = parseFloat(p[1].replace(',', '.'));
+  const r2 = parseFloat(p[2].replace(',', '.'));
+  const [c1, c2] = toCmPair(r1, r2);
+  return { s: Math.min(c1, c2), l: Math.max(c1, c2) };
+}
+
+function filterEstimationPool(
+  products: Producto[],
+  refCategoria: string,
+  refVariante: string,
+  refMedida: string,
+): EstimationPoolItem[] {
+  const cat = (refCategoria || '').trim().toUpperCase();
+  const vari = (refVariante || '').trim().toUpperCase();
+  const out: EstimationPoolItem[] = [];
+  for (const p of products) {
+    if (cat && (p.categoria || '').toUpperCase() !== cat) continue;
+    if (vari && (p.variante || '').toUpperCase() !== vari) continue;
+    const md = parseAxB(p.medida || '');
+    if (!md) continue;
+    if (p.precio_unitario <= 0) continue;
+    out.push({ product: p, dimSmall: md.s, dimLarge: md.l });
+  }
+  const fixed = parseAxB(refMedida || '');
+  if (fixed) {
+    const exact = out.filter(o => o.dimSmall === fixed.s && o.dimLarge === fixed.l);
+    if (exact.length > 0) return exact;
+  }
+  return out;
+}
+
+function applyEstimationPost(
+  raw: number,
+  ladoMayorCm: number,
+  params: ReturnType<typeof normalizeEstimationParams>,
+): number {
+  let price = raw;
+  if (params.desperdicio_pct) price += price * params.desperdicio_pct / 100;
+  if (params.margen_pct) price += price * params.margen_pct / 100;
+  const tope = params.tope_lado_mayor ?? 300;
+  if (tope != null && ladoMayorCm > tope && params.recargo_oversize_pct) {
+    price += price * params.recargo_oversize_pct / 100;
+  }
+  price = Math.round(price);
+  if (params.minimo && price < params.minimo) price = params.minimo;
+  if (params.rounding) price = roundPrice(price, params.rounding);
+  return price;
+}
+
+export function calcPerimetroConfigurable(
+  dimSmall: number, dimLarge: number,
+  pool: EstimationPoolItem[],
+  rawParams?: Partial<import('$lib/types').EstimationParams>,
+): number | null {
+  const params = normalizeEstimationParams(rawParams ?? {});
+  const valid = pool.filter(pd => pd.product.precio_unitario > 0);
+  if (valid.length === 0) return null;
+  const queryPerimeter = 2 * (dimSmall + dimLarge);
+  const k = Math.max(1, Math.min(20, params.k_vecinos ?? 5));
+  const closest = [...valid]
+    .map(pd => ({ ...pd, diff: Math.abs(2 * (pd.dimSmall + pd.dimLarge) - queryPerimeter) }))
+    .sort((a, b) => a.diff - b.diff)
+    .slice(0, k);
+  let total = 0;
+  for (const pd of closest) {
+    total += pd.product.precio_unitario / (2 * (pd.dimSmall + pd.dimLarge));
+  }
+  const rawPrice = (total / closest.length) * queryPerimeter;
+  return applyEstimationPost(rawPrice, Math.max(dimSmall, dimLarge), params);
+}
+
+export function calcAreaM2(
+  dimSmall: number, dimLarge: number,
+  pool: EstimationPoolItem[],
+  rawParams?: Partial<import('$lib/types').EstimationParams>,
+): number | null {
+  const params = normalizeEstimationParams(rawParams ?? {});
+  let precioM2: number | null = params.precio_m2_manual ?? null;
+  if (precioM2 == null) {
+    const ratios: number[] = [];
+    for (const pd of pool) {
+      const area = (pd.dimSmall * pd.dimLarge) / 10000;
+      if (area > 0 && pd.product.precio_unitario > 0) ratios.push(pd.product.precio_unitario / area);
+    }
+    if (ratios.length === 0) return null;
+    precioM2 = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+  }
+  if (!precioM2 || precioM2 <= 0) return null;
+  const areaQuery = (dimSmall * dimLarge) / 10000;
+  return applyEstimationPost(areaQuery * precioM2, Math.max(dimSmall, dimLarge), params);
+}
+
+export function calcLinealMayor(
+  dimSmall: number, dimLarge: number,
+  pool: EstimationPoolItem[],
+  rawParams?: Partial<import('$lib/types').EstimationParams>,
+): number | null {
+  const params = normalizeEstimationParams(rawParams ?? {});
+  let precioM: number | null = params.precio_m_lineal_manual ?? null;
+  if (precioM == null) {
+    const ratios: number[] = [];
+    for (const pd of pool) {
+      const largoM = Math.max(pd.dimSmall, pd.dimLarge) / 100;
+      if (largoM > 0 && pd.product.precio_unitario > 0) ratios.push(pd.product.precio_unitario / largoM);
+    }
+    if (ratios.length === 0) return null;
+    precioM = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+  }
+  if (!precioM || precioM <= 0) return null;
+  const largoQueryM = Math.max(dimSmall, dimLarge) / 100;
+  return applyEstimationPost(largoQueryM * precioM, Math.max(dimSmall, dimLarge), params);
+}
+
+export function estimationMatchesQuery(parsed: ParsedQuery, rule: EstimationRule): string | null {
+  return ruleMatchScore(parsed, { matchTokens: rule.matchTokens, name: rule.name } as PricingRule).matched;
+}
+
+/** Evalúa todas las reglas de estimación que matcheen el query.
+ *  Devuelve {first, last}: primero = oversize (supera el tope), resto al final. */
+export function evaluateAllEstimations(
+  query: string,
+  dimSmall: number,
+  dimLarge: number,
+  products: Producto[],
+  estimationRules?: EstimationRule[],
+): { first: PriceSuggestion[]; last: PriceSuggestion[] } {
+  const first: PriceSuggestion[] = [];
+  const last: PriceSuggestion[] = [];
+  if (!estimationRules || estimationRules.length === 0) return { first, last };
+  const parsedEst = parseQuery(query);
+  const sortedRules = [...estimationRules]
+    .filter(r => r.enabled)
+    .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0));
+  for (const er of sortedRules) {
+    if (!estimationMatchesQuery(parsedEst, er)) continue;
+    // Solo estimar si hay pool de la ref pedida; si no, se salta en silencio.
+    const sug = evaluateEstimationRule(dimSmall, dimLarge, products, er);
+    if (!sug) continue;
+    const tope = normalizeEstimationParams(er.params ?? {}).tope_lado_mayor ?? 300;
+    if (isOversize(dimSmall, dimLarge, tope)) first.push(sug);
+    else last.push(sug);
+  }
+  return { first, last };
+}
+
+const fmtAR = (n: number): string => `$${Math.round(n).toLocaleString('es-AR')}`;
+const fmtM2 = (n: number): string => n.toLocaleString('es-AR', { maximumFractionDigits: 2 });
+
+/** Desglose paso a paso en lenguaje simple para mostrar en el modal.
+ *  Ej: ["Medida: 150×300 cm = 4,5 m²", "Ref ROLLO 2×5: $197.000 / 10 m² = $19.700/m²", ...] */
+export function explainEstimationRule(
+  dimSmall: number, dimLarge: number,
+  products: Producto[],
+  rule: EstimationRule,
+): { suggestion: PriceSuggestion | null; steps: string[] } {
+  const suggestion = evaluateEstimationRule(dimSmall, dimLarge, products, rule);
+  const steps: string[] = [];
+  const params = normalizeEstimationParams(rule.params ?? {});
+  const pool = filterEstimationPool(products, rule.refCategoria, rule.refVariante, rule.refMedida);
+  const ladoMayor = Math.max(dimSmall, dimLarge);
+  const areaQuery = (dimSmall * dimLarge) / 10000;
+  steps.push(`Medida pedida: ${dimSmall}×${dimLarge} cm = ${fmtM2(areaQuery)} m² (lado mayor ${ladoMayor} cm)`);
+  if (pool.length === 0) {
+    steps.push(`Sin datos: no hay referencia ${[rule.refCategoria, rule.refVariante, rule.refMedida].filter(Boolean).join(' ') || '(vacía)'}`);
+    return { suggestion, steps };
+  }
+  if (rule.method === 'area_m2') {
+    let precioM2 = params.precio_m2_manual ?? null;
+    if (precioM2 == null) {
+      const ratios = pool.map(pd => pd.product.precio_unitario / (((pd.dimSmall * pd.dimLarge) / 10000) || 1));
+      precioM2 = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+      const ref = pool[0];
+      steps.push(`Precio base: ${ref.product.categoria} ${ref.product.medida} a ${fmtAR(ref.product.precio_unitario)} → ${fmtAR(precioM2)}/m²`);
+    } else {
+      steps.push(`Precio base manual: ${fmtAR(precioM2)}/m²`);
+    }
+    let price = areaQuery * (precioM2 || 0);
+    steps.push(`Base: ${fmtM2(areaQuery)} m² × ${fmtAR(precioM2 || 0)} = ${fmtAR(price)}`);
+    if (params.desperdicio_pct) { price += price * params.desperdicio_pct / 100; steps.push(`+ Desperdicio ${params.desperdicio_pct}% (recortes) = ${fmtAR(price)}`); }
+    if (params.margen_pct) { price += price * params.margen_pct / 100; steps.push(`+ Ganancia ${params.margen_pct}% = ${fmtAR(price)}`); }
+    const tope = params.tope_lado_mayor ?? 300;
+    if (tope != null && ladoMayor > tope && params.recargo_oversize_pct) {
+      price += price * params.recargo_oversize_pct / 100;
+      steps.push(`Pasa el tope (${ladoMayor} > ${tope} cm): +${params.recargo_oversize_pct}% = ${fmtAR(price)} → va PRIMERO`);
+    } else {
+      steps.push(`No pasa el tope (${ladoMayor} ≤ ${tope ?? 300} cm): sin recargo`);
+    }
+    if (params.minimo && price < params.minimo) { price = params.minimo; steps.push(`Mínimo: se cobra ${fmtAR(price)}`); }
+    if (params.rounding) steps.push(`Redondeo a ${fmtAR(params.rounding)} = ${fmtAR(suggestion?.price ?? price)}`);
+  } else if (rule.method === 'lineal_mayor') {
+    let precioM = params.precio_m_lineal_manual ?? null;
+    if (precioM == null) {
+      const ratios = pool.map(pd => pd.product.precio_unitario / ((Math.max(pd.dimSmall, pd.dimLarge) / 100) || 1));
+      precioM = ratios.reduce((a, b) => a + b, 0) / ratios.length;
+      steps.push(`Precio base desde ref: ${fmtAR(precioM)}/metro lineal`);
+    } else {
+      steps.push(`Precio base manual: ${fmtAR(precioM)}/metro lineal`);
+    }
+    const largoM = ladoMayor / 100;
+    let price = largoM * (precioM || 0);
+    steps.push(`Base: ${fmtM2(largoM)} m × ${fmtAR(precioM || 0)} = ${fmtAR(price)}`);
+    if (params.desperdicio_pct) { price += price * params.desperdicio_pct / 100; steps.push(`+ Desperdicio ${params.desperdicio_pct}% = ${fmtAR(price)}`); }
+    if (params.margen_pct) { price += price * params.margen_pct / 100; steps.push(`+ Ganancia ${params.margen_pct}% = ${fmtAR(price)}`); }
+    const tope = params.tope_lado_mayor ?? 300;
+    if (tope != null && ladoMayor > tope && params.recargo_oversize_pct) {
+      price += price * params.recargo_oversize_pct / 100;
+      steps.push(`Pasa el tope (${ladoMayor} > ${tope} cm): +${params.recargo_oversize_pct}% = ${fmtAR(price)} → va PRIMERO`);
+    }
+    if (params.minimo && price < params.minimo) { price = params.minimo; steps.push(`Mínimo: se cobra ${fmtAR(price)}`); }
+    if (params.rounding) steps.push(`Redondeo a ${fmtAR(params.rounding)} = ${fmtAR(suggestion?.price ?? price)}`);
+  } else {
+    steps.push(`Método por perímetro: promedia el precio por cm de perímetro de las ${params.k_vecinos ?? 5} referencias más cercanas`);
+    if (params.margen_pct) steps.push(`+ Ganancia ${params.margen_pct}%`);
+    const tope = params.tope_lado_mayor ?? 300;
+    if (tope != null && ladoMayor > tope && params.recargo_oversize_pct) steps.push(`Pasa el tope (${ladoMayor} > ${tope} cm): +${params.recargo_oversize_pct}% → va PRIMERO`);
+    if (params.rounding) steps.push(`Redondeo a ${fmtAR(params.rounding)} = ${fmtAR(suggestion?.price ?? 0)}`);
+  }
+  return { suggestion, steps };
+}
+
+export function evaluateEstimationRule(
+  dimSmall: number, dimLarge: number,
+  products: Producto[],
+  rule: EstimationRule,
+): PriceSuggestion | null {
+  if (!rule.enabled) return null;
+  const params = normalizeEstimationParams(rule.params ?? {});
+  const pool = filterEstimationPool(products, rule.refCategoria, rule.refVariante, rule.refMedida);
+  if (pool.length === 0) return null;
+  let price: number | null = null;
+  if (rule.method === 'area_m2') price = calcAreaM2(dimSmall, dimLarge, pool, params);
+  else if (rule.method === 'lineal_mayor') price = calcLinealMayor(dimSmall, dimLarge, pool, params);
+  else price = calcPerimetroConfigurable(dimSmall, dimLarge, pool, params);
+  if (price == null || price <= 0) return null;
+  const refLabel = [rule.refCategoria, rule.refVariante, rule.refMedida].filter(Boolean).join(' ');
+  return {
+    description: rule.name,
+    price,
+    basedOn: `${rule.name} → ${refLabel || 'refs'} (${rule.method})`,
+    suggested: false,
+    estimated: true,
+  };
+}
+
+// Tope: si el lado mayor supera el tope de la regla (o 300 por defecto),
+// el estimado va primero.
+export function isOversize(dimSmall: number, dimLarge: number, tope?: number | null): boolean {
+  const t = tope ?? 300;
+  if (t == null) return false;
+  return Math.max(dimSmall, dimLarge) > t;
+}
+
 // ── Sugerencia de precio para medidas personalizadas ──
 
-export function suggestPrice(query: string, products: Producto[], rules?: PricingRule[]): PriceSuggestion[] {
+export function suggestPrice(query: string, products: Producto[], rules?: PricingRule[], estimationRules?: EstimationRule[]): PriceSuggestion[] {
   const { base, dims } = getBaseAndDims(query);
   if (dims.size === 0) return [];
 
@@ -770,7 +1055,11 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
   }
 
   if (productsWithDims.length === 0) {
-    if (result.length > 0) return result;
+    // Las estimaciones configurables usan su propia referencia (ej: ROLLO),
+    // así que se evalúan aunque no haya pool por nombre ("corte tela").
+    const estOnly = evaluateAllEstimations(query, dimSmall, dimLarge, products, estimationRules);
+    const combined = [...estOnly.first, ...result, ...estOnly.last];
+    if (combined.length > 0) return combined;
     return [{
       description: query,
       price: 0,
@@ -783,9 +1072,7 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
 
   const roundedSmall = roundDim(dimSmall);
   const roundedLarge = roundDim(dimLarge);
-
-  const slPriority = (desc: string): boolean =>
-    /(?:^|[ (])[SL][a-záéíóúñ]{2,}/i.test(desc);
+  const targetPerimeter = 2 * (roundedSmall + roundedLarge);
 
   // Token relevance: word-start (do->doble) vale más que substring dentro de otra palabra (bastidor contiene do)
   const tokenScore = (queryBase: string, desc: string): number => {
@@ -804,55 +1091,63 @@ export function suggestPrice(query: string, products: Producto[], rules?: Pricin
     return score;
   };
 
-  const exactMatches = productsWithDims
-    .filter(pd => pd.dimSmall === roundedSmall && pd.dimLarge === roundedLarge)
-    .sort((a, b) => {
-      const sa = tokenScore(base, a.product.descripcion);
-      const sb = tokenScore(base, b.product.descripcion);
-      if (sa !== sb) return sb - sa;
-      const aPrio = slPriority(a.product.descripcion) ? 0 : 1;
-      const bPrio = slPriority(b.product.descripcion) ? 0 : 1;
-      return aPrio - bPrio;
-    });
+  // Identidad de variante: usa el campo `variante` del producto; si falta, cae
+  // al texto de la descripción sin medidas (para no fusionar productos distintos).
+  const dimsReKey = /\d+(?:[.,]\d+)?\s*[xX×]\s*\d+(?:[.,]\d+)?(?:\s*[xX×]\s*\d+(?:[.,]\d+)?)?/g;
+  const variantKey = (p: Producto): string => {
+    const v = (p.variante || '').trim();
+    if (v) return normalizeText(v);
+    return normalizeText((p.descripcion || '').replace(dimsReKey, ' '));
+  };
 
-  if (exactMatches.length > 0) {
-    result = [...exactMatches.map(pd => ({
-      description: query,
-      price: pd.product.precio_unitario,
-      basedOn: pd.product.descripcion,
-      suggested: true,
-    })), ...result];
-  } else {
-    const targetPerimeter = 2 * (roundedSmall + roundedLarge);
-    const sorted = [...productsWithDims].sort((a, b) => {
-      const sa = tokenScore(base, a.product.descripcion);
-      const sb = tokenScore(base, b.product.descripcion);
-      if (sa !== sb) return sb - sa;
-      const aPrio = slPriority(a.product.descripcion) ? 0 : 1;
-      const bPrio = slPriority(b.product.descripcion) ? 0 : 1;
-      if (aPrio !== bPrio) return aPrio - bPrio;
-      const da = Math.abs(2 * (a.dimSmall + a.dimLarge) - targetPerimeter);
-      const db = Math.abs(2 * (b.dimSmall + b.dimLarge) - targetPerimeter);
-      return da - db;
-    });
-
-    result = [...sorted.slice(0, 8).map(pd => ({
-      description: query,
-      price: pd.product.precio_unitario,
-      basedOn: pd.product.descripcion,
-      suggested: true,
-    })), ...result];
+  // Quedarse con el mejor producto por variante: exacto primero, luego mayor
+  // relevancia de tokens, luego perímetro más cercano. Así aparecen TODAS las
+  // variantes una sola vez (Lienzo Profesional, Sin Tela, Lona Preparada,
+  // Doble 4cm, …) sin repetir la misma variante en distintas medidas.
+  const bestByVariant = new Map<string, { product: Producto; score: number; exact: boolean; diff: number }>();
+  for (const pd of productsWithDims) {
+    const key = variantKey(pd.product);
+    const exact = pd.dimSmall === roundedSmall && pd.dimLarge === roundedLarge;
+    const score = tokenScore(base, pd.product.descripcion);
+    const diff = Math.abs(2 * (pd.dimSmall + pd.dimLarge) - targetPerimeter);
+    const cur = bestByVariant.get(key);
+    const better = !cur
+      || (exact && !cur.exact)
+      || (exact === cur.exact && score > cur.score)
+      || (exact === cur.exact && score === cur.score && diff < cur.diff);
+    if (better) bestByVariant.set(key, { product: pd.product, score, exact, diff });
   }
+
+  const ordered = [...bestByVariant.values()].sort((a, b) => {
+    if (a.score !== b.score) return b.score - a.score;
+    if (a.exact !== b.exact) return a.exact ? -1 : 1;
+    return a.diff - b.diff;
+  });
+
+  result = [...ordered.map(v => ({
+    description: query,
+    price: v.product.precio_unitario,
+    basedOn: v.product.descripcion,
+    suggested: true,
+  })), ...result];
 
   const estimated = calcPriceByPerimeter(dimSmall, dimLarge, productsWithDims);
   if (estimated !== null) {
-    result.push({
+    const legacySug: PriceSuggestion = {
       description: query,
       price: estimated,
       suggested: false,
       estimated: true,
-    });
+    };
+    // Si supera el tope (300 por defecto), el estimado va primero.
+    if (isOversize(dimSmall, dimLarge, 300)) result.unshift(legacySug);
+    else result.push(legacySug);
   }
+
+  // ── Estimaciones configurables (tabla estimation_rules) ──
+  // Van primero si hay oversize respecto a su tope, si no al final.
+  const est = evaluateAllEstimations(query, dimSmall, dimLarge, products, estimationRules);
+  result = [...est.first, ...result, ...est.last];
 
   if (result.length === 0) {
     return [{

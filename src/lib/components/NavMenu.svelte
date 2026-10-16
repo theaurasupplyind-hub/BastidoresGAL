@@ -52,6 +52,7 @@
           { icon: 'trash', label: 'Papelera', desc: 'Restaurar o eliminar registros', active: cur === 'papelera', action: () => go('papelera') },
           { icon: 'printer', label: 'Impresión', desc: 'Estaciones y agente de impresión', active: cur === 'print-agent', action: () => go('print-agent') },
           { icon: 'rules', label: 'Reglas', desc: 'Reglas de precios', active: false, action: () => { appStore.showPricingRules = true; close(); } },
+          { icon: 'rules', label: 'Estimación', desc: 'Estimación oversize y cortes', active: false, action: () => { appStore.showEstimationRules = true; close(); } },
         ],
       },
       {

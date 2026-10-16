@@ -2,7 +2,9 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import { facturasActivas } from '$lib/utils/facturas';
+  import { facturasActivas, diasDemoraEntrega, diaEntregaFactura, normalizarProducto, mediana, percentil, clasificarTipoPedido, baseAgrupada, TIPOS_PEDIDO } from '$lib/utils/facturas';
+  import type { TipoPedido } from '$lib/utils/facturas';
+  import { formatEntregadoAt } from '$lib/types';
   import type { Factura, Cliente } from '$lib/types';
   import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, LineController, LineElement, PointElement } from 'chart.js';
   import ChartDataLabels from 'chartjs-plugin-datalabels';
@@ -49,6 +51,8 @@
   Chart.register(monthSectionPlugin);
 
   let loading = $state(false);
+  type EstTab = 'ventas' | 'entregas';
+  let activeTab = $state<EstTab>('ventas');
 
   let startDate = $state('');
   let endDate = $state('');
@@ -68,6 +72,54 @@
 
   let topClientes = $state<{ cliente: string; total: number; unidades: number }[]>([]);
   let topProductos = $state<{ producto: string; total: number; unidades: number }[]>([]);
+
+  // ── Tiempos de entrega (tab Entregas) ──
+  // Nota perf: el dataset crudo vive en $state.raw (sin proxy profundo) y el
+  // cálculo es single-pass O(n). La key de caché NO empieza con 'facturas' para
+  // que los invalidate('facturas') del resto de la app no la borren.
+  interface EntregaRow { id: number; numero: string; cliente: string; fecha: string; entregado: string; dias: number | null; itemsN: number; valida: boolean; }
+  interface ProdDemora { producto: string; display: string; facturas: number; unidades: number; prom: number; med: number | null; p90: number | null; }
+  interface TipoDemoraDetalle { key: string; display: string; facturas: number; unidades: number; prom: number | null; med: number | null; quitado: boolean; manual: boolean; auto: TipoPedido; }
+  interface TipoDemora { key: TipoPedido; label: string; hint: string; facturas: number; solo: number; unidades: number; prom: number | null; med: number | null; p90: number | null; detalle: TipoDemoraDetalle[]; }
+  interface MesEntrega { key: string; label: string; n: number; prom: number | null; med: number | null; }
+  const ENTREGAS_CACHE_KEY = 'entregas-anual-v1';
+  const ENTREGAS_LIMIT = 3000;
+  let entregasCache = $state.raw<Factura[]>([]);
+  let entregasLoaded = $state(false);
+  let entregasLoading = $state(false);
+  let entregasError = $state('');
+  let entregasTruncada = $state(false);
+  let entregasRows = $state<EntregaRow[]>([]);
+  let entregasKpi = $state({ n: 0, prom: null as number | null, med: null as number | null, p90: null as number | null, le7: 0, le15: 0, gt30: 0, pendientes: 0, invalidas: 0, pctLe7: 0 });
+  let entregasBuckets = $state<{ label: string; n: number; pct: number }[]>([]);
+  let entregasMensual = $state<MesEntrega[]>([]);
+  let entregasProductos = $state<ProdDemora[]>([]);
+  let entregasTipos = $state<TipoDemora[]>([]);
+  let tiposExpand = $state<Record<string, boolean>>({});
+  // Ajustes manuales por subgrupo: base-key → tipo destino o '__quitar' (excluir).
+  // Persisten en localStorage de esta máquina.
+  const TIPOS_OV_KEY = 'ent_tipos_overrides_v1';
+  function loadTiposOverrides(): Record<string, TipoPedido | '__quitar'> {
+    try { return JSON.parse(localStorage.getItem(TIPOS_OV_KEY) || '{}'); } catch { return {}; }
+  }
+  let tiposOverrides = $state<Record<string, TipoPedido | '__quitar'>>(loadTiposOverrides());
+  function saveTiposOverrides() {
+    try { localStorage.setItem(TIPOS_OV_KEY, JSON.stringify(tiposOverrides)); } catch {}
+  }
+  function moverSubgrupo(key: string, v: string, auto: TipoPedido) {
+    if (v === auto) delete tiposOverrides[key];
+    else tiposOverrides[key] = v as TipoPedido | '__quitar';
+    saveTiposOverrides();
+    buildEntregasView();
+  }
+  function revertirSubgrupo(key: string) {
+    delete tiposOverrides[key];
+    saveTiposOverrides();
+    buildEntregasView();
+  }
+  let entregasMinN = $state(3);
+  let entregasSort = $state<'prom' | 'facturas'>('prom');
+  let entregasMinNTimer: ReturnType<typeof setTimeout> | null = null;
 
   let clientes = $state<Cliente[]>([]);
   let totalClientes = $state(0);
@@ -318,6 +370,226 @@
     clientesActivos = new Set(
       filteredFacturas.map(f => f.cliente_id).filter((x): x is number => x != null)
     ).size;
+    // En tab entregas el dataset ya está en memoria: solo refiltrar (sin fetch).
+    if (activeTab === 'entregas' && entregasLoaded) buildEntregasView();
+  }
+
+  async function switchTab(t: EstTab) {
+    activeTab = t;
+    if (t !== 'entregas') return;
+    if (!entregasLoaded && !entregasLoading) await loadEntregas();
+    else if (entregasLoaded) buildEntregasView();
+  }
+
+  async function loadEntregas(force = false) {
+    if (entregasLoading) return;
+    entregasLoading = true;
+    entregasError = '';
+    try {
+      if (force) cacheStore.invalidate(ENTREGAS_CACHE_KEY);
+      // 3000 con items (antes 10000): suficiente para el anual y no cuelga Render.
+      // Sin filtro de fechas en backend: la cohorte es por entregado_at y se filtra en cliente.
+      const all = await cacheStore.fetch(ENTREGAS_CACHE_KEY, () => api.listFacturas({ limit: ENTREGAS_LIMIT, with_items: true }), 300000);
+      entregasCache = facturasActivas(all);
+      entregasTruncada = all.length >= ENTREGAS_LIMIT;
+      entregasLoaded = true;
+      buildEntregasView();
+    } catch (e) {
+      console.error('Error cargando entregas:', e);
+      entregasError = (e as Error)?.message || 'Error al cargar entregas';
+    } finally {
+      entregasLoading = false;
+    }
+  }
+
+  function onMinNInput() {
+    if (entregasMinNTimer) clearTimeout(entregasMinNTimer);
+    entregasMinNTimer = setTimeout(() => { if (entregasLoaded) buildEntregasView(); }, 400);
+  }
+
+  function setEntregasSort(s: 'prom' | 'facturas') {
+    if (entregasSort === s) return;
+    entregasSort = s;
+    if (entregasLoaded) buildEntregasView();
+  }
+
+  // Single-pass O(n): una sola recorrida calcula filas + mensual + productos.
+  // Sin base.find() (era O(n²)) y sin re-parsear la misma factura 3 veces.
+  function buildEntregasView() {
+    const base = entregasCache.length ? entregasCache : facturas;
+    const s = parseDate(startDate);
+    const e = parseDate(endDate);
+    e.setHours(23, 59, 59);
+    s.setHours(0, 0, 0, 0);
+
+    const rows: EntregaRow[] = [];
+    const vals: number[] = [];
+    const mMap = new Map<string, number[]>();
+    const pMap = new Map<string, { display: string; facturas: Set<number>; unidades: number; dias: number[] }>();
+    const tMap = new Map<TipoPedido, { facturas: Set<number>; solo: number; unidades: number; dias: number[]; det: Map<string, { display: string; facturas: Set<number>; unidades: number; dias: number[]; quitado?: boolean; auto?: TipoPedido }> }>();
+    let pendientes = 0;
+    let invalidas = 0;
+
+    for (const f of base) {
+      const isEnt = (f.estado_entrega || 'PENDIENTE') === 'ENTREGADO';
+      if (!isEnt) {
+        const fd = parseDate(f.fecha);
+        if (fd >= s && fd <= e) pendientes++;
+        continue;
+      }
+      // Cohorte por fecha de ENTREGA real
+      const dEnt = diaEntregaFactura(f);
+      if (!dEnt) { invalidas++; continue; }
+      if (dEnt < s || dEnt > e) continue;
+      const dias = diasDemoraEntrega(f);
+      if (dias === null) { invalidas++; continue; }
+      vals.push(dias);
+      const mKey = `${dEnt.getFullYear()}-${String(dEnt.getMonth() + 1).padStart(2, '0')}`;
+      let marr = mMap.get(mKey);
+      if (!marr) { marr = []; mMap.set(mKey, marr); }
+      marr.push(dias);
+      const items = f.items || [];
+      const tiposEnFactura = new Set<TipoPedido>();
+      for (const it of items) {
+        const key = normalizarProducto(it.descripcion);
+        let g = pMap.get(key);
+        if (!g) { g = { display: (it.descripcion || 'Sin descripción').trim(), facturas: new Set(), unidades: 0, dias: [] }; pMap.set(key, g); }
+        g.facturas.add(f.id);
+        g.unidades += it.cantidad || 0;
+        g.dias.push(dias);
+        // Tipo híbrido por item (variante detectada + fallback keywords),
+        // con override manual por subgrupo (mover de grupo o quitar del cálculo)
+        const bg = baseAgrupada(it.descripcion);
+        const ov = tiposOverrides[bg.key];
+        const auto = clasificarTipoPedido(it.descripcion);
+        if (ov === '__quitar') {
+          // Quitado: no suma a ningún promedio, pero queda visible para restaurar
+          let tm0 = tMap.get(auto);
+          if (!tm0) { tm0 = { facturas: new Set(), solo: 0, unidades: 0, dias: [], det: new Map() }; tMap.set(auto, tm0); }
+          let dd0 = tm0.det.get(bg.key);
+          if (!dd0) {
+            const nd0 = { display: bg.display, facturas: new Set<number>(), unidades: 0, dias: [] as number[], quitado: true as boolean, auto };
+            tm0.det.set(bg.key, nd0);
+            dd0 = nd0;
+          }
+          dd0.quitado = true;
+          dd0.facturas.add(f.id);
+          dd0.unidades += it.cantidad || 0;
+        } else {
+          const tipo = ov ?? auto;
+          tiposEnFactura.add(tipo);
+          let tm = tMap.get(tipo);
+          if (!tm) { tm = { facturas: new Set(), solo: 0, unidades: 0, dias: [], det: new Map() }; tMap.set(tipo, tm); }
+          tm.facturas.add(f.id);
+          tm.unidades += it.cantidad || 0;
+          tm.dias.push(dias);
+          // Coincidencia: sub-grupo sin medidas ("Bastidor 50x70 Lienzo Profesional" → "Lienzo Profesional")
+          let dd = tm.det.get(bg.key);
+          if (!dd) {
+            const nd = { display: bg.display, facturas: new Set<number>(), unidades: 0, dias: [] as number[], quitado: false as boolean, auto };
+            tm.det.set(bg.key, nd);
+            dd = nd;
+          }
+          dd.facturas.add(f.id);
+          dd.unidades += it.cantidad || 0;
+          dd.dias.push(dias);
+        }
+      }
+      // Factura exclusiva de un solo tipo → no contaminada por mixtas
+      if (tiposEnFactura.size === 1) {
+        const unico = [...tiposEnFactura][0];
+        if (unico !== undefined) {
+          const tmU = tMap.get(unico);
+          if (tmU) tmU.solo++;
+        }
+      }
+      rows.push({
+        id: f.id,
+        numero: f.numero_factura || f.numero_presupuesto || `#${f.id}`,
+        cliente: f.cliente_nombre || 'Desconocido',
+        fecha: f.fecha || '',
+        entregado: formatEntregadoAt(f.entregado_at) || '',
+        dias,
+        itemsN: items.length,
+        valida: true,
+      });
+    }
+    rows.sort((a, b) => (b.dias ?? -1) - (a.dias ?? -1));
+    entregasRows = rows;
+    const prom = vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+    const med = mediana(vals);
+    const p90v = percentil(vals, 90);
+    const le7 = vals.filter(v => v <= 7).length;
+    const le15 = vals.filter(v => v <= 15).length;
+    const gt30 = vals.filter(v => v > 30).length;
+    entregasKpi = {
+      n: vals.length, prom, med, p90: p90v, le7, le15, gt30,
+      pendientes, invalidas,
+      pctLe7: vals.length ? (le7 / vals.length) * 100 : 0,
+    };
+
+    // Histograma en una pasada sobre vals ya calculado (6 buckets chicos)
+    const bCounts = [0, 0, 0, 0, 0, 0];
+    for (const v of vals) {
+      if (v <= 3) bCounts[0]++;
+      else if (v <= 7) bCounts[1]++;
+      else if (v <= 15) bCounts[2]++;
+      else if (v <= 30) bCounts[3]++;
+      else if (v <= 60) bCounts[4]++;
+      else bCounts[5]++;
+    }
+    const bLabels = ['0–3 días', '4–7 días', '8–15 días', '16–30 días', '31–60 días', '60+ días'];
+    entregasBuckets = bLabels.map((label, i) => ({ label, n: bCounts[i], pct: vals.length ? (bCounts[i] / vals.length) * 100 : 0 }));
+
+    entregasMensual = Array.from(mMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([key, arr]) => {
+        const [y, m] = key.split('-');
+        const d = new Date(parseInt(y), parseInt(m) - 1, 1);
+        return {
+          key,
+          label: `${monthName(d)} ${y.slice(2)}`,
+          n: arr.length,
+          prom: arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null,
+          med: mediana(arr),
+        };
+      });
+
+    const minN = Math.max(1, entregasMinN || 1);
+    const prods: ProdDemora[] = [];
+    for (const [producto, g] of pMap) {
+      if (g.facturas.size < minN) continue;
+      const promP = g.dias.reduce((a, b) => a + b, 0) / g.dias.length;
+      prods.push({ producto, display: g.display, facturas: g.facturas.size, unidades: g.unidades, prom: promP, med: mediana(g.dias), p90: percentil(g.dias, 90) });
+    }
+    prods.sort((a, b) => entregasSort === 'prom' ? b.prom - a.prom : b.facturas - a.facturas);
+    entregasProductos = prods.slice(0, 50);
+
+    // Promedio por tipo (orden fijo: entelado, sin tela, pintura, rollo, otros)
+    entregasTipos = TIPOS_PEDIDO.map(t => {
+      const g = tMap.get(t.key);
+      if (!g || g.facturas.size === 0) {
+        return { key: t.key, label: t.label, hint: t.hint, facturas: 0, solo: 0, unidades: 0, prom: null, med: null, p90: null, detalle: [] };
+      }
+      const detalle: TipoDemoraDetalle[] = [...g.det.entries()]
+        .map(([key, d]) => ({
+          key, display: d.display, facturas: d.facturas.size, unidades: d.unidades,
+          prom: d.dias.length ? d.dias.reduce((a, b) => a + b, 0) / d.dias.length : null,
+          med: mediana(d.dias),
+          quitado: d.quitado === true,
+          manual: (tiposOverrides[key] ?? null) !== null && tiposOverrides[key] !== '__quitar',
+          auto: d.auto ?? 'otros' as TipoPedido,
+        }))
+        .sort((a, b) => Number(a.quitado) - Number(b.quitado) || b.facturas - a.facturas)
+        .slice(0, 30);
+      return {
+        key: t.key, label: t.label, hint: t.hint,
+        facturas: g.facturas.size, solo: g.solo, unidades: g.unidades,
+        prom: g.dias.reduce((a, b) => a + b, 0) / g.dias.length,
+        med: mediana(g.dias), p90: percentil(g.dias, 90),
+        detalle,
+      };
+    });
   }
 
   function computeKpis(current: Factura[]) {
@@ -803,6 +1075,15 @@
     </button>
   </div>
 
+  <div class="est-tabs" role="tablist" aria-label="Secciones de estadísticas">
+    <button role="tab" aria-selected={activeTab === 'ventas'} class="est-tab" class:active={activeTab === 'ventas'} onclick={() => switchTab('ventas')}>📊 Ventas</button>
+    <button role="tab" aria-selected={activeTab === 'entregas'} class="est-tab" class:active={activeTab === 'entregas'} onclick={() => switchTab('entregas')}>🚚 Tiempos de entrega</button>
+    {#if rangeDays > 0}
+      <span class="range-info">{rangeDays}d · cohorte por entrega real</span>
+    {/if}
+  </div>
+
+  {#if activeTab === 'ventas'}
   <div class="est-kpis">
     {#if kpis.length > 0}
       <div class="kpi-card">
@@ -1150,6 +1431,214 @@
       </div>
     </div>
   </div>
+  {:else}
+  <!-- ── TAB ENTREGAS: reemplaza la pantalla ── -->
+  <div class="ent-kpis">
+    <div class="kpi-card kpi-main" title="Suma de todas las demoras dividida por la cantidad de entregas">
+      <span class="kpi-label">Promedio de entrega</span>
+      <span class="kpi-value">{entregasKpi.prom != null ? entregasKpi.prom.toFixed(1) + ' d' : '—'}</span>
+      <span class="kpi-sub">{entregasKpi.n} entregadas · media aritmética</span>
+    </div>
+    <div class="kpi-card" title="Si ordenás todas las demoras de menor a mayor, es el valor del medio: la mitad de los pedidos se entregó en menos tiempo que este">
+      <span class="kpi-label">Pedido típico (mediana)</span>
+      <span class="kpi-value">{entregasKpi.med != null ? entregasKpi.med.toFixed(1) + ' d' : '—'}</span>
+      <span class="kpi-sub">la mitad tardó menos que esto</span>
+    </div>
+    <div class="kpi-card" title="Solo 1 de cada 10 pedidos tarda más que este valor">
+      <span class="kpi-label">Peor 10% (más de)</span>
+      <span class="kpi-value">{entregasKpi.p90 != null ? entregasKpi.p90.toFixed(0) + ' d' : '—'}</span>
+      <span class="kpi-sub">9 de cada 10 se entregan antes</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Entregadas ≤ 7 días</span>
+      <span class="kpi-value">{entregasKpi.pctLe7.toFixed(1)}%</span>
+      <span class="kpi-sub">{entregasKpi.le7} de {entregasKpi.n} · ≤15d: {entregasKpi.le15}</span>
+    </div>
+    <div class="kpi-card">
+      <span class="kpi-label">Lentas &gt; 30 días</span>
+      <span class="kpi-value">{entregasKpi.gt30}</span>
+      <span class="kpi-sub">Pendientes: {entregasKpi.pendientes} · Inválidas: {entregasKpi.invalidas}</span>
+    </div>
+  </div>
+  <p class="rec-note">Cómo leerlo: <strong>Promedio</strong> = media de todas las demoras (es la cifra de referencia). <strong>Pedido típico</strong> = la mitad de los pedidos se entregó en menos tiempo que ese valor (no lo mueven los casos extremos). <strong>Peor 10%</strong> = solo 1 de cada 10 pedidos tarda más que eso.</p>
+
+  {#if entregasLoading}
+    <div class="chart-empty">Cargando tiempos de entrega…</div>
+  {:else if entregasError && !entregasLoaded}
+    <div class="chart-empty">⚠️ {entregasError} <button class="btn btn-sm btn-primary" onclick={() => loadEntregas(true)}>Reintentar</button></div>
+  {:else if !entregasLoaded}
+    <div class="chart-empty">Cargando…</div>
+  {:else}
+  {#if entregasTruncada}
+    <p class="rec-note">⚠️ Se alcanzó el tope de {ENTREGAS_LIMIT} facturas: el anual puede estar incompleto. Achicá el rango de fechas.</p>
+  {/if}
+  <div class="ent-grid">
+    <div class="est-monthly">
+      <h3>Distribución de demoras</h3>
+      {#if entregasBuckets.length === 0 || entregasKpi.n === 0}
+        <div class="chart-empty">Sin entregas en el período</div>
+      {:else}
+        <div class="bucket-list">
+          {#each entregasBuckets as b}
+            <div class="bucket-row">
+              <span class="bucket-label">{b.label}</span>
+              <div class="bucket-bar"><div class="bucket-fill" style="width: {b.pct}%"></div></div>
+              <span class="bucket-n">{b.n} · {b.pct.toFixed(1)}%</span>
+            </div>
+          {/each}
+        </div>
+      {/if}
+    </div>
+
+    <div class="est-monthly">
+      <h3>Promedio mensual (por fecha de entrega)</h3>
+      {#if entregasMensual.length === 0}
+        <div class="chart-empty">Sin datos</div>
+      {:else}
+        <div class="est-table-wrap">
+          <table class="est-table">
+            <thead><tr><th>Mes</th><th class="td-r">Entregadas</th><th class="td-r" title="Media aritmética del mes">Promedio</th><th class="td-r" title="La mitad de los pedidos del mes se entregó en menos tiempo que este valor">Típico</th></tr></thead>
+            <tbody>
+              {#each entregasMensual as m}
+                <tr>
+                  <td class="monthly-month">{m.label}</td>
+                  <td class="td-r">{m.n}</td>
+                  <td class="td-r">{m.prom != null ? m.prom.toFixed(1) + ' d' : '—'}</td>
+                  <td class="td-r">{m.med != null ? m.med.toFixed(1) + ' d' : '—'}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <div class="est-monthly">
+    <div class="rec-head">
+      <h3>Promedio por tipo de pedido</h3>
+    </div>
+    <p class="rec-note">Cada item se clasifica por su variante (lienzo/lona/doble/sin tela…) y si no hay variante por palabras clave (rollo, pintura, bastidor). Una factura mixta suma su demora a cada tipo presente; <strong>Solo</strong> = facturas exclusivas de ese tipo. ▸ en <strong>cada tipo despliega sus subgrupos sin medidas (ej. Lienzo Profesional, Doble 4cm). En <strong>Ajuste</strong> podés mover un subgrupo a otro grupo o quitarlo del cálculo (↩ vuelve al automático); los cambios se guardan en esta máquina.</p>
+    {#if entregasTipos.every(t => t.facturas === 0)}
+      <div class="chart-empty">Sin entregas en el período</div>
+    {:else}
+      <div class="est-table-wrap">
+        <table class="est-table">
+          <thead><tr><th>Tipo</th><th class="td-r">Facturas</th><th class="td-r" title="Facturas que traen solo este tipo">Solo</th><th class="td-r">Unid.</th><th class="td-r" title="Media aritmética: la cifra de referencia">Promedio</th><th class="td-r" title="La mitad de los pedidos de este tipo se entregó en menos tiempo">Típico</th><th class="td-r" title="Solo 1 de cada 10 pedidos de este tipo tarda más que esto">Peor 10%</th><th>Ajuste</th></tr></thead>
+          <tbody>
+            {#each entregasTipos as t}
+              <tr>
+                <td title={t.hint}>
+                  {#if t.detalle.length > 0}
+                    <button class="mini-toggle" onclick={() => tiposExpand[t.key] = !tiposExpand[t.key]} title="Ver subgrupos">{tiposExpand[t.key] ? '▾' : '▸'}</button>
+                  {/if}
+                  {t.label}
+                </td>
+                <td class="td-r">{t.facturas}</td>
+                <td class="td-r">{t.solo}</td>
+                <td class="td-r">{t.unidades}</td>
+                <td class="td-r"><strong>{t.prom != null ? t.prom.toFixed(1) + ' d' : '—'}</strong></td>
+                <td class="td-r">{t.med != null ? t.med.toFixed(1) + ' d' : '—'}</td>
+                <td class="td-r">{t.p90 != null ? t.p90.toFixed(0) + ' d' : '—'}</td>
+                <td></td>
+              </tr>
+              {#if tiposExpand[t.key] && t.detalle.length > 0}
+                {#each t.detalle as d}
+                  <tr class="tipo-detalle-row">
+                    <td class="tipo-sub">↳ {d.display}{#if d.manual} <span class="man-tag">manual</span>{/if}{#if d.quitado} <span class="man-tag quit">quitado</span>{/if}</td>
+                    <td class="td-r">{d.facturas}</td>
+                    <td class="td-r"></td>
+                    <td class="td-r">{d.unidades}</td>
+                    <td class="td-r">{d.prom != null ? d.prom.toFixed(1) + ' d' : '—'}</td>
+                    <td class="td-r">{d.med != null ? d.med.toFixed(1) + ' d' : '—'}</td>
+                    <td class="td-r"></td>
+                    <td>
+                      <div class="ajuste-ctl">
+                        <select class="mini-sel" value={tiposOverrides[d.key] ?? d.auto} onchange={(e) => moverSubgrupo(d.key, e.currentTarget.value, d.auto)} title="Mover subgrupo a otro grupo">
+                          {#each TIPOS_PEDIDO as opt}
+                            <option value={opt.key}>{opt.label}</option>
+                          {/each}
+                          <option value="__quitar">Quitar del cálculo</option>
+                        </select>
+                        {#if (tiposOverrides[d.key] ?? null) !== null}
+                          <button class="mini-toggle" onclick={() => revertirSubgrupo(d.key)} title="Volver a clasificación automática">↩</button>
+                        {/if}
+                      </div>
+                    </td>
+                  </tr>
+                {/each}
+              {/if}
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  </div>
+
+  <div class="est-monthly">
+    <div class="rec-head">
+      <h3>Promedio por producto (hereda demora de su factura)</h3>
+      <div class="rec-controls">
+        <label class="mini-label">Mín. facturas <input type="number" min="1" max="20" bind:value={entregasMinN} oninput={onMinNInput} onchange={() => buildEntregasView()} class="mini-input" /></label>
+        <div class="rec-seg" role="group" aria-label="Orden">
+          <button class:active={entregasSort === 'prom'} onclick={() => setEntregasSort('prom')}>Más lentos</button>
+          <button class:active={entregasSort === 'facturas'} onclick={() => setEntregasSort('facturas')}>Más vendidos</button>
+        </div>
+        <button class="btn btn-sm btn-icon" onclick={() => loadEntregas(true)} title="Recargar entregas">🔄</button>
+      </div>
+    </div>
+    <p class="rec-note">Origen = <code>created_at</code> (o <code>fecha</code> si falta) → entrega = <code>entregado_at</code> (UTC→AR, truncado a día). Se excluyen pendientes, negativos y &gt;365d. <strong>Promedio</strong> ordena la tabla por defecto; <strong>Típico</strong> = mediana (mitad por debajo); <strong>Peor 10%</strong> = solo 1 de cada 10 tarda más.</p>
+    {#if entregasProductos.length === 0}
+      <div class="chart-empty">Sin productos con ≥{entregasMinN} facturas entregadas en el período</div>
+    {:else}
+      <div class="est-table-wrap">
+        <table class="est-table">
+          <thead><tr><th>Producto</th><th class="td-r">Facturas</th><th class="td-r">Unid.</th><th class="td-r" title="Media aritmética: la cifra de referencia">Promedio</th><th class="td-r" title="La mitad de los pedidos de este producto se entregó en menos tiempo">Típico</th><th class="td-r" title="Solo 1 de cada 10 pedidos de este producto tarda más que esto">Peor 10%</th></tr></thead>
+          <tbody>
+            {#each entregasProductos as p}
+              <tr>
+                <td>{p.display}</td>
+                <td class="td-r">{p.facturas}</td>
+                <td class="td-r">{p.unidades}</td>
+                <td class="td-r"><strong>{p.prom.toFixed(1)} d</strong></td>
+                <td class="td-r">{p.med != null ? p.med.toFixed(1) + ' d' : '—'}</td>
+                <td class="td-r">{p.p90 != null ? p.p90.toFixed(0) + ' d' : '—'}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  </div>
+
+  <div class="est-monthly">
+    <h3>Detalle por factura ({entregasRows.length})</h3>
+    {#if entregasRows.length === 0}
+      <div class="chart-empty">Sin entregas en el período</div>
+    {:else}
+      <div class="est-table-wrap ent-detalle">
+        <table class="est-table">
+          <thead><tr><th>Factura</th><th>Cliente</th><th class="td-r">Creada</th><th class="td-r">Entregada</th><th class="td-r">Demora</th></tr></thead>
+          <tbody>
+            {#each entregasRows.slice(0, 200) as r}
+              <tr>
+                <td>{r.numero}</td>
+                <td>{r.cliente}</td>
+                <td class="td-r">{r.fecha}</td>
+                <td class="td-r">{r.entregado}</td>
+                <td class="td-r">{r.valida && r.dias !== null ? r.dias + ' d' : '—'}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+        {#if entregasRows.length > 200}
+          <p class="rec-note">Mostrando 200 de {entregasRows.length} (las más lentas primero).</p>
+        {/if}
+      </div>
+    {/if}
+  </div>
+  {/if}
+  {/if}
 </div>
 
 <style>
@@ -1231,6 +1720,9 @@
   .kpi-value { font-size: 1.5rem; font-weight: 700; color: var(--text-primary); margin-top: 0.286rem; line-height: 1.2; }
   .kpi-sub { font-size: 0.68rem; color: var(--text-muted); margin-top: 0.214rem; }
   .kpi-card-forecast {
+    border-left: 0.214rem solid #4361ee;
+  }
+  .kpi-main {
     border-left: 0.214rem solid #4361ee;
   }
 
@@ -1487,4 +1979,56 @@
   .est-table th.td-r,
   .est-table td.td-r { white-space: nowrap; }
   .td-r { text-align: right; font-family: monospace; }
+
+  /* ── Tabs internos ── */
+  .est-tabs {
+    display: flex;
+    gap: 0.357rem;
+    align-items: center;
+    background: var(--bg-card);
+    padding: 0.429rem 0.571rem;
+    border-radius: 0.571rem;
+    box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
+  }
+  .est-tab {
+    border: 1px solid var(--border);
+    background: transparent;
+    border-radius: 1.143rem;
+    padding: 0.429rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .est-tab:hover { border-color: var(--accent); color: var(--accent); }
+  .est-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* ── Tab entregas ── */
+  .ent-kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 0.714rem;
+  }
+  .ent-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: 0.714rem;
+  }
+  .bucket-list { display: flex; flex-direction: column; gap: 0.5rem; }
+  .bucket-row { display: flex; align-items: center; gap: 0.571rem; font-size: 0.82rem; }
+  .bucket-label { min-width: 6.5rem; font-weight: 600; color: var(--text-secondary); }
+  .bucket-bar { flex: 1; height: 0.643rem; background: var(--bg-hover); border-radius: 0.357rem; overflow: hidden; }
+  .bucket-fill { height: 100%; background: linear-gradient(90deg, #4361ee, #7c94f5); border-radius: 0.357rem; min-width: 0.143rem; }
+  .bucket-n { min-width: 7rem; text-align: right; font-family: monospace; color: var(--text-secondary); }
+  .mini-label { font-size: 0.75rem; color: var(--text-secondary); display: flex; align-items: center; gap: 0.357rem; }
+  .mini-input { width: 3.5rem; padding: 0.214rem 0.429rem; border: 1px solid var(--border); border-radius: 0.357rem; font-size: 0.8rem; }
+  .ent-detalle { max-height: 22rem; }
+  .mini-toggle { border: none; background: none; cursor: pointer; color: var(--accent); font-size: 0.8rem; padding: 0 0.214rem 0 0; }
+  .tipo-detalle-row td { background: var(--bg-page); font-size: 0.85rem; }
+  .tipo-sub { padding-left: 1.714rem !important; color: var(--text-secondary); }
+  .man-tag { font-size: 0.62rem; font-weight: 700; text-transform: uppercase; background: var(--accent-light); color: var(--accent); border-radius: 0.714rem; padding: 0.071rem 0.429rem; letter-spacing: 0.02rem; }
+  .man-tag.quit { background: #fef2f2; color: #e74c3c; }
+  .ajuste-ctl { display: flex; align-items: center; gap: 0.214rem; }
+  .mini-sel { font-size: 0.72rem; padding: 0.143rem 0.286rem; border: 1px solid var(--border); border-radius: 0.357rem; max-width: 8.5rem; background: var(--bg-card); color: var(--text-secondary); }
 </style>

@@ -461,7 +461,85 @@ export interface PlanDeViaje {
 
 export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'revision-comprobantes' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent' | 'panel-control';
 
-// ── Reglas de precios ──
+// ── Reglas de estimación (oversize / cortes desde otra referencia) ──
+
+export type EstimationMethod = 'perimetro' | 'area_m2' | 'lineal_mayor';
+
+export interface EstimationParams {
+  k_vecinos?: number;
+  margen_pct?: number;
+  rounding?: number;
+  minimo?: number;
+  precio_m2_manual?: number | null;
+  precio_m_lineal_manual?: number | null;
+  desperdicio_pct?: number;
+  tope_lado_mayor?: number | null;
+  recargo_oversize_pct?: number;
+}
+
+export interface EstimationRule {
+  id?: number;
+  name: string;
+  matchTokens: string[];
+  refCategoria: string;
+  refVariante: string;
+  refMedida: string;
+  method: EstimationMethod;
+  params: EstimationParams;
+  priority: number;
+  enabled: boolean;
+}
+
+/** Fila ya cargada: siempre tiene id (servidor o temporal negativo). */
+export type EstimationRuleRow = EstimationRule & { id: number };
+
+/** Cuerpo que espera la API en /estimation-rules (snake_case, listas serializadas). */
+export type EstimationRulePayload = Omit<EstimationRule, 'id' | 'matchTokens' | 'refCategoria' | 'refVariante' | 'refMedida' | 'params'> & {
+  match_tokens: string;
+  ref_categoria: string;
+  ref_variante: string;
+  ref_medida: string;
+  params: string;
+};
+
+export function defaultEstimationParams(): Required<EstimationParams> {
+  return {
+    k_vecinos: 5,
+    margen_pct: 0,
+    rounding: 1000,
+    minimo: 0,
+    precio_m2_manual: null,
+    precio_m_lineal_manual: null,
+    desperdicio_pct: 0,
+    tope_lado_mayor: 300,
+    recargo_oversize_pct: 0,
+  };
+}
+
+export function normalizeEstimationParams(input: unknown): EstimationParams {
+  const d = defaultEstimationParams();
+  const o = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const num = (v: unknown, fb: number): number => {
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    return Number.isFinite(n) ? n : fb;
+  };
+  const numNull = (v: unknown): number | null => {
+    if (v === null || v === undefined || v === '') return null;
+    const n = typeof v === 'number' ? v : parseFloat(String(v));
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    k_vecinos: Math.max(1, Math.min(20, Math.round(num(o.k_vecinos, d.k_vecinos)))),
+    margen_pct: num(o.margen_pct, d.margen_pct),
+    rounding: Math.round(num(o.rounding, d.rounding)),
+    minimo: Math.max(0, num(o.minimo, d.minimo)),
+    precio_m2_manual: numNull(o.precio_m2_manual),
+    precio_m_lineal_manual: numNull(o.precio_m_lineal_manual),
+    desperdicio_pct: num(o.desperdicio_pct, d.desperdicio_pct),
+    tope_lado_mayor: numNull(o.tope_lado_mayor) ?? d.tope_lado_mayor,
+    recargo_oversize_pct: num(o.recargo_oversize_pct, d.recargo_oversize_pct),
+  };
+}
 
 export interface ParsedQuery {
   tokens: string[];
@@ -469,6 +547,8 @@ export interface ParsedQuery {
   base: string;
   grosor: number | null;
 }
+
+// ── Reglas de precios ──
 
 export interface RuleCondition {
   field: 'grosor' | 'lado_mayor' | 'lado_menor';

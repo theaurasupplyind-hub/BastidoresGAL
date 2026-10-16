@@ -4,8 +4,8 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import type { Factura, InvoiceItem, Cliente, Producto, PrecioReferencia, PricingRule, FechasEntrega, TallerDireccion } from '$lib/types';
-import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/types';
+  import type { Factura, InvoiceItem, Cliente, Producto, PrecioReferencia, PricingRule, EstimationRule, FechasEntrega, TallerDireccion } from '$lib/types';
+import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana, normalizeEstimationParams } from '$lib/types';
   import { invoke } from '@tauri-apps/api/core';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
   import html2canvas from 'html2canvas';
@@ -16,6 +16,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana } from '$lib/t
   import PrinterBadge from '$lib/components/PrinterBadge.svelte';
   import BuscarLugar from '$lib/components/BuscarLugar.svelte';
   import ConfirmModal from '$lib/components/ConfirmModal.svelte';
+  import EditClienteModal from '$lib/components/EditClienteModal.svelte';
   import GIcon from '$lib/components/gastos/GIcon.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, buildSuggestionDesc, type PriceSuggestion } from '$lib/utils/precios';
   import { sortDimsAsc } from '$lib/utils/dims';
@@ -39,6 +40,7 @@ const tallerApi: TallerApi = api;
   let productos = $state<Producto[]>([]);
   let preciosReferencia = $state<PrecioReferencia[]>([]);
   let pricingRules = $state<PricingRule[]>([]);
+  let estimationRules = $state<EstimationRule[]>([]);
   let pagoMap = $state<Record<number, number>>({});
   let formAreaRef = $state<HTMLElement>();
 
@@ -331,14 +333,23 @@ const tallerApi: TallerApi = api;
   }
 
   async function openPrintQueue() {
-    const selected = filteredHistory.filter(f => selectedHistoryIds.has(f.id));
-    if (selected.length === 0) return;
+    const ids = [...selectedHistoryIds];
+    if (ids.length === 0) return;
+
+    // Resolver contra TODAS las facturas conocidas (no contra filteredHistory):
+    // si hay un filtro de búsqueda activo, filteredHistory solo ve las que
+    // coinciden y se descartaban silenciosamente las demás seleccionadas.
+    const byId = new Map<number, Factura>();
+    for (const f of facturas) byId.set(f.id, f);
+    for (const f of noConfirmadasAll) byId.set(f.id, f);
 
     try {
-      const cards = await Promise.all(selected.map(async (f) => {
-        if (Array.isArray((f as any).items)) return f;
-        const full = await api.getFactura(f.id);
-        return { ...f, ...full.factura, items: full.items ?? full.factura?.items ?? [] } as Factura;
+      const cards = await Promise.all(ids.map(async (id) => {
+        const f = byId.get(id);
+        if (f && Array.isArray((f as any).items)) return f;
+        const full = await api.getFactura(id);
+        const base = f ?? ({ id } as Factura);
+        return { ...base, ...full.factura, items: full.items ?? full.factura?.items ?? [] } as Factura;
       }));
       printCards = cards;
       showPrintModal = true;
@@ -517,7 +528,7 @@ const tallerApi: TallerApi = api;
   let _initialized = $state(false);
 
   onMount(async () => {
-    await Promise.all([loadClientes(), loadProductos(), loadPreciosReferencia(), loadPricingRules(), loadTalleres(), refreshHistory()]);
+    await Promise.all([loadClientes(), loadProductos(), loadPreciosReferencia(), loadPricingRules(), loadEstimationRules(), loadTalleres(), refreshHistory()]);
     // Purga local de respaldo si App.svelte no la ejecutó (throttled 12h, no duplicada)
     import('$lib/utils/purgeNoConfirmadas').then(m => m.purgeNoConfirmadasVencidas({ silent: true }).catch(() => {})).catch(() => {});
     if (appStore.pendingInvoiceId != null) {
@@ -610,6 +621,34 @@ const tallerApi: TallerApi = api;
     }
   }
 
+  function rawToEstimationRules(raw: any[]): EstimationRule[] {
+    return (raw || []).map((r: any) => ({
+      id: r.id,
+      name: r.name || '',
+      matchTokens: typeof (r.matchTokens ?? r.match_tokens) === 'string'
+        ? JSON.parse((r.matchTokens ?? r.match_tokens) || '[]')
+        : (Array.isArray(r.matchTokens ?? r.match_tokens) ? (r.matchTokens ?? r.match_tokens) : []),
+      refCategoria: r.refCategoria ?? r.ref_categoria ?? '',
+      refVariante: r.refVariante ?? r.ref_variante ?? '',
+      refMedida: r.refMedida ?? r.ref_medida ?? '',
+      method: r.method ?? 'perimetro',
+      params: typeof (r.params) === 'string'
+        ? normalizeEstimationParams(JSON.parse(r.params || '{}'))
+        : normalizeEstimationParams(r.params || {}),
+      priority: r.priority ?? 0,
+      enabled: r.enabled ?? true,
+    }));
+  }
+
+  async function loadEstimationRules() {
+    try {
+      const raw = await cacheStore.fetch('estimationRules', () => api.getEstimationRules(), 1800000);
+      estimationRules = rawToEstimationRules(raw as any[]);
+    } catch {
+      estimationRules = [];
+    }
+  }
+
   function invalidateCache() {
     cacheStore.invalidate('facturas');
     cacheStore.invalidate('facturas:no_confirmado');
@@ -617,6 +656,7 @@ const tallerApi: TallerApi = api;
     cacheStore.invalidate('clientes');
     cacheStore.invalidate('productos');
     cacheStore.invalidate('preciosReferencia');
+    cacheStore.invalidate('estimationRules');
     cacheStore.invalidate('mapa-base');
   }
 
@@ -701,7 +741,7 @@ const tallerApi: TallerApi = api;
   function syncProductText(index: number) {
     items[index].descripcion = productSearch[index];
     items = items;
-    productSuggestions[index] = suggestPrice(productSearch[index], refsToProductos(preciosReferencia), pricingRules);
+    productSuggestions[index] = suggestPrice(productSearch[index], refsToProductos(preciosReferencia), pricingRules, estimationRules);
     productSuggestions = productSuggestions;
     selectedProdIndex[index] = -1;
     selectedProdIndex = selectedProdIndex;
@@ -725,7 +765,7 @@ const tallerApi: TallerApi = api;
     items = items;
     // La sugerencia de precio depende de la medida, así que hay que recalcularla
     // con el texto nuevo (si cambió la medida, cambian los precios sugeridos).
-    productSuggestions[index] = suggestPrice(sorted, refsToProductos(preciosReferencia), pricingRules);
+    productSuggestions[index] = suggestPrice(sorted, refsToProductos(preciosReferencia), pricingRules, estimationRules);
     productSuggestions = productSuggestions;
   }
 
@@ -733,8 +773,24 @@ const tallerApi: TallerApi = api;
     const text = e.clipboardData?.getData('text');
     if (text === undefined || text === null) return;
     e.preventDefault();
-    productSearch[index] = appStore.sortDimsEnabled ? sortDimsAsc(text) : text;
+    const input = e.currentTarget as HTMLInputElement | null;
+    const current = productSearch[index] ?? '';
+    const selStart = input?.selectionStart ?? current.length;
+    const selEnd = input?.selectionEnd ?? current.length;
+    const before = current.slice(0, selStart);
+    const after = current.slice(selEnd);
+    // Insertar en la posición del cursor conservando lo escrito antes y después,
+    // en vez de reemplazar toda la celda con el texto del portapapeles.
+    const nextRaw = before + text + after;
+    const next = appStore.sortDimsEnabled ? sortDimsAsc(nextRaw) : nextRaw;
+    productSearch[index] = next;
     syncProductText(index);
+    // Restaurar el cursor: al reescribir el valor, el input lo manda al final.
+    const caret = Math.min(before.length + text.length, next.length);
+    requestAnimationFrame(() => {
+      if (!input) return;
+      try { input.setSelectionRange(caret, caret); } catch { /* input desmontado */ }
+    });
   }
 
   function focusRowInput(idx: number) {
@@ -1497,7 +1553,6 @@ const tallerApi: TallerApi = api;
   }
 
   function deleteSavedAddress(a: ClientAddress) {
-    if (a.id <= 0) return;
     pendingDeleteAddr = a;
   }
 
@@ -1506,6 +1561,32 @@ const tallerApi: TallerApi = api;
     if (!a) return;
     pendingDeleteAddr = null;
     try {
+      if (a.id <= 0) {
+        // El "Domicilio principal" vive en el cliente (no es una dirección aparte):
+        // borrarlo = vaciar el campo domicilio del cliente.
+        const cli = clientes.find(c => c.id === (a.client_id ?? cliente_id));
+        if (cli) {
+          await api.updateCliente(cli.id, {
+            nombre: cli.nombre,
+            domicilio: '',
+            telefono: cli.telefono || '',
+            taller: cli.taller || '',
+          });
+          cli.domicilio = '';
+          clientes = clientes;
+        }
+        if (normDireccion(cliente_domicilio) === normDireccion(a.address)) {
+          cliente_domicilio = '';
+          cliente_piso_depto = '';
+        }
+        if (cliente_id) {
+          try { clienteAddresses = await api.listAddresses(cliente_id); } catch {}
+        }
+        addressSuggestions = buildAddressSugerencias();
+        showAddressDropdown = true;
+        appStore.showToast('Domicilio principal eliminado', 'success');
+        return;
+      }
       await api.deleteAddress(a.client_id, a.id);
       clienteAddresses = await api.listAddresses(a.client_id);
       addressSuggestions = buildAddressSugerencias();
@@ -1513,6 +1594,102 @@ const tallerApi: TallerApi = api;
     } catch {
       appStore.showToast('No se pudo eliminar la dirección', 'error');
     }
+  }
+
+  // ── Editar dirección / cliente desde Facturación ──
+
+  let showEditAddressPrompt = $state(false);
+  let editingAddress = $state<ClientAddress | null>(null);
+  let editAddressForm = $state({ address: '', extra: '', label: '', is_default: false });
+  let savingEditAddress = $state(false);
+
+  function openEditAddress(a: ClientAddress) {
+    if (!cliente_id) {
+      appStore.showToast('Seleccioná o guardá el cliente primero', 'info');
+      return;
+    }
+    editingAddress = a;
+    editAddressForm = { address: a.address, extra: a.extra || '', label: a.label || '', is_default: !!a.is_default };
+    showAddressDropdown = false;
+    showEditAddressPrompt = true;
+  }
+
+  async function saveEditAddress() {
+    if (!cliente_id || !editingAddress) return;
+    const addr = editAddressForm.address.trim();
+    if (!addr) return;
+    savingEditAddress = true;
+    const eraActual = normDireccion(cliente_domicilio) === normDireccion(editingAddress.address);
+    try {
+      if (editingAddress.id <= 0) {
+        // Domicilio principal → actualizar el cliente
+        const cli = clientes.find(c => c.id === cliente_id);
+        if (cli) {
+          await api.updateCliente(cli.id, {
+            nombre: cli.nombre,
+            domicilio: addr,
+            telefono: cli.telefono || '',
+            taller: cli.taller || '',
+          });
+          cli.domicilio = addr;
+          clientes = clientes;
+        }
+      } else {
+        await api.updateAddress(cliente_id, editingAddress.id, {
+          address: addr,
+          extra: editAddressForm.extra,
+          label: editAddressForm.label,
+          is_default: editAddressForm.is_default,
+        });
+        clienteAddresses = await api.listAddresses(cliente_id);
+      }
+      if (eraActual) {
+        cliente_domicilio = addr;
+        cliente_piso_depto = editAddressForm.extra;
+      }
+      showEditAddressPrompt = false;
+      editingAddress = null;
+      appStore.showToast('Dirección actualizada', 'success');
+    } catch (e: any) {
+      appStore.showToast('Error al guardar dirección: ' + (e?.message || e), 'error');
+    } finally {
+      savingEditAddress = false;
+    }
+  }
+
+  let showEditClienteModal = $state(false);
+  let editClienteData = $state<Cliente | null>(null);
+
+  function openEditClienteFromInvoice() {
+    if (!cliente_id) {
+      appStore.showToast('Seleccioná un cliente primero', 'info');
+      return;
+    }
+    const c = clientes.find(x => x.id === cliente_id);
+    if (!c) return;
+    editClienteData = c;
+    showEditClienteModal = true;
+    showAddressDropdown = false;
+  }
+
+  async function onEditClienteSaved() {
+    showEditClienteModal = false;
+    editClienteData = null;
+    cacheStore.invalidate('clientes');
+    try { clientes = await api.listClientes(); } catch {}
+    const c = clientes.find(x => x.id === cliente_id);
+    if (c) {
+      cliente_nombre = c.nombre;
+      clienteSearch = c.nombre;
+      cliente_telefono = c.telefono;
+      cliente_taller = c.taller || '';
+      tallerSearch = c.taller || '';
+      if (!cliente_domicilio.trim()) cliente_domicilio = c.domicilio;
+    }
+    if (cliente_id) {
+      try { clienteAddresses = await api.listAddresses(cliente_id); } catch {}
+    }
+    addressSuggestions = buildAddressSugerencias();
   }
 
   function openAddAddressModal() {
@@ -1892,9 +2069,12 @@ const tallerApi: TallerApi = api;
                   onblur={() => setTimeout(() => showClienteResults = false, 200)}
                   onkeydown={handleClienteKeydown}
                   placeholder="Buscar cliente..."
-                  class="input-with-icon-left"
+                  class="input-with-icon-left input-with-edit-btn"
                 />
                 <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                {#if cliente_id}
+                  <button class="client-edit-btn" type="button" title="Editar cliente" aria-label="Editar cliente" onclick={openEditClienteFromInvoice}>✏️</button>
+                {/if}
                 {#if showClienteResults && filteredClientes.length > 0}
                   <div class="autocomplete-results">
                     {#each filteredClientes as c, i}
@@ -1966,10 +2146,10 @@ const tallerApi: TallerApi = api;
                         {#if sug.type === 'saved'}
                           <span class="addr-label">{sug.data.label || 'Dirección'}</span>
                           <span class="addr-text">{sug.data.address}{sug.data.extra ? ` - ${sug.data.extra}` : ''}</span>
-                          {#if sug.data.id > 0}
-                            <button class="addr-del" type="button" title="Eliminar dirección" aria-label="Eliminar dirección"
-                              onmousedown={(e) => { e.preventDefault(); e.stopPropagation(); deleteSavedAddress(sug.data); }}><GIcon name="trash" size={14} /></button>
-                          {/if}
+                          <button class="addr-edit" type="button" title="Editar dirección" aria-label="Editar dirección"
+                            onmousedown={(e) => { e.preventDefault(); e.stopPropagation(); openEditAddress(sug.data); }}>✏️</button>
+                          <button class="addr-del" type="button" title="Eliminar dirección" aria-label="Eliminar dirección"
+                            onmousedown={(e) => { e.preventDefault(); e.stopPropagation(); deleteSavedAddress(sug.data); }}><GIcon name="trash" size={14} /></button>
                         {:else}
                           <span class="addr-nominatim">{formatearDireccionNominatim(sug.data)}</span>
                         {/if}
@@ -1983,6 +2163,11 @@ const tallerApi: TallerApi = api;
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                       Guardar como nueva dirección
                     </div>
+                    {#if cliente_id}
+                      <button type="button" class="autocomplete-item edit-client-item" onmousedown={(e) => { e.preventDefault(); openEditClienteFromInvoice(); }}>
+                        ✏️ Editar datos del cliente
+                      </button>
+                    {/if}
                   </div>
                 {/if}
               </div>
@@ -2353,7 +2538,7 @@ const tallerApi: TallerApi = api;
         {#each filteredHistory as f}
           <div
             class="history-item"
-            class:active={f.id === id}
+            class:active={!modoSeleccionImpresion && f.id === id}
             class:selected={modoSeleccionImpresion && selectedHistoryIds.has(f.id)}
             class:print-selectable={modoSeleccionImpresion}
             onclick={(e) => {
@@ -2365,6 +2550,9 @@ const tallerApi: TallerApi = api;
               }
             }}
           >
+            {#if modoSeleccionImpresion}
+              <span class="history-check" class:checked={selectedHistoryIds.has(f.id)} aria-hidden="true">{selectedHistoryIds.has(f.id) ? '✓' : ''}</span>
+            {/if}
             <div class="history-item-header">
               <span class="history-num">{f.numero_factura || f.numero_presupuesto || `#${f.id}`}</span>
               {#if f.estado_kanban === 'NO_CONFIRMADO'}
@@ -2479,6 +2667,41 @@ const tallerApi: TallerApi = api;
     {/snippet}
   </ConfirmModal>
 {/if}
+
+{#if showEditAddressPrompt}
+  <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+  <div class="modal-overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) { showEditAddressPrompt = false; editingAddress = null; } }}>
+    <div class="modal" role="dialog" aria-label="Editar dirección">
+      <div class="modal-header">
+        <h3>Editar dirección</h3>
+        <button class="modal-close" onclick={() => { showEditAddressPrompt = false; editingAddress = null; }} aria-label="Cerrar">✕</button>
+      </div>
+      <span style="display:block;margin-bottom:0.3rem;font-size:0.85rem;color:var(--text-secondary);">Dirección *</span>
+      <input type="text" bind:value={editAddressForm.address} placeholder="Calle, número, localidad" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:0.4rem;font-size:0.9rem;box-sizing:border-box;" />
+      <span style="display:block;margin:0.6rem 0 0.3rem;font-size:0.85rem;color:var(--text-secondary);">Piso / Depto</span>
+      <input type="text" bind:value={editAddressForm.extra} placeholder="Ej: Piso 3, Dto B (opcional)" style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:0.4rem;font-size:0.9rem;box-sizing:border-box;" />
+      <span style="display:block;margin:0.6rem 0 0.3rem;font-size:0.85rem;color:var(--text-secondary);">Etiqueta</span>
+      <input type="text" bind:value={editAddressForm.label} placeholder="Ej: Casa, Trabajo, Taller..." style="width:100%;padding:0.5rem;border:1px solid var(--border);border-radius:0.4rem;font-size:0.9rem;box-sizing:border-box;" />
+      {#if editingAddress && editingAddress.id > 0}
+        <label style="display:flex;align-items:center;gap:0.5rem;margin-top:0.75rem;font-size:0.85rem;cursor:pointer;">
+          <input type="checkbox" bind:checked={editAddressForm.is_default} />
+          Dirección predeterminada
+        </label>
+      {/if}
+      <div class="modal-actions" style="margin-top:1rem;">
+        <button class="btn btn-sm btn-outline" onclick={() => { showEditAddressPrompt = false; editingAddress = null; }}>Cancelar</button>
+        <button class="btn btn-sm btn-primary" onclick={saveEditAddress} disabled={savingEditAddress || !editAddressForm.address.trim()}>{savingEditAddress ? 'Guardando...' : 'Guardar'}</button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<EditClienteModal
+  show={showEditClienteModal}
+  cliente={editClienteData}
+  onclose={() => { showEditClienteModal = false; editClienteData = null; }}
+  onsaved={onEditClienteSaved}
+/>
 
 <style>
   .facturacion {
@@ -3669,9 +3892,17 @@ const tallerApi: TallerApi = api;
     border-left-color: #6366f1;
     border-color: #6366f1;
   }
-  .history-item.print-selectable { cursor: pointer; }
+  .history-item.print-selectable { cursor: pointer; padding-left: 2.1rem; position: relative; }
   .history-item.print-selectable:hover { border-color: var(--accent); background: var(--bg-hover); }
   .history-item.print-selectable.selected { box-shadow: inset 3px 0 0 var(--accent); }
+  .history-check {
+    position: absolute; left: 0.643rem; top: 50%; transform: translateY(-50%);
+    width: 1.05rem; height: 1.05rem; border: 2px solid var(--border); border-radius: 0.286rem;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.72rem; font-weight: 800; color: #fff; background: var(--bg-card);
+    pointer-events: none;
+  }
+  .history-item.print-selectable.selected .history-check { background: #6366f1; border-color: #6366f1; }
 
   .history-item-header {
     display: flex;
@@ -3859,6 +4090,63 @@ const tallerApi: TallerApi = api;
   .addr-del:hover {
     color: #ef4444;
     background: rgba(239, 68, 68, 0.1);
+  }
+  .addr-edit {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 0.4rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    font-size: 0.75rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 0.3rem;
+  }
+  .addr-edit:hover {
+    color: var(--accent);
+    background: var(--accent-light);
+  }
+  .edit-client-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    text-align: left;
+    font: inherit;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+  .edit-client-item:hover {
+    background: var(--bg-hover);
+  }
+  .input-with-edit-btn {
+    padding-right: 2.1rem !important;
+  }
+  .client-edit-btn {
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.85rem;
+    padding: 0.15rem 0.35rem;
+    border-radius: 0.3rem;
+    color: var(--text-muted);
+    z-index: 1;
+  }
+  .client-edit-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
   }
   .addr-nominatim {
     font-size: var(--text-sm);
