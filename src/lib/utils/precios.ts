@@ -109,10 +109,34 @@ function capFirst(text: string): string {
 // - El filtro de longitud solo limita lo difuso (prefijo/substring),
 //   nunca el exacto: un token explícito corto como "Sin" debe matchear "sin".
 
-export function ruleMatchScore(parsed: ParsedQuery, rule: PricingRule): { score: number; matched: string | null } {
+// Palabras de enlace que no identifican una regla por sí solas: un trigger
+// multi-palabra ("corte de tela") no puede matchear solo por "de"/"tela".
+const STOP_WORDS = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'con', 'sin', 'para', 'por', 'y', 'o', 'en', 'al', 'un', 'una']);
+
+/** ¿La palabra del trigger está en el query? Misma tolerancia que el matcheo por palabra. */
+function triggerWordInQuery(mw: string, tokens: string[], hasDims: boolean): boolean {
+  const mwSing = singularize(mw);
+  for (const qt of tokens) {
+    if (qt === mw) return true;
+    if (singularize(qt) === mwSing) return true;
+    // Prefijo query→trigger ("pi"→"pintura") e inicial con medidas ("90x87 p")
+    if (qt.length >= 2 && mw.startsWith(qt)) return true;
+    if (qt.length === 1 && hasDims && mw.startsWith(qt)) return true;
+    // Prefijo trigger→query ("pinturas" vs "pintura")
+    if (mw.length >= 2 && qt.startsWith(mw)) return true;
+  }
+  return false;
+}
+
+export function ruleMatchScore(
+  parsed: ParsedQuery,
+  rule: PricingRule,
+  opts: { requireAllWords?: boolean } = {},
+): { score: number; matched: string | null } {
   const base = parsed.base || '';
   const baseNoSpace = base.replace(/\s+/g, '');
   const tokens = parsed.tokens || [];
+  const hasDims = (parsed.dims?.length ?? 0) > 0;
   const triggers: string[] = [...(rule.matchTokens || []), rule.name || ''].filter(Boolean);
 
   let best = 0;
@@ -127,6 +151,14 @@ export function ruleMatchScore(parsed: ParsedQuery, rule: PricingRule): { score:
     const mtNoSpace = mt.replace(/\s+/g, '');
     const mtSing = singularize(mt);
     const mtWords = mt.split(/\s+/).filter(Boolean);
+
+    // En modo estricto (estimaciones) un trigger multi-palabra solo vale si
+    // TODAS sus palabras significativas están en el query. Así "Corte de tela"
+    // no matchea "Bastidor 86 x 100 Sin Tela" por la sola palabra "tela".
+    const sigWords = mtWords.filter(w => !STOP_WORDS.has(w));
+    const wordsOk = !opts.requireAllWords
+      || sigWords.length <= 1
+      || sigWords.every(w => triggerWordInQuery(w, tokens, hasDims));
 
     // Exacto frase / token
     if (base === mt) { consider(100, String(raw)); continue; }
@@ -149,6 +181,7 @@ export function ruleMatchScore(parsed: ParsedQuery, rule: PricingRule): { score:
     }
 
     // Por palabra: exacto, singular y prefijo en ambos sentidos
+    if (!wordsOk) continue;
     for (const qt of tokens) {
       const qtSing = singularize(qt);
       for (const mw of mtWords) {
@@ -797,7 +830,13 @@ export function calcLinealMayor(
 }
 
 export function estimationMatchesQuery(parsed: ParsedQuery, rule: EstimationRule): string | null {
-  return ruleMatchScore(parsed, { matchTokens: rule.matchTokens, name: rule.name } as PricingRule).matched;
+  // Estricto: una estimación solo aplica si el query menciona la operación
+  // completa ("corte de tela"), no una palabra suelta del nombre ("tela").
+  return ruleMatchScore(
+    parsed,
+    { matchTokens: rule.matchTokens, name: rule.name } as PricingRule,
+    { requireAllWords: true },
+  ).matched;
 }
 
 /** Evalúa todas las reglas de estimación que matcheen el query.
@@ -927,12 +966,12 @@ export function evaluateEstimationRule(
   };
 }
 
-// Tope: si el lado mayor supera el tope de la regla (o 300 por defecto),
-// el estimado va primero.
+// Tope: si el lado mayor supera el tope de la regla, el estimado va primero.
+// Un tope 0/vacío significa "sin tope" (no todo es oversize).
 export function isOversize(dimSmall: number, dimLarge: number, tope?: number | null): boolean {
-  const t = tope ?? 300;
-  if (t == null) return false;
-  return Math.max(dimSmall, dimLarge) > t;
+  // tope 0/vacío = "sin tope": no debe convertir toda medida en oversize.
+  if (tope == null || tope <= 0) return false;
+  return Math.max(dimSmall, dimLarge) > tope;
 }
 
 // ── Sugerencia de precio para medidas personalizadas ──

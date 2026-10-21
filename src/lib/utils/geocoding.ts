@@ -92,7 +92,7 @@ export function formatearDireccionNominatim(r: { display_name: string; address?:
 export function nominatimSearchUrl(direccion: string): string {
   const limpia = limpiarDireccion(direccion);
   const q = encodeURIComponent(`${limpia}, Buenos Aires, Argentina`);
-  return `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1&countrycodes=ar&addressdetails=1&viewbox=${NOMINATIM_VIEWBOX_AMBA}`;
+  return `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=5&countrycodes=ar&addressdetails=1&viewbox=${NOMINATIM_VIEWBOX_AMBA}`;
 }
 
 export function nominatimReverseUrl(lat: number, lng: number): string {

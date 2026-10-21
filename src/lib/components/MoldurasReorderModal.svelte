@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appStore } from '$lib/stores/appStore.svelte';
-  import { buildMoldurasHtmlPaged, PAGE_HEIGHT, buildPagedLayout, columnHeight, groupMaterials, measureCardHeights } from '$lib/utils/molduras';
+  import { buildMoldurasHtmlPaged, PAGE_HEIGHT, buildPagedLayout, columnHeight, groupMaterials, measureCardHeights, cardHasLargueroOTravesano } from '$lib/utils/molduras';
   import type { CardItem, CardMaterial } from '$lib/utils/molduras';
   import { invoke } from '@tauri-apps/api/core';
 
@@ -143,15 +143,27 @@
         </tbody>
       </table>
       {#if card.materials.length > 0}
+        {@const mostrarLT = cardHasLargueroOTravesano(card)}
         <table class="pc-mats">
           <thead>
-            <tr><th colspan="2" class="th-var">VARILLA</th><th colspan="2" class="th-lar">LARGUERO</th><th colspan="2" class="th-tra">TRAV.</th></tr>
-            <tr><th class="td-var">#</th><th class="td-var">CM</th><th class="td-lar">#</th><th class="td-lar">CM</th><th class="td-tra">#</th><th class="td-tra">CM</th></tr>
+            <tr>
+              <th colspan="2" class="th-var">VARILLA</th>
+              {#if mostrarLT}
+                <th colspan="2" class="th-lar">LARGUERO</th>
+                <th colspan="2" class="th-tra">TRAV.</th>
+              {/if}
+            </tr>
+            <tr>
+              <th class="td-var">#</th><th class="td-var">CM</th>
+              {#if mostrarLT}
+                <th class="td-lar">#</th><th class="td-lar">CM</th><th class="td-tra">#</th><th class="td-tra">CM</th>
+              {/if}
+            </tr>
           </thead>
           <tbody>
             {#each groupMaterials(card.materials) as group}
               <tr>
-                {#each ['V', 'L', 'T'] as t}
+                {#each mostrarLT ? ['V', 'L', 'T'] : ['V'] as t}
                   {@const cls = t === 'V' ? 'var' : t === 'L' ? 'lar' : 'tra'}
                   {#if group[t]}
                     <td class="td-{cls}">{group[t].qty}</td>

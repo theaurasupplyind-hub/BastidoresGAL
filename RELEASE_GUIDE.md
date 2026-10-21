@@ -192,16 +192,34 @@ $ghSig = (Invoke-RestMethod -Uri "https://github.com/$Repo/releases/download/$Ta
 3. Commitear los cambios
 4. Cerrar PowerShell y abrir uno nuevo
 5. **Verificar** que `C:\Users\jesus\.tauri\release.ps1` NO tenga ningún `-replace` en la línea de la URL (debe usar `$exeFile.Name` directamente)
-6. Ejecutar: `. C:\Users\jesus\.tauri\release.ps1`
-7. El script:
+6. **Verificar** que `release.ps1` compile con `npm run tauri:build` (**NO** `npm run tauri build`)
+7. Ejecutar: `. C:\Users\jesus\.tauri\release.ps1`
+8. El script:
    - Lee la versión de `tauri.conf.json`
    - Configura la clave de firma
-   - Compila la app (`npm run tauri build`)
+   - Compila la app (`npm run tauri:build`)
    - Extrae la firma del `.sig`
    - Construye el JSON del manifest
    - Sube el manifest al backend vía API
    - Hace git commit + push + tag
    - Sube `.exe` y `.sig` al release de GitHub
+
+### Build con MSVC (`link.exe not found`)
+
+Esta PC tiene Visual Studio 2022 instalado en `C:\Program Files\Microsoft Visual Studio\2022\Community`,
+pero **sin registrar** en el Visual Studio Installer (no hay `_Instances` ni la clave SxS\VS7).
+Por eso `vswhere` no lo ve, rustc no autodetecta el linker y el build falla con:
+
+```
+error: linker `link.exe` not found
+```
+
+Solución: compilar siempre con `npm run tauri:build`, que ejecuta `scripts\with-msvc.cmd tauri build`
+y carga `vcvars64.bat` antes de invocar Tauri. Ese wrapper detecta la instalación por ruta
+(fallback), o usa `MSVC_VCVARS64` si la definís.
+
+Nota: `npm run tauri build` (comando plano) **falla** en esta PC por este motivo.
+
 
 ---
 

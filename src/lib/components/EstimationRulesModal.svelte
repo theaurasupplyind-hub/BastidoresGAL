@@ -361,7 +361,7 @@
                   <div class="form-row">
                     <div class="form-group small">
                       <label>Tope en cm</label>
-                      <input type="number" value={rule.params.tope_lado_mayor ?? 300} oninput={(e) => updateParams(rule.id, { tope_lado_mayor: parseFloat(e.currentTarget.value) || 0 })} title="Hasta este lado mayor usa precio de lista; si lo pasa, estima y va primero" />
+                      <input type="number" value={rule.params.tope_lado_mayor ?? 300} oninput={(e) => { const v = e.currentTarget.value; updateParams(rule.id, { tope_lado_mayor: v === '' ? null : (parseFloat(v) || 0) }); }} title="Hasta este lado mayor usa precio de lista; si lo pasa, estima y va primero" />
                     </div>
                     <div class="form-group small">
                       <label>Extra % si pasa el tope</label>

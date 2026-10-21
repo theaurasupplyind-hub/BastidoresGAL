@@ -1,4 +1,10 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.5.1': `Facturación: la búsqueda de direcciones trae hasta 5 resultados de Maps, separados de las direcciones guardadas, con "Buscando…", aviso de "no encontrada" y descarte de respuestas viejas si seguís tipeando.
+Proveedores: al cargar compras y pagos elegís el medio (Transferencia / Efectivo) y cada movimiento muestra el saldo paso a paso.
+Estimación: la regla de corte ya no aparece en bastidores por la palabra "tela" (coincidencia estricta) y un tope 0 dejó de mandar todo a "primero".
+Molduras: en pedidos solo varilla se ocultan las columnas Larguero/Travesaño en pantalla y PDF.
+Gastos: los modales de edición y eliminación se cierran con Escape.
+Windows: scripts tauri:dev y tauri:build con entorno MSVC.`,
   '2.5.0': `Estimación oversize y cortes: nuevo modal "Estimación" en el menú (métodos perímetro / m2 / lineal mayor, k-vecinos, margen, redondeo, mínimo, desperdicio, tope y recargo oversize), con explicación paso a paso y sugerencias integradas en Facturación.
 Panel: tareas reordenables con drag & drop (SortableJS), orden manual vs automático por fecha, con persistencia de posición.
 Estadísticas: nueva pestaña "Entregas" con tiempos creación→entrega (promedio, mediana, p90, ≤7/≤15/>30 días), histograma, evolución mensual, por producto y por tipo de pedido (entelado, sin tela, pintura, rollo, otros) con subgrupos movibles.

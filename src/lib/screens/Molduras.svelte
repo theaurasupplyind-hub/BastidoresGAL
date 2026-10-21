@@ -5,7 +5,7 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData, hasMaterialItems, cloneMolduraFormula, normalizeMolduraFormulaConfig, evalLargueros, evalFilas, evalLarCm, evalTravCm } from '$lib/utils/molduras';
+  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData, hasMaterialItems, cardHasLargueroOTravesano, cloneMolduraFormula, normalizeMolduraFormulaConfig, evalLargueros, evalFilas, evalLarCm, evalTravCm } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
   import MoldurasReorderModal from '$lib/components/MoldurasReorderModal.svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -784,21 +784,26 @@
               </div>
 
               {#if hasMaterialItems(card)}
+                {@const mostrarLT = cardHasLargueroOTravesano(card)}
                 <div class="mol-materials">
                   <table class="mol-materials-table">
                     <thead>
                       <tr>
                         <th colspan="2" class="th-var">VARILLA</th>
-                        <th colspan="2" class="th-lar">LARGUERO</th>
-                        <th colspan="2" class="th-tra">TRAV.</th>
+                        {#if mostrarLT}
+                          <th colspan="2" class="th-lar">LARGUERO</th>
+                          <th colspan="2" class="th-tra">TRAV.</th>
+                        {/if}
                       </tr>
                       <tr>
                         <th class="td-var">#</th>
                         <th class="td-var">CM</th>
-                        <th class="td-lar">#</th>
-                        <th class="td-lar">CM</th>
-                        <th class="td-tra">#</th>
-                        <th class="td-tra">CM</th>
+                        {#if mostrarLT}
+                          <th class="td-lar">#</th>
+                          <th class="td-lar">CM</th>
+                          <th class="td-tra">#</th>
+                          <th class="td-tra">CM</th>
+                        {/if}
                       </tr>
                     </thead>
                     <tbody>
@@ -806,18 +811,20 @@
                         <tr>
                           <td class="td-var td-val">{row.varilla.qty}</td>
                           <td class="td-var td-val">{row.varilla.cm}</td>
-                          {#if row.arrow}
-                            <td class="td-lar tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
-                            <td class="td-tra td-val">{row.travesano?.qty ?? ''}</td>
-                            <td class="td-tra td-val">{row.travesano?.cm ?? ''}</td>
-                          {:else}
-                            <td class="td-lar td-val">{row.larguero?.qty ?? ''}</td>
-                            <td class="td-lar td-val">{row.larguero?.cm ?? ''}</td>
-                            <td class="td-tra tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
+                          {#if mostrarLT}
+                            {#if row.arrow}
+                              <td class="td-lar tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
+                              <td class="td-tra td-val">{row.travesano?.qty ?? ''}</td>
+                              <td class="td-tra td-val">{row.travesano?.cm ?? ''}</td>
+                            {:else}
+                              <td class="td-lar td-val">{row.larguero?.qty ?? ''}</td>
+                              <td class="td-lar td-val">{row.larguero?.cm ?? ''}</td>
+                              <td class="td-tra tajos-cell" colspan="2">{#if row.tajos && row.tajos > 0}<span class="mat-tajos">Tajos: {row.tajos}</span>{/if}</td>
+                            {/if}
                           {/if}
                         </tr>
                       {:else}
-                        <tr><td colspan="6" class="mat-empty">Sin materiales</td></tr>
+                        <tr><td colspan={mostrarLT ? 6 : 2} class="mat-empty">Sin materiales</td></tr>
                       {/each}
                     </tbody>
                   </table>

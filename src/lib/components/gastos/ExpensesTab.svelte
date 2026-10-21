@@ -281,7 +281,15 @@
 
 {#if editingExpense}
   <div class="modal-overlay" role="presentation">
-    <div class="modal" bind:this={editRef} onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div
+      class="modal"
+      bind:this={editRef}
+      onclick={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      onkeydown={(e) => e.key === 'Escape' && !saving && cancelEdit()}
+    >
       <div class="modal-header">
         <h3>Editar gasto</h3>
         <button class="modal-close" onclick={cancelEdit} aria-label="Cerrar">✕</button>
@@ -316,7 +324,14 @@
 
 {#if pendingDelete}
   <div class="modal-overlay" role="presentation">
-    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+    <div
+      class="modal"
+      onclick={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-modal="true"
+      tabindex="-1"
+      onkeydown={(e) => e.key === 'Escape' && cancelDelete()}
+    >
       <div class="modal-header">
         <h3>Eliminar gasto</h3>
         <button class="modal-close" onclick={cancelDelete} aria-label="Cerrar">✕</button>

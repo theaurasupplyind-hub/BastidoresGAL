@@ -40,8 +40,17 @@
     return providerMoves.filter(m => m.type === 'STOCK_IN' || m.type === 'STOCK_OUT');
   });
 
-  let transMoves = $derived(filteredMoves.filter(m => !(m.description || '').toLowerCase().includes('efectivo')));
-  let cashMoves = $derived(filteredMoves.filter(m => (m.description || '').toLowerCase().includes('efectivo')));
+  // Clasificación Transferencias/Efectivo: prioridad al campo `reference` (nuevos);
+  // los movimientos viejos (reference vacío) caen al criterio por descripción.
+  function isCash(m: ProviderMovement): boolean {
+    const ref = (m.reference || '').trim().toLowerCase();
+    if (ref === 'efectivo') return true;
+    if (ref === 'transferencia') return false;
+    return (m.description || '').toLowerCase().includes('efectivo');
+  }
+
+  let transMoves = $derived(filteredMoves.filter(m => !isCash(m)));
+  let cashMoves = $derived(filteredMoves.filter(isCash));
 
   let transTotal = $derived.by(() => {
     let total = 0;
@@ -60,6 +69,25 @@
     }
     return total;
   });
+
+  // Saldo acumulado por movimiento (solo montos): saldo antes → después, en orden cronológico.
+  function runningBalanceMap(moves: ProviderMovement[]): Map<number, { prev: number; next: number }> {
+    const asc = moves
+      .filter(m => m.type === 'PURCHASE' || m.type === 'PAYMENT')
+      .slice()
+      .sort((a, b) => byDateDesc(b.date, a.date, b.id, a.id)); // viejo → nuevo
+    const map = new Map<number, { prev: number; next: number }>();
+    let bal = 0;
+    for (const m of asc) {
+      const prev = bal;
+      bal += m.type === 'PURCHASE' ? m.amount : -m.amount;
+      map.set(m.id, { prev, next: bal });
+    }
+    return map;
+  }
+
+  let transBalMap = $derived(runningBalanceMap(transMoves));
+  let cashBalMap = $derived(runningBalanceMap(cashMoves));
 
   interface MoveGroup {
     date: string;
@@ -98,7 +126,7 @@
   let showProviderForm = $state(false);
   let providerForm = $state<{ id: number | null; name: string; cuit: string; alias_mp: string; alias_cbu: string; address: string }>({ id: null, name: '', cuit: '', alias_mp: '', alias_cbu: '', address: '' });
   let showMoveForm = $state(false);
-  let moveForm = $state<{ id: number | null; type: string; description: string; amount: number; quantity: number; date: string }>({ id: null, type: 'PURCHASE', description: '', amount: 0, quantity: 0, date: '' });
+  let moveForm = $state<{ id: number | null; type: string; method: 'Transferencia' | 'Efectivo'; description: string; amount: number; quantity: number; date: string }>({ id: null, type: 'PURCHASE', method: 'Transferencia', description: '', amount: 0, quantity: 0, date: '' });
 
   // ── Utilities ──
   function formatCurrency(n: number): string {
@@ -284,7 +312,7 @@
 
   // ── Movement CRUD ──
   function openNewMove(type: string) {
-    moveForm = { id: null, type, description: '', amount: 0, quantity: 0, date: new Date().toISOString().slice(0, 10) };
+    moveForm = { id: null, type, method: 'Transferencia', description: '', amount: 0, quantity: 0, date: new Date().toISOString().slice(0, 10) };
     showMoveForm = true;
   }
 
@@ -298,7 +326,7 @@
         description: moveForm.description,
         amount: moveForm.amount,
         quantity: ['STOCK_IN', 'STOCK_OUT'].includes(moveForm.type) ? moveForm.quantity : undefined,
-        reference: '',
+        reference: ['PURCHASE', 'PAYMENT'].includes(moveForm.type) ? moveForm.method : '',
       });
       showMoveForm = false;
       invalidateCache();
@@ -371,18 +399,6 @@
     <div class="pp-detail-cols">
       <!-- CENTER: Timeline -->
       <div class="pp-detail-center">
-        <div class="pp-timeline-header">
-          <h4><GIcon name="activity" size={13} /> Timeline</h4>
-          <div class="pp-timeline-filter">
-            {#each ['Todo', 'Financiero', 'Stock'] as f}
-              <button
-                class="pp-filter-btn"
-                class:active={timelineFilter === f}
-                onclick={() => timelineFilter = f as 'Todo' | 'Financiero' | 'Stock'}
-              >{f}</button>
-            {/each}
-          </div>
-        </div>
         <div class="pp-timeline-panels">
           <div class="pp-timeline-panel">
             <div class="pp-panel-header">
@@ -395,13 +411,21 @@
               {#each transGroups as g}
                 <div class="pp-date-header">{g.label}</div>
                 {#each g.items as m}
+                  {@const calc = transBalMap.get(m.id)}
                   <div class="pp-move-row">
-                    <span class="pp-move-type-badge {moveTypeClass(m.type)}">{moveTypeLabel(m.type)}</span>
-                    <span class="pp-move-desc">{m.description || '—'}</span>
-                    <span class="pp-move-amount" class:positive={m.type === 'PURCHASE'} class:negative={m.type === 'PAYMENT'}>
-                      {m.type === 'PAYMENT' ? '-' : '+'}{formatCurrency(m.amount)}
-                    </span>
-                    <button class="pp-move-btn pp-move-del" onclick={() => deleteMove(m.id)} title="Eliminar"><GIcon name="trash" size={13} /></button>
+                    <div class="pp-move-main">
+                      <span class="pp-move-type-badge {moveTypeClass(m.type)}">{moveTypeLabel(m.type)}</span>
+                      <span class="pp-move-desc">{m.description || '—'}</span>
+                      <span class="pp-move-amount" class:positive={m.type === 'PURCHASE'} class:negative={m.type === 'PAYMENT'}>
+                        {m.type === 'PAYMENT' ? '-' : '+'}{formatCurrency(m.amount)}
+                      </span>
+                      <button class="pp-move-btn pp-move-del" onclick={() => deleteMove(m.id)} title="Eliminar"><GIcon name="trash" size={13} /></button>
+                    </div>
+                    {#if calc}
+                      <span class="pp-move-calc">
+                        {formatCurrency(calc.prev)} {m.type === 'PAYMENT' ? '−' : '+'} {formatCurrency(m.amount)} = {formatCurrency(calc.next)}
+                      </span>
+                    {/if}
                   </div>
                 {/each}
               {:else}
@@ -420,13 +444,21 @@
               {#each cashGroups as g}
                 <div class="pp-date-header">{g.label}</div>
                 {#each g.items as m}
+                  {@const calc = cashBalMap.get(m.id)}
                   <div class="pp-move-row">
-                    <span class="pp-move-type-badge {moveTypeClass(m.type)}">{moveTypeLabel(m.type)}</span>
-                    <span class="pp-move-desc">{m.description || '—'}</span>
-                    <span class="pp-move-amount" class:positive={m.type === 'PURCHASE'} class:negative={m.type === 'PAYMENT'}>
-                      {m.type === 'PAYMENT' ? '-' : '+'}{formatCurrency(m.amount)}
-                    </span>
-                    <button class="pp-move-btn pp-move-del" onclick={() => deleteMove(m.id)} title="Eliminar"><GIcon name="trash" size={13} /></button>
+                    <div class="pp-move-main">
+                      <span class="pp-move-type-badge {moveTypeClass(m.type)}">{moveTypeLabel(m.type)}</span>
+                      <span class="pp-move-desc">{m.description || '—'}</span>
+                      <span class="pp-move-amount" class:positive={m.type === 'PURCHASE'} class:negative={m.type === 'PAYMENT'}>
+                        {m.type === 'PAYMENT' ? '-' : '+'}{formatCurrency(m.amount)}
+                      </span>
+                      <button class="pp-move-btn pp-move-del" onclick={() => deleteMove(m.id)} title="Eliminar"><GIcon name="trash" size={13} /></button>
+                    </div>
+                    {#if calc}
+                      <span class="pp-move-calc">
+                        {formatCurrency(calc.prev)} {m.type === 'PAYMENT' ? '−' : '+'} {formatCurrency(m.amount)} = {formatCurrency(calc.next)}
+                      </span>
+                    {/if}
                   </div>
                 {/each}
               {:else}
@@ -441,11 +473,18 @@
       <div class="pp-detail-right">
         <div class="pp-card-section">
           <h4><GIcon name="zap" size={13} /> Acciones</h4>
+          <div class="pp-action-filters">
+            {#each ['Todo', 'Financiero', 'Stock'] as f}
+              <button
+                class="pp-filter-btn"
+                class:active={timelineFilter === f}
+                onclick={() => timelineFilter = f as 'Todo' | 'Financiero' | 'Stock'}
+              >{f}</button>
+            {/each}
+          </div>
           <button class="pp-action-btn pp-action-pay" onclick={() => openNewMove('PAYMENT')}><GIcon name="dollar" size={13} /> Pago Rápido</button>
           <button class="pp-action-btn pp-action-buy" onclick={() => openNewMove('PURCHASE')}><GIcon name="cart" size={13} /> Compra Nueva</button>
           <button class="pp-action-btn pp-action-stock" onclick={() => openNewMove('STOCK_IN')}><GIcon name="box" size={13} /> Entrada Stock</button>
-          <hr class="pp-divider" />
-          <button class="pp-action-btn pp-action-edit" onclick={openEditProvider}><GIcon name="edit" size={13} /> Editar Datos</button>
         </div>
         <div class="pp-card-section">
           <h4><GIcon name="file-text" size={13} /> Detalles</h4>
@@ -497,6 +536,19 @@
         <div class="form-group"><label>Descripción</label><input type="text" bind:value={moveForm.description} /></div>
         {#if ['PURCHASE', 'PAYMENT'].includes(moveForm.type)}
           <div class="form-group"><label>Monto</label><input type="number" bind:value={moveForm.amount} step="0.01" /></div>
+          <div class="form-group">
+            <label>Medio</label>
+            <div class="pp-method-toggle">
+              {#each ['Transferencia', 'Efectivo'] as opt}
+                <button
+                  type="button"
+                  class="pp-method-btn"
+                  class:active={moveForm.method === opt}
+                  onclick={() => moveForm.method = opt as 'Transferencia' | 'Efectivo'}
+                >{opt}</button>
+              {/each}
+            </div>
+          </div>
         {/if}
         {#if ['STOCK_IN', 'STOCK_OUT'].includes(moveForm.type)}
           <div class="form-group"><label>Cantidad</label><input type="number" bind:value={moveForm.quantity} step="0.01" /></div>
@@ -590,7 +642,6 @@
   .pp-card-section h4 { margin: 0 0 0.571rem; font-size: 0.78rem; color: var(--text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 0.357rem; }
   .pp-detail-data { display: flex; flex-direction: column; gap: 0.286rem; }
   .pp-detail-data span { font-size: 0.75rem; color: var(--text-secondary); }
-  .pp-divider { border: none; border-top: 1px solid var(--border-light); margin: 0.571rem 0; }
 
   /* CENTER */
   .pp-detail-center {
@@ -600,17 +651,8 @@
     min-height: 0;
   }
 
-  .pp-timeline-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: var(--bg-card);
-    border-radius: 0.571rem;
-    padding: 0.571rem 0.714rem;
-    box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
-  }
-  .pp-timeline-header h4 { margin: 0; font-size: 0.82rem; color: var(--text-primary); display: inline-flex; align-items: center; gap: 0.357rem; }
-  .pp-timeline-filter { display: flex; gap: 0.143rem; }
+  .pp-action-filters { display: flex; gap: 0.143rem; margin-bottom: 0.571rem; }
+  .pp-action-filters .pp-filter-btn { flex: 1; }
   .pp-filter-btn {
     padding: 0.214rem 0.571rem;
     border: 1px solid var(--border);
@@ -623,6 +665,22 @@
   }
   .pp-filter-btn:hover { background: var(--bg-hover); }
   .pp-filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+
+  .pp-method-toggle { display: flex; gap: 0.286rem; }
+  .pp-method-btn {
+    flex: 1;
+    padding: 0.429rem 0.571rem;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+    border-radius: 0.357rem;
+    font-size: 0.82rem;
+    font-family: inherit;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background 0.12s, border-color 0.12s, color 0.12s;
+  }
+  .pp-method-btn:hover { background: var(--bg-hover); }
+  .pp-method-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
 
   .pp-timeline-panels {
     display: grid;
@@ -668,14 +726,24 @@
 
   .pp-move-row {
     display: flex;
-    align-items: center;
-    gap: 0.571rem;
+    flex-direction: column;
+    gap: 0.143rem;
     padding: 0.571rem;
     font-size: 0.85rem;
     border-radius: 0.357rem;
     transition: background 0.12s;
   }
   .pp-move-row:hover { background: var(--bg-hover); }
+  .pp-move-main { display: flex; align-items: center; gap: 0.571rem; }
+  .pp-move-calc {
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    padding-left: 0.143rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .pp-move-type-badge {
     font-size: 0.72rem;
     font-weight: 700;
@@ -739,5 +807,4 @@
   .pp-action-pay { background: #ffc107; color: #333; }
   .pp-action-buy { background: #dc3545; color: white; }
   .pp-action-stock { background: #28a745; color: white; }
-  .pp-action-edit { background: #6c757d; color: white; }
 </style>

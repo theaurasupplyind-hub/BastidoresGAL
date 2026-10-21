@@ -72,6 +72,14 @@ export function shouldHideMaterialsTable(card: { items: CardItem[] }): boolean {
   return !hasMaterialItems(card);
 }
 
+// Un pedido "solo varilla" (sin largueros ni travesaños) no necesita las
+// columnas LARGUERO/TRAV.: se muestran vacías y solo agregan ruido.
+// Se ocultan ambos grupos solo si faltan los dos.
+export function cardHasLargueroOTravesano(card: { items: CardItem[]; materials?: CardMaterial[] }): boolean {
+  if ((card.materials || []).some(m => (m.qty || 0) > 0 && (m.type === 'L' || m.type === 'T'))) return true;
+  return card.items.some(it => (it.larguero ?? '') !== '' || (it.travesaño ?? '') !== '');
+}
+
 // ── Círculos ──
 export function isCirculoDesc(desc: string): boolean {
   return /c[ií]rcul[oa]s?\b/i.test(desc) || /circular/i.test(desc);
@@ -861,14 +869,21 @@ export function buildMatRowsData(card: MeasurableCard, merged = false): MatRow[]
   return out;
 }
 
-function buildMatRows(card: MeasurableCard, merged = false): string {
+function buildMatRows(card: MeasurableCard, merged = false, showLT = true): string {
   const rows = buildMatRowsData(card, merged);
   if (rows.length === 0) {
     const hasOnlyCirculos = card.items.some(it => it.isCirculo) && card.items.filter(it => !it.isNonMolding || it.isTapacanto || it.isCirculo).every(it => it.isCirculo);
     if (hasOnlyCirculos) {
-      return `<tr><td colspan='6' style='padding:6px;font-size:14px;color:#666;text-align:center;'>Círculo — sin materiales</td></tr>`;
+      return `<tr><td colspan='${showLT ? 6 : 2}' style='padding:6px;font-size:14px;color:#666;text-align:center;'>Círculo — sin materiales</td></tr>`;
     }
-    return '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>';
+    return showLT
+      ? '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td><td class="td-lar val-cell"></td><td class="td-lar val-cell"></td><td class="td-tra val-cell"></td><td class="td-tra val-cell"></td></tr>'
+      : '<tr><td class="td-var val-cell"></td><td class="td-var val-cell"></td></tr>';
+  }
+  if (!showLT) {
+    return rows.map(r => `<tr>
+      <td class='td-var val-cell'>${r.varilla.qty}</td><td class='td-var val-cell'>${r.varilla.cm}</td>
+    </tr>`).join('');
   }
   const tajosCell = (n?: number) => (n !== undefined && n > 0 ? `<span class='tajos'>Tajos: ${n}</span>` : ``);
   const larRows = rows.filter(r => !r.arrow).map(r => `<tr>
@@ -909,14 +924,19 @@ export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'l
 
   const hasOnlyCirculosForPdf = card.items.some(it => it.isCirculo) && card.items.filter(it => !it.isNonMolding || it.isTapacanto || it.isCirculo).every(it => it.isCirculo);
   const hideMaterials = shouldHideMaterialsTable(card) && !hasOnlyCirculosForPdf;
+  const showLT = cardHasLargueroOTravesano(card);
+  const matHeader = showLT
+    ? `<tr><th colspan='2' class='th-var'>VARILLA</th><th colspan='2' class='th-lar'>LARGUERO</th><th colspan='2' class='th-tra'>TRAV.</th></tr>
+      <tr><th width='12%' class='td-var'>#</th><th width='21%' class='td-var'>CM</th><th width='12%' class='td-lar'>#</th><th width='21%' class='td-lar'>CM</th><th width='12%' class='td-tra'>#</th><th width='21%' class='td-tra'>CM</th></tr>`
+    : `<tr><th colspan='2' class='th-var'>VARILLA</th></tr>
+      <tr><th width='50%' class='td-var'>#</th><th width='50%' class='td-var'>CM</th></tr>`;
   const matSection = hideMaterials
     ? ''
     : `<table class='mat-table'>
     <thead>
-      <tr><th colspan='2' class='th-var'>VARILLA</th><th colspan='2' class='th-lar'>LARGUERO</th><th colspan='2' class='th-tra'>TRAV.</th></tr>
-      <tr><th width='12%' class='td-var'>#</th><th width='21%' class='td-var'>CM</th><th width='12%' class='td-lar'>#</th><th width='21%' class='td-lar'>CM</th><th width='12%' class='td-tra'>#</th><th width='21%' class='td-tra'>CM</th></tr>
+      ${matHeader}
     </thead>
-    <tbody>${buildMatRows(card, merged)}</tbody>
+    <tbody>${buildMatRows(card, merged, showLT)}</tbody>
   </table>`;
 
   return `

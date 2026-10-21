@@ -137,7 +137,12 @@ const tallerApi: TallerApi = api;
   let showAddressDropdown = $state(false);
   let addressSuggestions = $state<Array<{type: 'saved' | 'nominatim', data: any}>>([]);
   let selectedAddressIdx = $state(-1);
-  let isSearchingAddress = $state(false);
+  // Estado de la búsqueda de direcciones: idle (sin consultar), searching
+  // (consultando a Maps) y done (ya respondió). Permite mostrar "Buscando…"
+  // y el aviso de "no encontrada" sin depender de si hay direcciones guardadas.
+  let addressSearchState = $state<'idle' | 'searching' | 'done'>('idle');
+  let addressNominatimFound = $state(false);
+  let addressQueryToken = 0;
   let addressDebounceTimer: ReturnType<typeof setTimeout> | null = null;
   let selectedNominatimLat = $state<number | null>(null);
   let selectedNominatimLng = $state<number | null>(null);
@@ -1177,7 +1182,8 @@ const tallerApi: TallerApi = api;
     showAddressDropdown = false;
     addressSuggestions = [];
     selectedAddressIdx = -1;
-    isSearchingAddress = false;
+    addressSearchState = 'idle';
+    addressNominatimFound = false;
     selectedNominatimLat = null;
     selectedNominatimLng = null;
     if (addressDebounceTimer) clearTimeout(addressDebounceTimer);
@@ -1463,13 +1469,15 @@ const tallerApi: TallerApi = api;
     return (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
   }
 
-  function buildAddressSugerencias() {
+  function buildAddressSugerencias(query = '') {
     const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
+    const q = normalizeText(query.trim());
+    const match = (a: ClientAddress) => !q || normalizeText(`${a.address} ${a.label ?? ''} ${a.extra ?? ''}`).includes(q);
     for (const a of clienteAddresses) {
-      items.push({ type: 'saved', data: a });
+      if (match(a)) items.push({ type: 'saved', data: a });
     }
     const dom = clienteDomicilioPrincipal();
-    if (dom && !clienteAddresses.some(a => a.address === dom)) {
+    if (dom && !clienteAddresses.some(a => a.address === dom) && (!q || normalizeText(dom).includes(q))) {
       items.push({ type: 'saved', data: { id: -1, client_id: cliente_id, address: dom, extra: '', label: '📋 Domicilio principal', is_default: false, lat: null, lng: null } });
     }
     return items;
@@ -1487,12 +1495,14 @@ const tallerApi: TallerApi = api;
       showAddressDropdown = false;
       return;
     }
+    addressSearchState = 'idle';
     addressSuggestions = buildAddressSugerencias();
     selectedAddressIdx = -1;
     showAddressDropdown = true;
   }
 
   function handleAddressFocus() {
+    addressSearchState = 'idle';
     if (clienteAddresses.length > 0 && !cliente_domicilio.trim()) {
       addressSuggestions = buildAddressSugerencias();
       selectedAddressIdx = -1;
@@ -1502,35 +1512,55 @@ const tallerApi: TallerApi = api;
 
   function handleAddressInput() {
     if (addressDebounceTimer) clearTimeout(addressDebounceTimer);
+    // Cualquier cambio (aunque acorte el texto) invalida las respuestas en vuelo.
+    const token = ++addressQueryToken;
     const text = cliente_domicilio.trim();
     if (text.length >= 4) {
-      isSearchingAddress = true;
-      addressSuggestions = buildAddressSugerencias();
-      showAddressDropdown = addressSuggestions.length > 0;
-      addressDebounceTimer = setTimeout(() => searchNominatim(text), 400);
+      addressSearchState = 'searching';
+      addressNominatimFound = false;
+      addressSuggestions = buildAddressSugerencias(text);
+      // Se muestra siempre (aunque no haya coincidencias) para poder ver
+      // "Buscando…" y el aviso de "no encontrada".
+      showAddressDropdown = true;
+      addressDebounceTimer = setTimeout(() => searchNominatim(text, token), 400);
     } else if (text.length > 0) {
       addressSuggestions = [];
       showAddressDropdown = false;
-      isSearchingAddress = false;
+      addressSearchState = 'idle';
+    } else {
+      addressSuggestions = [];
+      showAddressDropdown = false;
+      addressSearchState = 'idle';
     }
   }
 
-  async function searchNominatim(query: string) {
+  async function searchNominatim(query: string, token: number) {
     try {
       const url = nominatimSearchUrl(query);
       const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
       const data = await res.json();
-      const items = buildAddressSugerencias();
-      for (const r of data.slice(0, 5)) {
+      // Descarta respuestas obsoletas si el usuario siguió escribiendo.
+      if (token !== addressQueryToken) return;
+      const results = Array.isArray(data) ? data.slice(0, 5) : [];
+      const items = buildAddressSugerencias(query);
+      const savedKeys = new Set(
+        items.filter(s => s.type === 'saved').map(s => normalizeText(String(s.data.address ?? '')))
+      );
+      for (const r of results) {
+        // Evita repetir una dirección que ya está guardada en el cliente.
+        if (savedKeys.has(normalizeText(formatearDireccionNominatim(r)))) continue;
         items.push({ type: 'nominatim', data: r });
       }
+      addressNominatimFound = results.length > 0;
       addressSuggestions = items;
-      showAddressDropdown = items.length > 0;
+      showAddressDropdown = true;
     } catch {
-      addressSuggestions = buildAddressSugerencias();
-      showAddressDropdown = addressSuggestions.length > 0;
+      if (token !== addressQueryToken) return;
+      addressNominatimFound = false;
+      addressSuggestions = buildAddressSugerencias(query);
+      showAddressDropdown = true;
     } finally {
-      isSearchingAddress = false;
+      if (token === addressQueryToken) addressSearchState = 'done';
     }
   }
 
@@ -1550,6 +1580,7 @@ const tallerApi: TallerApi = api;
     }
     showAddressDropdown = false;
     selectedAddressIdx = -1;
+    addressSearchState = 'idle';
   }
 
   function deleteSavedAddress(a: ClientAddress) {
@@ -2142,6 +2173,12 @@ const tallerApi: TallerApi = api;
                 {#if showAddressDropdown}
                   <div class="autocomplete-results">
                     {#each addressSuggestions as sug, i}
+                      {#if sug.type === 'saved' && (i === 0 || addressSuggestions[i - 1].type !== 'saved')}
+                        <div class="addr-group-label">Direcciones guardadas</div>
+                      {/if}
+                      {#if sug.type === 'nominatim' && (i === 0 || addressSuggestions[i - 1].type !== 'nominatim')}
+                        <div class="addr-group-label">Resultados de Maps</div>
+                      {/if}
                       <div class="autocomplete-item" class:selected={i === selectedAddressIdx} onmousedown={(e) => { e.preventDefault(); selectAddress(sug); }}>
                         {#if sug.type === 'saved'}
                           <span class="addr-label">{sug.data.label || 'Dirección'}</span>
@@ -2155,8 +2192,10 @@ const tallerApi: TallerApi = api;
                         {/if}
                       </div>
                     {/each}
-                    {#if isSearchingAddress && addressSuggestions.length === 0}
-                      <div class="autocomplete-item searching-item">Buscando...</div>
+                    {#if addressSearchState === 'searching'}
+                      <div class="autocomplete-item searching-item">Buscando direcciones…</div>
+                    {:else if addressSearchState === 'done' && !addressNominatimFound && cliente_domicilio.trim().length >= 4}
+                      <div class="autocomplete-item addr-none">No encontramos esa dirección en Maps. Probá agregar la localidad (barrio o ciudad) o usá «Buscar en Maps».</div>
                     {/if}
                     <div class="autocomplete-divider"></div>
                     <div class="autocomplete-item add-address-item" onmousedown={(e) => { e.preventDefault(); openAddAddressModal(); }}>
@@ -4160,6 +4199,23 @@ const tallerApi: TallerApi = api;
     font-style: italic;
     font-size: var(--text-xs);
     justify-content: center;
+  }
+  .addr-group-label {
+    padding: 0.3rem 0.7rem 0.15rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    background: var(--bg-hover);
+  }
+  .addr-none {
+    display: block;
+    padding: 0.55rem 0.7rem;
+    font-size: var(--text-xs);
+    line-height: 1.35;
+    color: var(--text-secondary);
+    white-space: normal;
   }
 
 </style>
