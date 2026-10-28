@@ -134,16 +134,18 @@
   }
   .new-category input, .new-category select {
     padding: 0.4rem 0.6rem;
-    border: 1px solid #ddd;
+    border: 1px solid var(--border);
     border-radius: 0.3rem;
     font-size: 0.85rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
   }
   .new-category input { flex: 1; min-width: 12rem; }
   .new-category button {
     padding: 0.4rem 0.8rem;
     border: none;
     background: var(--accent, #27ae60);
-    color: white;
+    color: var(--text-on-accent);
     border-radius: 0.3rem;
     cursor: pointer;
   }
@@ -176,8 +178,8 @@
   }
   .badge-default {
     font-size: 0.7rem;
-    background: #e8f5e9;
-    color: #2e7d32;
+    background: var(--success-soft);
+    color: var(--success);
     padding: 0.15rem 0.4rem;
     border-radius: 0.25rem;
     width: fit-content;

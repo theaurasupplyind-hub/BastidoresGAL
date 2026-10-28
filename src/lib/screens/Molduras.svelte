@@ -912,12 +912,12 @@
           {/if}
         {:else if !editingFormula}
           <div class="formula-section">
-            <h4 style="color:#2c3e50;">Varillas (V)</h4>
+            <h4 style="color:var(--accent);">Varillas (V)</h4>
             <p>2 × <em>ancho</em> + 2 × <em>alto</em> por cada bastidor</p>
             <p class="formula-example">Siempre 4 varillas por bastidor (2 de cada medida)</p>
           </div>
           <div class="formula-section">
-            <h4 style="color:#27ae60;">Largueros (L)</h4>
+            <h4 style="color:var(--success);">Largueros (L)</h4>
             <p>Cantidad según el lado <strong>más largo</strong>:</p>
             <ul>
               {#each formulaDraft.largueros as r}
@@ -931,7 +931,7 @@
             <p class="formula-example">Largo = lado_corto − {formulaDraft.largueroOffset} cm</p>
           </div>
           <div class="formula-section">
-            <h4 style="color:#d35400;">Travesaños (T)</h4>
+            <h4 style="color:#e67e22;">Travesaños (T)</h4>
             <p>Filas según el lado <strong>más corto</strong>:</p>
             <ul>
               {#each formulaDraft.filas as r}
@@ -948,7 +948,7 @@
           <div class="formula-editor">
             <div class="formula-editor-main">
               <div class="formula-section">
-                <h4 style="color:#27ae60;">Largueros (L)</h4>
+                <h4 style="color:var(--success);">Largueros (L)</h4>
                 <p class="formula-hint">La primera regla que coincide gana. "Hasta" vacío = sin límite.</p>
                 <table class="cfg-table">
                   <thead><tr><th>Corto ≥</th><th>Desde</th><th>Hasta</th><th>Cant.</th><th></th></tr></thead>
@@ -970,7 +970,7 @@
               </div>
 
               <div class="formula-section">
-                <h4 style="color:#d35400;">Travesaños (T)</h4>
+                <h4 style="color:#e67e22;">Travesaños (T)</h4>
                 <p class="formula-hint">Filas según el lado corto (primera coincidencia).</p>
                 <table class="cfg-table">
                   <thead><tr><th>Desde</th><th>Hasta</th><th>Filas</th><th></th></tr></thead>
@@ -1207,12 +1207,12 @@
                 </thead>
                 <tbody>
                   <tr>
-                    <td style="font-weight:600;color:#2c3e50">Varilla</td>
+                    <td style="font-weight:600;color:var(--accent)">Varilla</td>
                     <td>4</td>
                     <td>2×{detailItemDims.w} + 2×{detailItemDims.h}</td>
                   </tr>
                   <tr>
-                    <td style="font-weight:600;color:#27ae60">Larguero</td>
+                    <td style="font-weight:600;color:var(--success)">Larguero</td>
                     {#if editMode}
                       <td><input type="number" class="mat-input" value={editLargNum} min="0" step="1" onchange={(e) => setLargNum(parseFloat(e.currentTarget.value) || 0)} /></td>
                     {:else}
@@ -1221,7 +1221,7 @@
                     <td><span class="mat-ro">{editLargCm}</span></td>
                   </tr>
                   <tr>
-                    <td style="font-weight:600;color:#d35400">Traves.</td>
+                    <td style="font-weight:600;color:#e67e22">Traves.</td>
                     {#if editMode}
                       <td><input type="number" class="mat-input" value={editTravQty} min={editLargNum > 0 ? editLargNum + 1 : 0} step={editLargNum > 0 ? editLargNum + 1 : 1} onchange={(e) => snapTravQty(parseFloat(e.currentTarget.value) || 0)} /></td>
                     {:else}
@@ -1317,16 +1317,21 @@
   }
 
   .mol-card {
+    /* Tinta fija: las cards son "papel" y deben verse igual en claro y oscuro. */
+    --mol-ink: #1a1d23;
+    --mol-ink-soft: #4b5563;
+    --mol-ink-muted: #6b7280;
     break-inside: avoid;
     display: inline-block;
     width: 100%;
     margin-bottom: 0.714rem;
     border: 0.214rem solid #000;
     border-radius: 0.571rem;
-    background: var(--bg-card);
+    background: #fff;
+    overflow: hidden;
     transition: border-color 0.15s, box-shadow 0.15s;
   }
-  .mol-card:hover { border-color: var(--border); box-shadow: 0 0.143rem 0.571rem rgba(0,0,0,0.1); }
+  .mol-card:hover { border-color: #555; box-shadow: 0 0.143rem 0.571rem rgba(0,0,0,0.1); }
   .mol-card.selected { border-color: var(--accent); box-shadow: 0 0 0 0.214rem rgba(55,90,127,0.25); }
 
   .mol-card-header {
@@ -1338,7 +1343,7 @@
     align-items: flex-start;
   }
   .mol-card-cliente { font-weight: 900; font-size: 0.95rem; text-transform: uppercase; line-height: 1.2; letter-spacing: 0.02em; }
-  .mol-card-num { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.071rem; }
+  .mol-card-num { font-size: 0.72rem; color: #b9bcc4; margin-top: 0.071rem; }
   .corr-tag { font-size: 0.64rem; opacity: 0.7; }
 
   .btn-detail-header {
@@ -1348,7 +1353,7 @@
   }
   .btn-detail-header:hover { background: rgba(255,255,255,0.15); color: #fff; }
 
-  .mol-card-body { padding: 0; }
+  .mol-card-body { padding: 0; background: #fff; }
 
   .mol-summary-table {
     width: 100%;
@@ -1356,6 +1361,7 @@
     background: #eee;
     border-bottom: 0.214rem solid #000;
     font-size: 0.82rem;
+    color: var(--mol-ink);
   }
   .mol-summary-table th {
     background: #ddd;
@@ -1363,7 +1369,7 @@
     text-align: left;
     font-size: 0.65rem;
     text-transform: uppercase;
-    color: var(--text-secondary);
+    color: var(--mol-ink-soft);
   }
   .mol-summary-table td {
     padding: 0.214rem 0.571rem;
@@ -1373,15 +1379,16 @@
   .sm-measure { font-weight: 700; font-size: 1rem; }
   .sm-measure-top { display: flex; align-items: center; gap: 0.286rem; }
   .sm-edit { margin-left: 0.286rem; font-size: 0.8rem; }
-  .sm-tipo { font-weight: 400; color: var(--text-secondary); font-size: 0.78rem; }
+  .sm-tipo { font-weight: 800; color: var(--mol-ink-soft); font-size: 0.78rem; display: block; text-align: center; }
   .sm-c-l { color: #27ae60; font-weight: 700; }
   .sm-c-c { color: #d35400; font-weight: 700; }
-  .mol-summary-table tr.non-molding { opacity: 0.5; }
+  .mol-summary-table tr.non-molding { opacity: 0.7; }
 
   .mol-materials-table {
     width: 100%;
     border-collapse: collapse;
     text-align: center;
+    color: var(--mol-ink);
   }
   .mol-materials-table th {
     border: 1px solid #000;
@@ -1405,7 +1412,7 @@
   .td-val { font-weight: 900; font-size: 1rem; }
   .tajos-cell { background: #ebf5fb !important; }
   .mat-tajos { color: #2c3e50; font-weight: 800; font-size: 0.82rem; }
-  .mat-empty { text-align: center; color: var(--text-muted); padding: 0.429rem; font-size: 0.72rem; }
+  .mat-empty { text-align: center; color: var(--mol-ink-muted); padding: 0.429rem; font-size: 0.72rem; }
 
   .mol-loading, .mol-empty {
     flex: 1;
@@ -1469,7 +1476,7 @@
   .detail-items-list { flex: 1; overflow-y: auto; border: 1px solid var(--border-light); border-radius: 0.429rem; }
   .detail-item-row {
     display: flex; align-items: center; gap: 0.571rem; padding: 0.5rem 0.571rem;
-    cursor: pointer; border-bottom: 1px solid #f5f5f5; font-size: 0.82rem;
+    cursor: pointer; border-bottom: 1px solid var(--border-light); font-size: 0.82rem;
     transition: background 0.1s;
   }
   .detail-item-row:hover { background: var(--accent-light); }
@@ -1510,7 +1517,7 @@
     gap: 0.714rem;
     padding: 0.5rem 0.714rem;
     cursor: pointer;
-    border-bottom: 1px solid #f5f5f5;
+    border-bottom: 1px solid var(--border-light);
     font-size: 0.82rem;
     align-items: center;
   }

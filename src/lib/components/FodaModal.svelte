@@ -381,10 +381,10 @@
               </g>
             {/each}
             <g>
-              <circle cx={CX} cy={CY} r="86" fill="#fff" stroke="#e5e7eb" stroke-width="6" />
-              <circle cx={CX} cy={CY} r="72" fill="#f3f4f6" />
-              <text x={CX} y={CY - 16} text-anchor="middle" font-size="21" font-weight="800" fill="#1f2937">Análisis</text>
-              <text x={CX} y={CY + 14} text-anchor="middle" font-size="32" font-weight="900" fill="#1f2937">foda</text>
+              <circle cx={CX} cy={CY} r="86" style="fill: var(--bg-card); stroke: var(--border)" stroke-width="6" />
+              <circle cx={CX} cy={CY} r="72" style="fill: var(--bg-hover)" />
+              <text x={CX} y={CY - 16} text-anchor="middle" font-size="21" font-weight="800" style="fill: var(--text-primary)">Análisis</text>
+              <text x={CX} y={CY + 14} text-anchor="middle" font-size="32" font-weight="900" style="fill: var(--text-primary)">foda</text>
             </g>
           </svg>
           <div class="foda-legend">
@@ -459,8 +459,8 @@
   .foda-title h2 { margin: 0; font-size: 1.25rem; }
   .foda-header-actions { display: flex; align-items: center; gap: 0.5rem; }
   .save-hint { font-size: 0.75rem; color: var(--text-muted, #9ca3af); }
-  .save-hint.ok { color: #16a34a; }
-  .save-hint.warn { color: #d97706; }
+  .save-hint.ok { color: var(--success); }
+  .save-hint.warn { color: var(--warning); }
   .foda-btn {
     display: inline-flex; align-items: center; gap: 0.35rem;
     padding: 0.4rem 0.8rem; border: 1px solid var(--border, #e5e7eb); border-radius: 0.45rem;
@@ -473,7 +473,7 @@
     background: none; border: none; cursor: pointer; font-size: 1rem;
     color: var(--text-muted, #9ca3af); padding: 0.3rem 0.5rem; border-radius: 0.35rem;
   }
-  .foda-close:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
+  .foda-close:hover { color: var(--danger); background: var(--danger-soft); }
   .foda-loading { padding: 3rem; text-align: center; color: var(--text-muted, #9ca3af); }
   .foda-body {
     display: grid; grid-template-columns: 1fr 360px 1fr; gap: 1rem;
@@ -484,7 +484,7 @@
   .foda-svg { width: 100%; height: auto; }
   .seg { cursor: pointer; transition: opacity 0.15s, transform 0.15s; opacity: 0.92; }
   .seg:hover { opacity: 1; }
-  .seg.active path { stroke: #111827; stroke-width: 4; }
+  .seg.active path { stroke: var(--text-primary); stroke-width: 4; }
   .seg:focus-visible { outline: 2px solid var(--border-focus, #2563eb); outline-offset: 2px; }
   .foda-legend { display: flex; flex-wrap: wrap; gap: 0.35rem; }
   .legend-item {
@@ -543,8 +543,8 @@
     font-size: 0.82rem; color: var(--text-primary, #111827);
   }
   .q-menu-item:hover { background: var(--bg-hover, #f3f4f6); }
-  .q-menu-danger { color: #ef4444; }
-  .q-menu-danger:hover { background: rgba(239,68,68,0.08); }
+  .q-menu-danger { color: var(--danger); }
+  .q-menu-danger:hover { background: var(--danger-soft); }
 
   .q-edit-overlay {
     position: fixed; inset: 0; z-index: 1300; background: rgba(0,0,0,0.45);
@@ -564,7 +564,7 @@
     background: none; border: none; cursor: pointer; font-size: 1rem;
     color: var(--text-muted, #9ca3af); padding: 0.3rem 0.5rem; border-radius: 0.35rem;
   }
-  .q-edit-modal-close:hover { color: #ef4444; background: rgba(239,68,68,0.08); }
+  .q-edit-modal-close:hover { color: var(--danger); background: var(--danger-soft); }
   .q-edit-modal-text {
     margin: 1rem 1.1rem 0; padding: 0.7rem 0.8rem; min-height: 12rem;
     font-family: inherit; font-size: 0.95rem; line-height: 1.5;
@@ -572,14 +572,14 @@
     background: var(--bg-card, #fff); color: var(--text-primary, #111827);
     resize: vertical; outline: none;
   }
-  .q-edit-modal-text:focus { border-color: var(--border-focus, #2563eb); box-shadow: 0 0 0 0.2rem rgba(37,99,235,0.12); }
+  .q-edit-modal-text:focus { border-color: var(--border-focus, #2563eb); box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--accent) 20%, transparent); }
   .q-edit-modal-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 1rem 1.1rem; }
   .q-edit-modal-actions .btn-secondary {
     padding: 0.5rem 1rem; background: var(--bg-hover, #f3f4f6); color: var(--text-secondary, #4b5563);
     border: none; border-radius: 0.45rem; cursor: pointer; font-size: 0.9rem;
   }
   .q-edit-modal-actions .btn-primary {
-    padding: 0.5rem 1rem; background: var(--accent, #2563eb); color: #fff;
+    padding: 0.5rem 1rem; background: var(--accent, #2563eb); color: var(--text-on-accent);
     border: none; border-radius: 0.45rem; cursor: pointer; font-size: 0.9rem;
   }
   .q-edit-modal-actions .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }

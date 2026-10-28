@@ -260,21 +260,21 @@
   .file-area { margin-bottom: 0.857rem; }
   .file-input { display: none; }
   .file-label {
-    display: inline-block; padding: 0.571rem 1.143rem; background: var(--accent); color: #fff;
+    display: inline-block; padding: 0.571rem 1.143rem; background: var(--accent); color: var(--text-on-accent);
     border-radius: 0.357rem; cursor: pointer; font-size: 0.929rem;
   }
   .file-label:hover { opacity: 0.9; }
-  .err { color: #c0392b; font-size: 0.857rem; margin: 0.571rem 0; }
-  .ok { color: #27ae60; font-size: 0.857rem; margin: 0.571rem 0; }
+  .err { color: var(--danger); font-size: 0.857rem; margin: 0.571rem 0; }
+  .ok { color: var(--success); font-size: 0.857rem; margin: 0.571rem 0; }
   .status { font-size: 0.857rem; color: var(--text-secondary); margin: 0.571rem 0; }
   .status-row { display: flex; justify-content: space-between; align-items: center; gap: 0.571rem; }
   .status-row .status { margin: 0.571rem 0; }
   .del-all-btn {
-    border: 1px solid #f0c9c9; background: #fef2f2; color: #c0392b; cursor: pointer;
+    border: 1px solid var(--danger-border); background: var(--danger-soft); color: var(--danger); cursor: pointer;
     font-size: 0.786rem; font-weight: 600; padding: 0.357rem 0.714rem; border-radius: 0.357rem;
     white-space: nowrap;
   }
-  .del-all-btn:hover:not(:disabled) { background: #fde8e8; }
+  .del-all-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 16%, var(--bg-card)); }
   .del-all-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .table-wrap { max-height: 21rem; overflow-y: auto; margin: 0.571rem 0; border: 0.071rem solid var(--border); border-radius: 0.286rem; }
   .table-wrap.mini { max-height: 14rem; }
@@ -287,11 +287,11 @@
     border: none; background: none; cursor: pointer; color: var(--text-muted);
     font-size: 0.85rem; padding: 0.143rem 0.357rem; border-radius: 0.286rem;
   }
-  .del-btn:hover:not(:disabled) { color: #e74c3c; background: #fef2f2; }
+  .del-btn:hover:not(:disabled) { color: var(--danger); background: var(--danger-soft); }
   .del-btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .more { font-size: 0.786rem; color: var(--text-muted); text-align: center; margin: 0.286rem 0; }
   hr { border: none; border-top: 0.071rem solid var(--border-light); margin: 0.857rem 0; }
   .btn { padding: 0.571rem 1.143rem; border-radius: 0.357rem; border: none; cursor: pointer; font-size: 0.929rem; font-weight: 600; }
-  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary { background: var(--accent); color: var(--text-on-accent); }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>

@@ -1,4 +1,6 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.5.2': `Accesibilidad: el zoom de la interfaz ahora es real (escala todo: textos, tablas, iconos e imágenes) con botones A− / A+ en la barra superior, atajos Ctrl +, Ctrl − y Ctrl 0, y Ctrl + rueda. Llega hasta 150%.
+Accesibilidad: nueva Lupa. Se activa en la barra, mantenés apretado el clic izquierdo y la pantalla se amplía sobre lo que estás mirando; al soltar vuelve sola. Esc para salir.`,
   '2.5.1': `Facturación: la búsqueda de direcciones trae hasta 5 resultados de Maps, separados de las direcciones guardadas, con "Buscando…", aviso de "no encontrada" y descarte de respuestas viejas si seguís tipeando.
 Proveedores: al cargar compras y pagos elegís el medio (Transferencia / Efectivo) y cada movimiento muestra el saldo paso a paso.
 Estimación: la regla de corte ya no aparece en bastidores por la palabra "tela" (coincidencia estricta) y un tope 0 dejó de mandar todo a "primero".

@@ -308,7 +308,7 @@
     font-size: 0.85rem;
   }
   .pago-dialog-cliente { font-weight: 700; color: var(--text-primary); }
-  .pago-dialog-balance { font-weight: 600; color: #198754; }
+  .pago-dialog-balance { font-weight: 600; color: var(--success); }
   .form-group { display: flex; flex-direction: column; gap: 0.286rem; }
   .form-group label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
   .form-group input {
@@ -317,8 +317,10 @@
     border-radius: 0.357rem;
     font-size: 0.92rem;
     outline: none;
+    background: var(--bg-card);
+    color: var(--text-primary);
   }
-  .form-group input:focus { border-color: #3498db; }
+  .form-group input:focus { border-color: var(--border-focus); }
   .input-readonly { background: var(--bg-page); color: var(--text-muted); }
 
   .seg-group {
@@ -344,10 +346,10 @@
   .seg-btn:hover { color: var(--text-primary); }
   .seg-active {
     background: var(--accent);
-    color: #fff;
-    box-shadow: 0 0.143rem 0.429rem rgba(52,152,219,0.3);
+    color: var(--text-on-accent);
+    box-shadow: 0 0.143rem 0.429rem color-mix(in srgb, var(--accent) 30%, transparent);
   }
-  .seg-active:hover { color: #fff; }
+  .seg-active:hover { color: var(--text-on-accent); }
 
   .vincular-section {
     border: 0.071rem solid var(--border);
@@ -387,10 +389,10 @@
   .chip-active {
     background: var(--accent);
     border-color: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
     font-weight: 600;
   }
-  .chip-active:hover { color: #fff; }
+  .chip-active:hover { color: var(--text-on-accent); }
   .empty-chips { font-size: 0.85rem; color: var(--text-muted); padding: 0.286rem 0; }
 
   .chip-grid-providers {

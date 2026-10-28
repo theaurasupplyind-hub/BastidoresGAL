@@ -28,7 +28,7 @@
     display: flex;
     flex-direction: column;
     gap: 0.714rem;
-    background: #f5f6fa;
+    background: var(--bg-page);
     overflow: auto;
   }
 </style>

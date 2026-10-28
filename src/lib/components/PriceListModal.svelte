@@ -389,8 +389,8 @@
       background: var(--accent);
     }
     .nav-dot.has-image {
-      border-color: #818cf8;
-      background: #e0e7ff;
+      border-color: var(--accent);
+      background: var(--accent-light);
     }
     .nav-dot.has-image.active {
       background: var(--accent);
@@ -401,7 +401,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background: #f8f9fb;
+      background: var(--bg-inset);
       min-height: 0;
     }
     .image-area.zoom-mode {
@@ -493,7 +493,7 @@
     .name-field input:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 0 2px rgba(99,102,241,0.15);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
     }
 
     .zoom-control {
@@ -538,25 +538,25 @@
     .btn:disabled { opacity: 0.5; cursor: not-allowed; }
     .btn-upload {
       background: var(--accent);
-      color: #fff;
+      color: var(--text-on-accent);
       border-color: var(--accent);
       flex: 1;
     }
-    .btn-upload:hover:not(:disabled) { background: #5558e6; }
+    .btn-upload:hover:not(:disabled) { background: var(--accent-hover); }
     .btn-download {
-      background: #f0fdf4;
-      color: #16a34a;
-      border-color: #bbf7d0;
+      background: var(--success-soft);
+      color: var(--success);
+      border-color: var(--success-border);
       padding: 0.429rem 0.643rem;
     }
-    .btn-download:hover { background: #dcfce7; }
+    .btn-download:hover { background: color-mix(in srgb, var(--success) 20%, var(--bg-card)); }
     .btn-whatsapp {
-      background: #f0fdf4;
+      background: var(--success-soft);
       color: #25D366;
-      border-color: #b7f0d1;
+      border-color: var(--success-border);
       padding: 0.429rem 0.643rem;
     }
-    .btn-whatsapp:hover:not(:disabled) { background: #dcfce7; }
+    .btn-whatsapp:hover:not(:disabled) { background: color-mix(in srgb, var(--success) 20%, var(--bg-card)); }
     .btn-whatsapp:disabled { opacity: 0.7; cursor: not-allowed; }
     .btn-whatsapp-loading {
       font-size: 0.78rem;
@@ -569,19 +569,19 @@
     }
     .btn-delete {
       background: var(--bg-card);
-      color: #ef4444;
-      border-color: #fecaca;
+      color: var(--danger);
+      border-color: var(--danger-border);
       padding: 0.429rem 0.643rem;
     }
-    .btn-delete:hover { background: #fef2f2; }
+    .btn-delete:hover { background: var(--danger-soft); }
     .btn-cerrar {
       background: var(--bg-page);
       color: var(--text-primary);
-      border-color: #d1d5db;
+      border-color: var(--border);
       width: 100%;
       justify-content: center;
     }
-    .btn-cerrar:hover { background: #e5e7eb; }
+    .btn-cerrar:hover { background: var(--bg-hover); }
 
     .file-hidden { display: none; }
   </style>

@@ -329,7 +329,7 @@
   .gastos-topbar {
     display: flex;
     gap: 0.143rem;
-    background: #e9ecef;
+    background: var(--bg-subtle);
     border-radius: 0.429rem;
     padding: 0.143rem;
   }
@@ -346,7 +346,7 @@
     align-items: center;
     gap: 0.286rem;
   }
-  .g-top-btn:hover { background: var(--bg-card); }
+  .g-top-btn:hover { background: var(--bg-hover); }
   .g-top-btn.active { background: var(--bg-card); color: var(--text-primary); font-weight: 600; box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.08); }
   .tipo-toggle-bar {
     display: flex;
@@ -368,7 +368,7 @@
   .tipo-btn-bar:hover { background: var(--bg-hover); }
   .tipo-btn-bar.active {
     background: var(--accent);
-    color: #fff;
+    color: var(--text-on-accent);
   }
   .filter-bar {
     display: flex;

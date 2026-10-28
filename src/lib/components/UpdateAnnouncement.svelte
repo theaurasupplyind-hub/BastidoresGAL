@@ -78,7 +78,7 @@
     justify-content: center;
     font-size: 1rem;
   }
-  .update-close:hover { background: rgba(0,0,0,0.06); color: #ef4444; }
+  .update-close:hover { background: var(--bg-hover); color: var(--danger); }
   .update-body {
     max-height: 40vh;
     overflow-y: auto;
@@ -97,8 +97,8 @@
   }
   :global(.btn.btn-primary) {
     padding: 0.5rem 1.2rem;
-    background: #3b82f6;
-    color: white;
+    background: var(--accent);
+    color: var(--text-on-accent);
     border: none;
     border-radius: 6px;
     font-size: 0.9rem;
@@ -106,5 +106,5 @@
     cursor: pointer;
     font-family: inherit;
   }
-  :global(.btn.btn-primary:hover) { background: #2563eb; }
+  :global(.btn.btn-primary:hover) { background: var(--accent-hover); }
 </style>

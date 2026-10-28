@@ -664,7 +664,7 @@
     font-family: inherit;
   }
   .pp-filter-btn:hover { background: var(--bg-hover); }
-  .pp-filter-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .pp-filter-btn.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
 
   .pp-method-toggle { display: flex; gap: 0.286rem; }
   .pp-method-btn {
@@ -680,7 +680,7 @@
     transition: background 0.12s, border-color 0.12s, color 0.12s;
   }
   .pp-method-btn:hover { background: var(--bg-hover); }
-  .pp-method-btn.active { background: var(--accent); color: white; border-color: var(--accent); }
+  .pp-method-btn.active { background: var(--accent); color: var(--text-on-accent); border-color: var(--accent); }
 
   .pp-timeline-panels {
     display: grid;
@@ -710,8 +710,8 @@
     flex-shrink: 0;
   }
   .pp-panel-total { font-family: monospace; font-size: 1.05rem; }
-  .pp-panel-total.positive { color: #dc3545; }
-  .pp-panel-total.negative { color: #28a745; }
+  .pp-panel-total.positive { color: var(--danger); }
+  .pp-panel-total.negative { color: var(--success); }
   .pp-panel-scroll { flex: 1; overflow: auto; padding: 0.143rem 0.429rem; }
 
   .pp-date-header {
@@ -753,14 +753,14 @@
     text-align: center;
     letter-spacing: 0.014rem;
   }
-  .type-purchase { background: #fff3cd; color: #856404; }
-  .type-payment { background: #d4edda; color: #155724; }
-  .type-stockin { background: #cce5ff; color: #004085; }
-  .type-stockout { background: #f8d7da; color: #721c24; }
+  .type-purchase { background: var(--warning-soft); color: var(--warning); }
+  .type-payment { background: var(--success-soft); color: var(--success); }
+  .type-stockin { background: var(--info-soft); color: var(--info); }
+  .type-stockout { background: var(--danger-soft); color: var(--danger); }
 
   .pp-move-amount { font-family: monospace; font-weight: 700; font-size: 1rem; margin-left: auto; flex-shrink: 0; white-space: nowrap; }
-  .pp-move-amount.positive { color: #dc3545; }
-  .pp-move-amount.negative { color: #28a745; }
+  .pp-move-amount.positive { color: var(--danger); }
+  .pp-move-amount.negative { color: var(--success); }
   .pp-move-btn {
     background: none;
     border: none;
@@ -804,7 +804,7 @@
     transition: opacity 0.12s;
   }
   .pp-action-btn:hover { opacity: 0.85; }
-  .pp-action-pay { background: #ffc107; color: #333; }
-  .pp-action-buy { background: #dc3545; color: white; }
-  .pp-action-stock { background: #28a745; color: white; }
+  .pp-action-pay { background: var(--warning); color: var(--text-on-warning); }
+  .pp-action-buy { background: var(--danger); color: var(--text-on-accent); }
+  .pp-action-stock { background: var(--success); color: var(--text-on-accent); }
 </style>

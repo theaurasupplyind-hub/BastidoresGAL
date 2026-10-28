@@ -2859,10 +2859,10 @@ const tallerApi: TallerApi = api;
     align-items: center;
     gap: 0.571rem;
   }
-  .toggle-noconf { color: #92400e; border-color: #fde68a; background: #fffbeb; }
-  .toggle-noconf:hover { background: #fef3c7; border-color: #f59e0b; }
-  .toggle-noconf.active { background: #f59e0b; border-color: #d97706; color: #fff; }
-  .toggle-noconf.active:hover { background: #d97706; }
+  .toggle-noconf { color: var(--warning); border-color: var(--warning-border); background: var(--warning-soft); }
+  .toggle-noconf:hover { background: color-mix(in srgb, var(--warning) 18%, var(--bg-card)); border-color: var(--warning); }
+  .toggle-noconf.active { background: var(--warning); border-color: var(--warning-hover); color: var(--text-on-accent); }
+  .toggle-noconf.active:hover { background: var(--warning-hover); }
   .confirm-badge {
     font-size: 0.72rem;
     font-weight: 700;
@@ -2871,12 +2871,12 @@ const tallerApi: TallerApi = api;
     white-space: nowrap;
   }
   .confirm-badge.no-confirmado {
-    background: #fef3c7;
-    color: #92400e;
+    background: var(--warning-soft);
+    color: var(--warning);
   }
   .confirm-badge.confirmado {
-    background: #d1fae5;
-    color: #065f46;
+    background: var(--success-soft);
+    color: var(--success);
   }
   .top-btn-confirm {
     font-size: 0.78rem;
@@ -3658,8 +3658,8 @@ const tallerApi: TallerApi = api;
     font-family: inherit;
   }
   .discount-tabs button.active {
-    background: #d97706;
-    color: white;
+    background: var(--warning);
+    color: var(--text-on-accent);
   }
   .discount-tabs button:hover:not(.active) { background: var(--bg-hover); }
   .discount-input-group {
@@ -3685,17 +3685,17 @@ const tallerApi: TallerApi = api;
   }
   .discount-preview {
     font-size: var(--text-xs);
-    color: #d97706;
+    color: var(--warning);
     font-weight: 600;
     margin-top: 0.143rem;
   }
   .discount-current {
     font-size: var(--text-sm);
-    color: #d97706;
+    color: var(--warning);
     font-weight: 600;
     padding: 0.429rem;
-    background: #fffbeb;
-    border: 0.071rem solid #fcd34d;
+    background: var(--warning-soft);
+    border: 0.071rem solid var(--warning-border);
     border-radius: var(--radius-sm);
     text-align: center;
   }

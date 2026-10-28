@@ -771,7 +771,7 @@ const CARD_CSS = `
 .summary-table td { padding: 2px; border: 1px solid #444; vertical-align: middle; }
 .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
 .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
-.sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
+.sum-type { font-size: 18px; font-weight: 900; text-transform: uppercase; color: #444; display: block; text-align: center; letter-spacing: 0.01em; }
 .sum-cortes { font-size: 14px; font-weight: 600; color: #555; line-height: 1.2; }
 .sum-c-l { color: #27ae60; font-weight: 700; }
 .sum-c-c { color: #d35400; font-weight: 700; }
@@ -800,7 +800,7 @@ const MEASURE_CSS = `
 .mol-measure .summary-table td { padding: 2px; border: 1px solid #444; vertical-align: middle; }
 .mol-measure .sum-qty { font-size: 32px; font-weight: 900; text-align: center; display: block; }
 .mol-measure .sum-dim { font-size: 24px; font-weight: 900; margin-right: 8px; }
-.mol-measure .sum-type { font-size: 18px; font-weight: bold; text-transform: uppercase; color: #444; }
+.mol-measure .sum-type { font-size: 18px; font-weight: 900; text-transform: uppercase; color: #444; display: block; text-align: center; letter-spacing: 0.01em; }
 .mol-measure .sum-cortes { font-size: 14px; font-weight: 600; color: #555; line-height: 1.2; }
 .mol-measure .sum-c-l { color: #27ae60; font-weight: 700; }
 .mol-measure .sum-c-c { color: #d35400; font-weight: 700; }

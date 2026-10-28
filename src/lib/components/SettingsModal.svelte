@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { appStore } from '$lib/stores/appStore.svelte';
+  import { zoomStore } from '$lib/stores/zoomStore.svelte';
   import type { AppConfig } from '$lib/types';
 
   let config = $state<AppConfig>({
@@ -16,9 +17,7 @@
     moldura_merged: false,
   });
 
-  let zoomLevel = $state(1);
-  let zoomPercent = $state(100);
-  let initialZoomPercent = 100;
+  let initialPercent = 100;
   let loading = $state(true);
   let printers = $state<string[]>([]);
   let loadingPrinters = $state(true);
@@ -36,47 +35,22 @@
     }
     loadingPrinters = false;
 
-    const savedZoom = localStorage.getItem('zoom-level');
-    if (savedZoom) {
-      const f = parseFloat(savedZoom);
-      if (f) {
-        zoomLevel = f;
-        zoomPercent = Math.round(f * 100);
-      }
-    }
-    initialZoomPercent = zoomPercent;
+    initialPercent = zoomStore.percent;
   });
 
-  function applyZoom() {
-    const factor = zoomPercent / 100;
-    zoomLevel = factor;
-    document.documentElement.style.setProperty('--zoom', String(factor));
-    if (factor === 1) {
-      document.documentElement.removeAttribute('data-zoom');
-    } else {
-      document.documentElement.setAttribute('data-zoom', 'true');
-    }
-  }
-
-  function handleZoom(e: Event) {
-    zoomPercent = parseInt((e.target as HTMLInputElement).value);
-    applyZoom();
-  }
-
+  // El zoom se aplica al instante; si se cancela, se vuelve al valor de entrada.
   function cancel() {
-    zoomPercent = initialZoomPercent;
-    applyZoom();
+    zoomStore.setPercent(initialPercent);
     appStore.showSettings = false;
   }
 
   async function save() {
     try {
-      localStorage.setItem('zoom-level', String(zoomLevel));
       await invoke('save_config', { config });
       appStore.pdfStyle = config.selected_template_name;
       appStore.sortDimsEnabled = config.sort_dims_enabled ?? true;
       appStore.molduraMerged = config.moldura_merged ?? false;
-      initialZoomPercent = zoomPercent;
+      initialPercent = zoomStore.percent;
       appStore.showToast('Configuración guardada');
       appStore.showSettings = false;
     } catch (e) {
@@ -98,10 +72,20 @@
       <p class="loading">Cargando...</p>
     {:else}
       <div class="form-grid">
-        <label>Zoom</label>
+        <span class="zoom-label">Zoom de la interfaz</span>
         <div class="zoom-row">
-          <input type="range" min="100" max="250" value={zoomPercent} oninput={handleZoom} class="zoom-slider" />
-          <span class="zoom-pct">{zoomPercent}%</span>
+          <button class="zoom-step-btn" onclick={() => zoomStore.zoomOut()} disabled={!zoomStore.canZoomOut} title="Alejar">A−</button>
+          <span class="zoom-pct">{zoomStore.percent}%</span>
+          <button class="zoom-step-btn" onclick={() => zoomStore.zoomIn()} disabled={!zoomStore.canZoomIn} title="Acercar">A+</button>
+          <button class="zoom-reset-btn" onclick={() => zoomStore.reset()} disabled={zoomStore.percent === 100}>100%</button>
+        </div>
+
+        <span class="zoom-label">Lupa</span>
+        <div class="zoom-row">
+          <button class="zoom-toggle-btn" class:active={zoomStore.lupa} onclick={() => zoomStore.toggleLupa()}>
+            {zoomStore.lupa ? 'Lupa activada' : 'Activar lupa'}
+          </button>
+          <span class="zoom-note">Mantené apretado el clic para ampliar.</span>
         </div>
 
         <label>Diseño Factura</label>
@@ -200,19 +184,63 @@
   .zoom-row {
     display: flex;
     align-items: center;
-    gap: 0.714rem;
+    gap: 0.5rem;
   }
-  .zoom-slider {
-    flex: 1;
-    accent-color: var(--accent);
-    height: 1.5rem;
+  .zoom-step-btn {
+    min-width: 2.4rem;
+    height: 2.2rem;
+    padding: 0 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 0.429rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-weight: 600;
     cursor: pointer;
   }
+  .zoom-step-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .zoom-step-btn:disabled { opacity: 0.35; cursor: default; }
   .zoom-pct {
-    font-size: 0.929rem;
-    font-weight: 600;
-    color: var(--accent);
     min-width: 3rem;
-    text-align: right;
+    font-size: 0.929rem;
+    font-weight: 700;
+    color: var(--accent);
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .zoom-reset-btn {
+    padding: 0 0.65rem;
+    height: 2.2rem;
+    border: 1px solid var(--border);
+    border-radius: 0.429rem;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+  }
+  .zoom-reset-btn:disabled { opacity: 0.35; cursor: default; }
+  .zoom-label {
+    align-self: center;
+    font-size: 0.929rem;
+    color: var(--text-secondary);
+  }  .zoom-toggle-btn {
+    padding: 0 0.9rem;
+    height: 2.2rem;
+    border: 1px solid var(--border);
+    border-radius: 0.429rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .zoom-toggle-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .zoom-note {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.35;
   }
 </style>

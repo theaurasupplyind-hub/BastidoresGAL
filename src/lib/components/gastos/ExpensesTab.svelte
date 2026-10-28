@@ -396,7 +396,7 @@
   }
   .expense-category {
     padding: 0.25rem 0.6rem;
-    background: #f0f0f0;
+    background: var(--bg-subtle);
     border-radius: 0.3rem;
     text-align: center;
     font-size: 0.9rem;
@@ -479,7 +479,7 @@
   }
   .menu-item:hover { background: var(--bg-hover, #f5f5f5); }
   .menu-item-danger { color: var(--danger, #e53935); }
-  .menu-item-danger:hover { background: #fef2f2; }
+  .menu-item-danger:hover { background: var(--danger-soft); }
 
   .modal-overlay {
     position: fixed;
@@ -540,7 +540,7 @@
     border: none;
     border-radius: 0.35rem;
     background: var(--accent, #2563eb);
-    color: white;
+    color: var(--text-on-accent);
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 600;
@@ -551,7 +551,7 @@
     border: none;
     border-radius: 0.35rem;
     background: var(--danger, #e53935);
-    color: white;
+    color: var(--text-on-accent);
     cursor: pointer;
     font-size: 0.9rem;
     font-weight: 600;
@@ -561,8 +561,8 @@
   .confirm-body p { margin: 0; font-size: 0.95rem; color: var(--text-primary); }
   .confirm-warning {
     padding: 0.6rem 0.75rem;
-    background: #fef3c7;
-    color: #92400e;
+    background: var(--warning-soft);
+    color: var(--warning);
     border-radius: 0.35rem;
     font-size: 0.85rem;
   }

@@ -440,29 +440,29 @@
   .modal-body { flex: 1; overflow-y: auto; padding: 1rem 1.25rem; display: flex; flex-direction: column; gap: 1rem; }
   .modal-footer { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.75rem 1.25rem; border-top: 1px solid var(--border, #ddd); }
   .btn { padding: 0.5rem 1rem; border: none; border-radius: 0.35rem; cursor: pointer; font-size: 0.9rem; font-weight: 600; }
-  .btn-primary { background: var(--accent, #e91e63); color: #fff; }
+  .btn-primary { background: var(--accent, #e91e63); color: var(--text-on-accent); }
   .btn-primary:disabled { opacity: 0.5; cursor: default; }
   .btn-secondary { background: var(--bg-hover, #f0f0f0); color: var(--text-secondary); }
   .section-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.05em; }
   .help { font-size: 0.85rem; color: var(--text-secondary); margin: 0; line-height: 1.5; }
   .test-area { display: flex; flex-direction: column; gap: 0.4rem; }
   .test-input-wrap { display: flex; gap: 0.4rem; }
-  .test-input { flex: 1; padding: 0.6rem 0.8rem; border: 1.5px solid var(--border, #ddd); border-radius: 0.35rem; font-size: 1rem; }
-  .test-btn { padding: 0.6rem 1rem; background: var(--accent, #e91e63); color: #fff; border: none; border-radius: 0.35rem; font-weight: 600; cursor: pointer; }
+  .test-input { flex: 1; padding: 0.6rem 0.8rem; border: 1.5px solid var(--border, #ddd); border-radius: 0.35rem; font-size: 1rem; background: var(--bg-card); color: var(--text-primary); }
+  .test-btn { padding: 0.6rem 1rem; background: var(--accent, #e91e63); color: var(--text-on-accent); border: none; border-radius: 0.35rem; font-weight: 600; cursor: pointer; }
   .test-results { border: 1px solid var(--border, #ddd); border-radius: 0.35rem; overflow: hidden; }
   .test-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.45rem 0.6rem; font-size: 0.85rem; border-bottom: 1px solid var(--border-light, #eee); }
   .test-row:last-child { border-bottom: none; }
-  .test-row.first { background: #fffbeb; }
+  .test-row.first { background: var(--warning-soft); }
   .t-desc { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .t-price { font-weight: 700; }
-  .t-tag { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 1rem; background: #e0e7ff; }
-  .t-tag.est { background: #fef3c7; }
-  .t-first { font-size: 0.7rem; color: #b45309; font-weight: 700; }
+  .t-tag { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 1rem; background: var(--info-soft); color: var(--info); }
+  .t-tag.est { background: var(--warning-soft); color: var(--warning); }
+  .t-first { font-size: 0.7rem; color: var(--warning); font-weight: 700; }
   .refs-status { display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem; padding: 0.3rem 0.5rem; background: var(--bg-hover, #f5f5f5); border-radius: 0.35rem; }
   .refs-count { font-weight: 600; }
   .btn-refresh { background: none; border: 1px solid var(--border, #ddd); border-radius: 0.3rem; cursor: pointer; padding: 0.15rem 0.4rem; }
   .rules-header { display: flex; justify-content: space-between; align-items: center; }
-  .btn-add { padding: 0.35rem 0.7rem; background: var(--accent, #e91e63); color: #fff; border: none; border-radius: 0.35rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
+  .btn-add { padding: 0.35rem 0.7rem; background: var(--accent, #e91e63); color: var(--text-on-accent); border: none; border-radius: 0.35rem; font-size: 0.8rem; font-weight: 600; cursor: pointer; }
   .rules-list { display: flex; flex-direction: column; gap: 0.4rem; }
   .rule-card { border: 1px solid var(--border, #ddd); border-radius: 0.35rem; overflow: hidden; }
   .rule-card.expanded { border-color: var(--accent, #e91e63); }
@@ -478,11 +478,12 @@
   .form-group { display: flex; flex-direction: column; gap: 0.2rem; flex: 1; min-width: 8rem; }
   .form-group.small { min-width: 6rem; flex: 0 1 8rem; }
   .form-group label { font-size: 0.7rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; }
-  .form-group input, .form-group select { padding: 0.4rem 0.5rem; border: 1px solid var(--border, #ddd); border-radius: 0.3rem; font-size: 0.85rem; }
-  .btn-remove { align-self: flex-start; padding: 0.3rem 0.6rem; background: none; border: 1px solid #ef4444; color: #ef4444; border-radius: 0.3rem; font-size: 0.75rem; cursor: pointer; font-weight: 600; }
+  .form-group input, .form-group select { padding: 0.4rem 0.5rem; border: 1px solid var(--border, #ddd); border-radius: 0.3rem; font-size: 0.85rem; background: var(--bg-card); color: var(--text-primary); }
+  .btn-remove { align-self: flex-start; padding: 0.3rem 0.6rem; background: none; border: 1px solid var(--danger); color: var(--danger); border-radius: 0.3rem; font-size: 0.75rem; cursor: pointer; font-weight: 600; }
+  .btn-remove:hover { background: var(--danger-soft); }
   .empty { font-size: 0.85rem; color: var(--text-muted); font-style: italic; }
-  .calc-box { border: 1px dashed var(--border, #ddd); border-radius: 0.35rem; padding: 0.5rem 0.7rem; background: #fffbeb; display: flex; flex-direction: column; gap: 0.15rem; }
-  .calc-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: #b45309; letter-spacing: 0.05em; }
+  .calc-box { border: 1px dashed var(--border, #ddd); border-radius: 0.35rem; padding: 0.5rem 0.7rem; background: var(--warning-soft); display: flex; flex-direction: column; gap: 0.15rem; }
+  .calc-title { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; color: var(--warning); letter-spacing: 0.05em; }
   .calc-rule { font-size: 0.8rem; font-weight: 700; color: var(--text-primary); margin-top: 0.3rem; }
   .calc-step { font-size: 0.8rem; color: var(--text-secondary); font-family: var(--font-mono, monospace); padding-left: 0.8rem; }
   .advanced { border: 1px solid var(--border-light, #eee); border-radius: 0.3rem; padding: 0.4rem 0.6rem; }

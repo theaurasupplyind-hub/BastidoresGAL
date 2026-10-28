@@ -333,12 +333,12 @@
     flex-shrink: 0;
     overflow: hidden;
   }
-  .g-emp-toolbar { padding: 0.571rem; border-bottom: 1px solid #eee; }
+  .g-emp-toolbar { padding: 0.571rem; border-bottom: 1px solid var(--border-light); }
   .g-emp-list { flex: 1; overflow: auto; }
   .g-emp-item {
     padding: 0.571rem 0.714rem;
     cursor: pointer;
-    border-bottom: 1px solid #f5f5f5;
+    border-bottom: 1px solid var(--border-light);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -360,7 +360,7 @@
   }
   .g-emp-owner-toggle input { accent-color: var(--accent, #2563eb); }
   .g-emp-owner-toggle:has(input:checked) { color: var(--accent, #2563eb); font-weight: 600; }
-  .g-emp-badge-owner { background: #fef3c7; color: #92400e; font-weight: 600; }
+  .g-emp-badge-owner { background: var(--warning-soft); color: var(--warning); font-weight: 600; }
 
   .g-emp-detail {
     flex: 1;
@@ -376,7 +376,7 @@
     align-items: center;
     gap: 0.571rem;
     padding: 0.714rem 1rem;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--border-light);
     flex-wrap: wrap;
   }
   .g-emp-detail-header h3 { margin: 0; font-size: 1rem; }
@@ -395,7 +395,7 @@
     padding: 0.571rem 1rem;
     font-size: 0.78rem;
     color: var(--text-muted);
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 1px solid var(--border-light);
   }
   .g-pays-list { flex: 1; overflow: auto; padding: 0.429rem 0.714rem; }
   .g-pays-list h4 { margin: 0.429rem 0; font-size: 0.82rem; color: var(--text-secondary); }
@@ -404,7 +404,7 @@
     align-items: center;
     gap: 0.571rem;
     padding: 0.357rem 0.429rem;
-    border-bottom: 1px solid #f5f5f5;
+    border-bottom: 1px solid var(--border-light);
     font-size: 0.8rem;
   }
   .g-pay-date { font-family: monospace; font-size: 0.72rem; color: var(--text-muted); min-width: 3.929rem; }

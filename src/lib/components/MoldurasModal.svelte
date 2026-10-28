@@ -318,7 +318,7 @@
   .modal-hint { font-size: 0.78rem; color: var(--text-muted); }
 
   .search-add { position: relative; }
-  .search-input { width: 100%; padding: 0.571rem 0.857rem; border: 1px solid var(--border); border-radius: 0.429rem; font-size: 0.88rem; box-sizing: border-box; }
+  .search-input { width: 100%; padding: 0.571rem 0.857rem; border: 1px solid var(--border); border-radius: 0.429rem; font-size: 0.88rem; box-sizing: border-box; background: var(--bg-card); color: var(--text-primary); }
   .search-results { position: absolute; top: 100%; left: 0; right: 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 0 0 0.429rem 0.429rem; max-height: 14.286rem; overflow: auto; z-index: 10; box-shadow: 0 0.286rem 0.857rem rgba(0,0,0,0.1); }
   .search-item { display: flex; gap: 0.571rem; padding: 0.429rem 0.714rem; cursor: pointer; border-bottom: 1px solid var(--border-light); font-size: 0.82rem; align-items: center; transition: background 0.1s; }
   .search-item:hover { background: var(--accent-light); }
@@ -326,15 +326,15 @@
   .search-cliente { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .search-total { font-family: monospace; min-width: 4.286rem; text-align: right; color: var(--text-secondary); }
   .search-moldura { min-width: 1.429rem; text-align: center; font-size: 0.88rem; }
-  .search-add-btn { color: #27ae60; font-weight: 700; font-size: 1.1rem; min-width: 1.429rem; text-align: center; }
+  .search-add-btn { color: var(--success); font-weight: 700; font-size: 1.1rem; min-width: 1.429rem; text-align: center; }
 
   .selected-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17.143rem, 1fr)); gap: 0.571rem; }
   .sel-card { background: var(--bg-page); border: 1px solid var(--border); border-radius: 0.571rem; overflow: hidden; }
   .sel-card-header { background: #2c3e50; color: white; padding: 0.357rem 0.571rem; display: flex; align-items: center; gap: 0.429rem; font-size: 0.78rem; }
   .sel-card-num { font-weight: 600; font-size: 0.82rem; }
   .sel-card-cliente { flex: 1; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; }
-  .sel-card-remove { background: none; border: none; color: #e74c3c; cursor: pointer; font-size: 0.857rem; padding: 0.143rem; border-radius: 0.214rem; opacity: 0.7; }
-  .sel-card-remove:hover { opacity: 1; background: rgba(231,76,60,0.1); }
+  .sel-card-remove { background: none; border: none; color: var(--danger); cursor: pointer; font-size: 0.857rem; padding: 0.143rem; border-radius: 0.214rem; opacity: 0.7; }
+  .sel-card-remove:hover { opacity: 1; background: var(--danger-soft); }
   .sel-card-body { padding: 0.429rem 0.571rem; }
   .sel-no-items { font-size: 0.75rem; color: var(--text-muted); text-align: center; padding: 0.429rem; }
   .sel-summary { width: 100%; border-collapse: collapse; font-size: 0.75rem; margin-bottom: 0.286rem; }

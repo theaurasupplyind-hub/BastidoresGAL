@@ -1,0 +1,231 @@
+/* ─────────────────────────────────────────────────────────────
+   Tokens semánticos + estilos globales de UI
+   Se importa después de app.css (ver src/main.ts).
+   Centraliza lo que antes vivía disperso/hardcodeado y garantiza
+   que modales, tabs y controles nativos respeten el tema oscuro.
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  color-scheme: light;
+
+  /* Superficies auxiliares */
+  --bg-subtle: #f0f2f5;
+  --bg-inset: #f8f9fb;
+
+  /* Texto sobre superficies de color */
+  --text-on-accent: #ffffff;
+  --text-on-warning: #1a1d23;
+
+  /* Overlays */
+  --overlay: rgba(0, 0, 0, 0.45);
+
+  /* Estados que faltaban en app.css */
+  --warning: #d97706;
+  --warning-hover: #b45309;
+  --info: #2563eb;
+  --info-hover: #1d4ed8;
+  --violet: #7c3aed;
+  --success-hover: #15803d;
+
+  /* Fondos/bordes suaves derivados del tema activo */
+  --success-soft: color-mix(in srgb, var(--success) 12%, var(--bg-card));
+  --success-border: color-mix(in srgb, var(--success) 35%, var(--border));
+  --warning-soft: color-mix(in srgb, var(--warning) 12%, var(--bg-card));
+  --warning-border: color-mix(in srgb, var(--warning) 38%, var(--border));
+  --danger-soft: color-mix(in srgb, var(--danger) 10%, var(--bg-card));
+  --danger-border: color-mix(in srgb, var(--danger) 35%, var(--border));
+  --info-soft: color-mix(in srgb, var(--info) 10%, var(--bg-card));
+  --info-border: color-mix(in srgb, var(--info) 35%, var(--border));
+  --violet-soft: color-mix(in srgb, var(--violet) 12%, var(--bg-card));
+  --violet-border: color-mix(in srgb, var(--violet) 35%, var(--border));
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-subtle: #23262f;
+  --bg-inset: #14161d;
+  --overlay: rgba(0, 0, 0, 0.6);
+
+  --warning: #f59e0b;
+  --warning-hover: #fbbf24;
+  --info: #60a5fa;
+  --info-hover: #93c5fd;
+  --violet: #a78bfa;
+  --success-hover: #16a34a;
+}
+
+/* El bloque html[data-zoom] de app.css pisa --border/--border-light con
+   valores de tema claro. Recuperamos los del tema oscuro cuando hay zoom. */
+html[data-theme="dark"][data-zoom] {
+  --border: #2e3140;
+  --border-light: #383b4a;
+}
+
+/* ─── Controles de formulario ─── */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+select,
+textarea {
+  background-color: var(--bg-card);
+  color: var(--text-primary);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+/* ─── Modales (antes :global en FichaSemanal) ─── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal {
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 0.857rem;
+  padding: 1.429rem;
+  min-width: 30rem;
+  max-width: 90vw;
+  max-height: 80vh;
+  overflow: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-lg {
+  min-width: 35.714rem;
+  min-height: 21.429rem;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  font-size: 1.143rem;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0.286rem;
+  border-radius: 0.286rem;
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.714rem;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.571rem;
+  margin-top: 1rem;
+  padding-top: 0.857rem;
+  border-top: 1px solid var(--border-light);
+}
+
+/* ─── Botones (antes :global en FichaSemanal) ─── */
+.btn {
+  padding: 0.571rem 1.143rem;
+  border: none;
+  border-radius: 0.429rem;
+  cursor: pointer;
+  font-size: 0.92rem;
+  font-weight: 500;
+  font-family: inherit;
+  transition: all 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.btn-secondary {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.btn-success {
+  background: var(--success);
+  color: var(--text-on-accent);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: var(--text-on-accent);
+}
+
+.btn-sm {
+  padding: 0.429rem 0.857rem;
+  font-size: 0.88rem;
+}
+
+.btn-xs {
+  padding: 0.286rem 0.714rem;
+  font-size: 0.82rem;
+}
+
+/* ─── Formularios (antes :global en FichaSemanal) ─── */
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.214rem;
+}
+
+.form-group label {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+}
+
+.form-group input,
+.form-group select {
+  padding: 0.571rem 0.714rem;
+  border: 1px solid var(--border);
+  border-radius: 0.429rem;
+  font-size: 0.95rem;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.143rem color-mix(in srgb, var(--accent) 25%, transparent);
+}

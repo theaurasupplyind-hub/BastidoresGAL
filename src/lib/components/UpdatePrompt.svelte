@@ -87,10 +87,10 @@
     align-items: flex-start;
     gap: 0.75rem;
     max-width: 22rem;
-    background: #ffffff;
-    border: 1px solid #e5e7eb;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 0.75rem;
-    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    box-shadow: var(--shadow-lg);
     padding: 0.875rem 1rem;
   }
   .updater-icon {
@@ -98,18 +98,18 @@
     width: 2rem;
     height: 2rem;
     border-radius: 0.5rem;
-    background: #2c3e50;
-    color: #fff;
+    background: var(--accent);
+    color: var(--text-on-accent);
     display: grid;
     place-items: center;
     font-weight: 700;
   }
   .updater-body { flex: 1; min-width: 0; }
-  .updater-title { font-weight: 700; font-size: 0.875rem; color: #111827; }
+  .updater-title { font-weight: 700; font-size: 0.875rem; color: var(--text-primary); }
   .updater-notes {
     margin-top: 0.25rem;
     font-size: 0.75rem;
-    color: #6b7280;
+    color: var(--text-secondary);
     white-space: pre-wrap;
     max-height: 5rem;
     overflow: auto;
@@ -123,7 +123,9 @@
     cursor: pointer;
     border: 1px solid transparent;
   }
-  .updater-btn.primary { background: #2c3e50; color: #fff; }
+  .updater-btn.primary { background: var(--accent); color: var(--text-on-accent); }
+  .updater-btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
   .updater-btn.primary:disabled { opacity: 0.6; cursor: wait; }
-  .updater-btn.ghost { background: #f3f4f6; color: #374151; border-color: #e5e7eb; }
+  .updater-btn.ghost { background: var(--bg-hover); color: var(--text-secondary); border-color: var(--border); }
+  .updater-btn.ghost:hover { background: var(--bg-active); color: var(--text-primary); }
 </style>

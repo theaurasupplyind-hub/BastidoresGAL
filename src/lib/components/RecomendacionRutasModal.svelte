@@ -194,13 +194,13 @@
   .config-row input[type="range"] {
     flex: 1;
     min-width: 0;
-    accent-color: #2563eb;
+    accent-color: var(--accent);
   }
 
   .config-val {
     font-size: 12px;
     font-weight: 700;
-    color: #2563eb;
+    color: var(--accent);
     min-width: 42px;
     text-align: right;
   }
@@ -215,30 +215,30 @@
 
   .btn-secondary {
     padding: 8px 20px;
-    border: 1px solid #d1d5db;
+    border: 1px solid var(--border);
     border-radius: 8px;
-    background: #fff;
+    background: var(--bg-card);
     color: var(--text-primary);
     font-size: 13px;
     font-weight: 500;
     cursor: pointer;
     transition: background 0.12s;
   }
-  .btn-secondary:hover:not(:disabled) { background: #f9fafb; }
+  .btn-secondary:hover:not(:disabled) { background: var(--bg-hover); }
   .btn-secondary:disabled { opacity: 0.5; cursor: default; }
 
   .btn-apply {
     padding: 8px 20px;
     border: none;
     border-radius: 8px;
-    background: #059669;
-    color: white;
+    background: var(--success);
+    color: var(--text-on-accent);
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     transition: background 0.12s;
   }
-  .btn-apply:hover:not(:disabled) { background: #047857; }
+  .btn-apply:hover:not(:disabled) { background: var(--success-hover); }
   .btn-apply:disabled { opacity: 0.5; cursor: default; }
 
   .reagrupar-screen {

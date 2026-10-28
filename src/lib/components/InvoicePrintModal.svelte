@@ -306,7 +306,7 @@
     font-size: 0.857rem;
     text-decoration: underline;
   }
-  .btn-link:hover { color: #0056b3; }
+  .btn-link:hover { color: var(--accent-hover); }
   .invoice-list {
     display: flex;
     flex-direction: column;
@@ -330,14 +330,14 @@
     gap: 0.143rem;
   }
   .invoice-client { font-weight: 600; font-size: 0.929rem; }
-  .invoice-detail { font-size: 0.786rem; color: #666; }
+  .invoice-detail { font-size: 0.786rem; color: var(--text-muted); }
   .invoice-impresa {
     align-self: flex-start;
     font-size: 0.714rem;
     font-weight: 600;
-    color: #155724;
-    background: #d4edda;
-    border: 1px solid #c3e6cb;
+    color: var(--success);
+    background: var(--success-soft);
+    border: 1px solid var(--success-border);
     border-radius: 0.286rem;
     padding: 0.071rem 0.429rem;
   }
@@ -345,7 +345,7 @@
     display: flex;
     gap: 0.571rem;
     padding: 1rem 1.286rem;
-    border-top: 1px solid #eee;
+    border-top: 1px solid var(--border-light);
     justify-content: flex-end;
   }
   .btn {
@@ -358,9 +358,9 @@
   }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-pdf { background: var(--bg-hover); color: var(--text-secondary); }
-  .btn-print { background: var(--accent); color: white; }
-  .btn-remote { background: var(--accent-hover); color: white; }
+  .btn-print { background: var(--accent); color: var(--text-on-accent); }
+  .btn-remote { background: var(--accent-hover); color: var(--text-on-accent); }
   .btn-pdf:hover:not(:disabled) { background: var(--bg-hover); }
-  .btn-print:hover:not(:disabled) { background: #0069d9; }
-  .btn-remote:hover:not(:disabled) { background: #024f7a; }
+  .btn-print:hover:not(:disabled) { filter: brightness(0.9); }
+  .btn-remote:hover:not(:disabled) { filter: brightness(0.9); }
 </style>

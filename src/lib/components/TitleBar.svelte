@@ -4,6 +4,7 @@
   import { animate, spring } from 'animejs';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { appStore } from '$lib/stores/appStore.svelte';
+  import { zoomStore } from '$lib/stores/zoomStore.svelte';
   import type { TabId } from '$lib/types';
   import NavMenu from '$lib/components/NavMenu.svelte';
 
@@ -71,7 +72,7 @@
   }
 </script>
 
-<div class="titlebar">
+<div class="titlebar" data-lupa-ignore>
   <div class="tb-left">
     <div class="users-wrap">
       <button class="tb-btn-sm" onclick={() => { usersOpen = !usersOpen; }} title="Usuarios conectados">
@@ -105,6 +106,37 @@
         ? '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>'
         : '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>'}
     </button>
+    <div class="zoom-group" data-lupa-ignore>
+      <button
+        class="tb-btn-sm zoom-btn"
+        onclick={() => zoomStore.zoomOut()}
+        disabled={!zoomStore.canZoomOut}
+        title="Alejar (Ctrl −)"
+        aria-label="Alejar la interfaz"
+      >A−</button>
+      <button
+        class="tb-btn-sm zoom-pct"
+        onclick={() => zoomStore.reset()}
+        title="Restablecer al 100% (Ctrl 0)"
+      >{zoomStore.percent}%</button>
+      <button
+        class="tb-btn-sm zoom-btn"
+        onclick={() => zoomStore.zoomIn()}
+        disabled={!zoomStore.canZoomIn}
+        title="Acercar (Ctrl +)"
+        aria-label="Acercar la interfaz"
+      >A+</button>
+      <button
+        class="tb-btn-sm lupa-btn"
+        class:active={zoomStore.lupa}
+        onclick={() => zoomStore.toggleLupa()}
+        title="Lupa: activala y mantené el clic para ampliar"
+        aria-label="Lupa"
+        aria-pressed={zoomStore.lupa}
+      >
+        {@html '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>'}
+      </button>
+    </div>
     <NavMenu />
   </div>
 
@@ -186,14 +218,59 @@
   }
   .online-count { font-size: 0.7rem; }
 
+  .zoom-group {
+    display: flex;
+    align-items: center;
+    gap: 0.1rem;
+    padding: 0.1rem;
+    margin-left: 0.15rem;
+    border-radius: 0.5rem;
+    background: var(--bg-hover);
+    flex-shrink: 0;
+  }
+  .zoom-btn {
+    min-width: 1.9rem;
+    height: 1.8rem;
+    padding: 0 0.3rem;
+    font-size: 0.78rem;
+    border-radius: 0.4rem;
+  }
+  .zoom-pct {
+    min-width: 2.45rem;
+    height: 1.8rem;
+    padding: 0 0.2rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    border-radius: 0.4rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .lupa-btn {
+    height: 1.8rem;
+    padding: 0 0.45rem;
+    border-radius: 0.4rem;
+  }
+  .lupa-btn.active { background: var(--accent); color: #fff; }
+  .lupa-btn.active:hover { background: var(--accent-hover); color: #fff; }
+  .tb-btn-sm:disabled {
+    opacity: 0.3;
+    cursor: default;
+    background: transparent;
+    color: var(--text-muted);
+  }
+
   .tb-tabs {
     display: flex;
     align-items: center;
     gap: 0.25rem;
     flex: 1;
-    justify-content: center;
+    min-width: 0;
+    justify-content: safe center;
     height: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
   }
+  .tb-tabs::-webkit-scrollbar { display: none; }
   .tb-tab {
     display: flex;
     align-items: center;

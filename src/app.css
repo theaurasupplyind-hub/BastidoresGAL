@@ -68,7 +68,7 @@
 }
 
 html {
-  font-size: calc(clamp(12px, calc(4px + 0.73vw), 18px) * var(--zoom, 1));
+  font-size: clamp(12px, calc(4px + 0.73vw), 18px);
 }
 
 body {
@@ -147,4 +147,17 @@ html[data-zoom] textarea:focus {
 html[data-zoom] ::-webkit-scrollbar {
   width: 12px;
   height: 12px;
+}
+
+/* ─── Lupa (mantener apretado) ─── */
+html[data-lupa-hold],
+html[data-lupa-hold] body {
+  overflow: hidden;
+}
+
+html[data-lupa-hold] #zoom-surface {
+  transform: scale(var(--lupa-scale, 1.8));
+  transform-origin: var(--lupa-x, 50%) var(--lupa-y, 50%);
+  pointer-events: none;
+  user-select: none;
 }

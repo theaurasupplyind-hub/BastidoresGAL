@@ -256,7 +256,7 @@
   }
   input[type="text"]:focus {
     border-color: var(--border-focus);
-    box-shadow: 0 0 0 0.214rem rgba(37,99,235,0.12);
+    box-shadow: 0 0 0 0.214rem color-mix(in srgb, var(--accent) 20%, transparent);
   }
   input[type="checkbox"] {
     width: auto;
@@ -275,14 +275,14 @@
   .em-addr-modal { width: 28rem; max-width: 95vw; }
 
   .btn-geo-modal {
-    padding: 0.571rem 1rem; background: #22c55e; color: white; border: none;
+    padding: 0.571rem 1rem; background: var(--success); color: var(--text-on-accent); border: none;
     border-radius: 0.429rem; cursor: pointer; font-size: 0.857rem; font-weight: 500;
     margin-right: auto;
   }
   .btn-geo-modal:disabled { opacity: 0.6; cursor: not-allowed; }
-  .btn-geo-modal:hover:not(:disabled) { background: #16a34a; }
+  .btn-geo-modal:hover:not(:disabled) { filter: brightness(0.92); }
   .btn-primary {
-    padding: 0.571rem 1.286rem; background: var(--accent); color: white; border: none;
+    padding: 0.571rem 1.286rem; background: var(--accent); color: var(--text-on-accent); border: none;
     border-radius: 0.429rem; cursor: pointer; font-size: 0.929rem; font-weight: 500;
   }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -299,7 +299,7 @@
   .address-col { flex: 1; min-width: 0; display: flex; align-items: center; gap: 0.3rem; }
   .address-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
   .default-badge {
-    display: inline-block; padding: 0.071rem 0.357rem; background: var(--accent); color: white;
+    display: inline-block; padding: 0.071rem 0.357rem; background: var(--accent); color: var(--text-on-accent);
     border-radius: 0.286rem; font-size: 0.7rem; font-weight: 700; flex-shrink: 0;
   }
   .address-btns { display: flex; gap: 0.214rem; flex-shrink: 0; }
@@ -308,9 +308,9 @@
     font-size: 0.857rem; border-radius: 0.214rem; line-height: 1;
   }
   .btn-sm-addr:hover { background: var(--bg-hover); }
-  .btn-danger-addr:hover { background: #fde8e8; }
-  .btn-geo-addr { color: #22c55e; font-size: 0.9rem; }
-  .btn-geo-addr:hover { background: #e8f5e9; }
+  .btn-danger-addr:hover { background: var(--danger-soft); }
+  .btn-geo-addr { color: var(--success); font-size: 0.9rem; }
+  .btn-geo-addr:hover { background: var(--success-soft); }
   .btn-geo-addr:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .btn-add-address {

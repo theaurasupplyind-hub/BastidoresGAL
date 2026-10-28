@@ -285,15 +285,15 @@
     height: 44px;
     border: none;
     border-radius: 50%;
-    background: #2563eb;
-    color: white;
+    background: var(--accent);
+    color: var(--text-on-accent);
     font-size: 18px;
     cursor: pointer;
     z-index: 500;
     box-shadow: 0 4px 16px rgba(0,0,0,0.2);
     font-family: var(--font);
   }
-  .pp-reopen:hover { background: #1d4ed8; }
+  .pp-reopen:hover { background: var(--accent-hover); }
 
   .pp-header {
     display: flex;
@@ -404,17 +404,19 @@
     flex: 1;
     font-size: 12px;
     padding: 2px 4px;
-    border: 1px solid #2563eb;
+    border: 1px solid var(--accent);
     border-radius: 4px;
     outline: none;
     font-family: var(--font);
+    background: var(--bg-card);
+    color: var(--text-primary);
   }
 
   .pp-grupo-count {
     font-size: 11px;
     font-weight: 700;
-    color: #2563eb;
-    background: #eff6ff;
+    color: var(--accent);
+    background: var(--accent-light);
     padding: 1px 7px;
     border-radius: 10px;
     flex-shrink: 0;
@@ -471,14 +473,14 @@
     gap: 6px;
     padding: 6px 8px;
     border-radius: 8px;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--border);
     transition: background 0.12s, box-shadow 0.12s;
     cursor: default;
   }
-  .pp-cliente-card:hover { background: #f9fafb; }
+  .pp-cliente-card:hover { background: var(--bg-hover); }
   .pp-cliente-card.drag-over {
-    box-shadow: 0 0 0 2px #2563eb;
-    border-color: #2563eb;
+    box-shadow: 0 0 0 2px var(--accent);
+    border-color: var(--accent);
   }
   .pp-cliente-card:active { opacity: 0.7; }
 
@@ -497,8 +499,8 @@
     width: 18px;
     height: 18px;
     border-radius: 50%;
-    background: #2563eb;
-    color: white;
+    background: var(--accent);
+    color: var(--text-on-accent);
     font-size: 10px;
     font-weight: 700;
     display: flex;
@@ -516,12 +518,12 @@
   .pp-cliente-nombre {
     font-size: 13px;
     font-weight: 500;
-    color: #111;
+    color: var(--text-primary);
   }
 
   .pp-cliente-dir {
     font-size: 11px;
-    color: #9ca3af;
+    color: var(--text-muted);
   }
 
   .pp-cliente-facturas {
@@ -536,7 +538,7 @@
     align-items: center;
     gap: 4px;
     padding: 1px 6px;
-    background: #f3f4f6;
+    background: var(--bg-subtle);
     border-radius: 4px;
     font-size: 10px;
   }
@@ -550,10 +552,10 @@
   }
   .pp-factura-num {
     font-weight: 600;
-    color: #374151;
+    color: var(--text-secondary);
   }
   .pp-factura-date {
-    color: #9ca3af;
+    color: var(--text-muted);
   }
 
   .pp-remove-cliente {
@@ -567,14 +569,14 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #ef4444;
+    color: var(--danger);
     flex-shrink: 0;
     opacity: 0;
     transition: opacity 0.12s;
     padding: 0;
   }
   .pp-cliente-card:hover .pp-remove-cliente { opacity: 1; }
-  .pp-remove-cliente:hover { background: #fef2f2; }
+  .pp-remove-cliente:hover { background: var(--danger-soft); }
 
   .pp-empty {
     padding: 24px 16px;

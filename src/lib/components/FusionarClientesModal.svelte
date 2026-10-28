@@ -202,6 +202,7 @@
     width: 100%; padding: 0.571rem 0.857rem;
     border: 1px solid var(--border, #ddd); border-radius: 0.429rem;
     font-size: 0.929rem; box-sizing: border-box;
+    background: var(--bg-card, #fff); color: var(--text-primary, #1a1d23);
   }
   .dropdown {
     border: 1px solid var(--border, #ddd); border-radius: 0.429rem;
@@ -223,14 +224,14 @@
     padding: 0.571rem 0.857rem;
     border-radius: 0.429rem; font-size: 0.929rem;
   }
-  .selected-tag.destino { background: #e8f5e9; border: 1px solid #c8e6c9; }
-  .selected-tag.origen { background: #fff3e0; border: 1px solid #ffe0b2; }
+  .selected-tag.destino { background: var(--success-soft); border: 1px solid var(--success-border); }
+  .selected-tag.origen { background: var(--warning-soft); border: 1px solid var(--warning-border); }
   .remove-btn {
     background: none; border: none; font-size: 1.143rem;
     cursor: pointer; line-height: 1; padding: 0 0.286rem;
     color: var(--text-muted, #999);
   }
-  .remove-btn:hover { color: #c00; }
+  .remove-btn:hover { color: var(--danger, #c00); }
   .source-list { margin-bottom: 1rem; }
   .source-list label {
     display: block; font-size: 0.857rem; font-weight: 600;
@@ -253,7 +254,7 @@
   }
   .btn-primary {
     padding: 0.571rem 1.286rem; background: var(--accent, #1976d2);
-    color: white; border: none; border-radius: 0.429rem;
+    color: var(--text-on-accent, #fff); border: none; border-radius: 0.429rem;
     cursor: pointer; font-size: 0.929rem; font-weight: 500;
   }
   .btn-primary:disabled { opacity: 0.5; cursor: default; }

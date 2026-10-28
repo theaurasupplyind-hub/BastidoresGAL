@@ -349,18 +349,20 @@
     background: #eee;
     border-bottom: 2px solid #000;
     font-size: 0.72rem;
+    color: #1a1d23;
   }
-  .pc-summary th { background: #ddd; padding: 0.143rem 0.286rem; text-align: left; font-size: 0.6rem; text-transform: uppercase; color: var(--text-secondary); }
+  .pc-summary th { background: #ddd; padding: 0.143rem 0.286rem; text-align: left; font-size: 0.6rem; text-transform: uppercase; color: #4b5563; }
   .pc-summary td { padding: 0.143rem 0.286rem; border: 1px solid #999; }
   .pc-qty { font-weight: 900; font-size: 0.88rem; width: 2rem; text-align: center; }
   .pc-measure { font-weight: 700; font-size: 0.78rem; }
-  .pc-type { font-size: 0.68rem; color: var(--text-secondary); }
+  .pc-type { font-weight: 800; font-size: 0.68rem; color: #4b5563; text-align: center; }
 
   .pc-mats {
     width: 100%;
     border-collapse: collapse;
     text-align: center;
     font-size: 0.68rem;
+    color: #1a1d23;
   }
   .pc-mats th { border: 1px solid #000; padding: 0.143rem; font-weight: 900; text-transform: uppercase; font-size: 0.6rem; }
   .pc-mats td { border: 1px solid #000; padding: 0.143rem; height: 1.4rem; font-weight: 700; font-size: 0.72rem; }

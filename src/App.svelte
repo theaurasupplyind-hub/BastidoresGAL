@@ -17,20 +17,13 @@
   import EstimationRulesModal from '$lib/components/EstimationRulesModal.svelte';
   import PdfTimerWidget from '$lib/components/PdfTimerWidget.svelte';
   import UpdatePrompt from '$lib/components/UpdatePrompt.svelte';
+  import Lupa from '$lib/components/Lupa.svelte';
 
   let view = $state<'login' | 'splash' | 'dashboard'>('login');
 
   onMount(async () => {
     const saved = localStorage.getItem('theme-dark');
     document.documentElement.setAttribute('data-theme', saved === 'true' ? 'dark' : 'light');
-    const zoom = localStorage.getItem('zoom-level');
-    if (zoom) {
-      const f = parseFloat(zoom);
-      if (f && f !== 1) {
-        document.documentElement.style.setProperty('--zoom', String(f));
-        document.documentElement.setAttribute('data-zoom', 'true');
-      }
-    }
 
     try {
       const user = await invoke<{ user_id: number; user_name: string } | null>('get_user');
@@ -83,35 +76,40 @@
   }
 </script>
 
-<TitleBar />
-<div class="app-shell">
-{#if view === 'login'}
-  <Login onLogin={handleLogin} />
-{:else if view === 'splash'}
-  <Splash onDone={handleSplashDone} />
-{:else if view === 'dashboard'}
-  <Dashboard onLogout={handleLogout} />
-{/if}
+<div id="zoom-surface">
+  <TitleBar />
+  <div class="app-shell">
+  {#if view === 'login'}
+    <Login onLogin={handleLogin} />
+  {:else if view === 'splash'}
+    <Splash onDone={handleSplashDone} />
+  {:else if view === 'dashboard'}
+    <Dashboard onLogout={handleLogout} />
+  {/if}
+  </div>
+
+  <Toast />
+  <PdfTimerWidget />
+  <UpdatePrompt />
+  {#if appStore.showSettings}
+    <SettingsModal />
+  {/if}
+  {#if appStore.showPreciosRef}
+    <PreciosReferenciaModal />
+  {/if}
+  {#if appStore.showPricingRules}
+    <PricingRulesModal />
+  {/if}
+  {#if appStore.showEstimationRules}
+    <EstimationRulesModal />
+  {/if}
 </div>
 
-<Toast />
-<PdfTimerWidget />
-<UpdatePrompt />
-{#if appStore.showSettings}
-  <SettingsModal />
-{/if}
-{#if appStore.showPreciosRef}
-  <PreciosReferenciaModal />
-{/if}
-{#if appStore.showPricingRules}
-  <PricingRulesModal />
-{/if}
-{#if appStore.showEstimationRules}
-  <EstimationRulesModal />
-{/if}
+<Lupa />
 
 <style>
   :global(*) { margin: 0; padding: 0; box-sizing: border-box; }
   :global(body) { font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
+  :global(#zoom-surface) { height: 100%; }
   .app-shell { display: flex; flex-direction: column; height: calc(100vh - 3.5rem); }
 </style>

@@ -149,7 +149,7 @@
   }
   .btn:hover:not(:disabled) { filter: brightness(0.95); }
   .btn:disabled { opacity: 0.6; cursor: not-allowed; }
-  .btn-primary { background: var(--accent, #2563eb); color: #fff; }
-  .btn-danger { background: var(--danger, #dc2626); color: #fff; }
+  .btn-primary { background: var(--accent, #2563eb); color: var(--text-on-accent, #fff); }
+  .btn-danger { background: var(--danger, #dc2626); color: var(--text-on-accent, #fff); }
   .btn-secondary { background: var(--bg-hover, #f0f2f5); color: var(--text-secondary, #4b5563); }
 </style>

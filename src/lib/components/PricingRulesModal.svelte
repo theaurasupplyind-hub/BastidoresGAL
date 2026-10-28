@@ -558,7 +558,7 @@
     font-size: 0.9rem;
     font-weight: 600;
   }
-  .btn-primary { background: var(--accent, #e91e63); color: #fff; }
+  .btn-primary { background: var(--accent, #e91e63); color: var(--text-on-accent); }
   .btn-primary:disabled { opacity: 0.5; cursor: default; }
   .btn-secondary { background: var(--bg-hover, #f0f0f0); color: var(--text-secondary); }
 
@@ -585,7 +585,7 @@
   .refs-loading { font-style: italic; color: var(--text-muted); }
   .refs-count { font-weight: 600; color: var(--text-primary); }
   .refs-sample { color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
-  .refs-empty { color: #ef4444; font-weight: 600; flex: 1; }
+  .refs-empty { color: var(--danger); font-weight: 600; flex: 1; }
   .btn-refresh {
     background: none;
     border: 1px solid var(--border, #ddd);
@@ -610,7 +610,7 @@
   .test-btn {
     padding: 0.6rem 1rem;
     background: var(--accent, #e91e63);
-    color: #fff;
+    color: var(--text-on-accent);
     border: none;
     border-radius: var(--radius-sm, 0.35rem);
     font-weight: 600;
@@ -631,8 +631,8 @@
     font-size: 0.85rem;
   }
   .step:last-child { border-bottom: none; }
-  .step.step-success { border-left: 3px solid #22c55e; }
-  .step.step-fail { border-left: 3px solid #ef4444; }
+  .step.step-success { border-left: 3px solid var(--success); }
+  .step.step-fail { border-left: 3px solid var(--danger); }
   .step-label { font-weight: 600; color: var(--text-primary); margin-bottom: 0.15rem; }
   .step-detail { color: var(--text-secondary); font-size: 0.8rem; font-family: var(--font-mono, monospace); }
 
@@ -646,7 +646,7 @@
   .btn-add {
     padding: 0.35rem 0.7rem;
     background: var(--accent, #e91e63);
-    color: #fff;
+    color: var(--text-on-accent);
     border: none;
     border-radius: var(--radius-sm, 0.35rem);
     font-size: 0.8rem;
@@ -702,14 +702,14 @@
     align-self: flex-start;
     padding: 0.3rem 0.6rem;
     background: none;
-    border: 1px solid #ef4444;
-    color: #ef4444;
+    border: 1px solid var(--danger);
+    color: var(--danger);
     border-radius: var(--radius-sm, 0.3rem);
     font-size: 0.75rem;
     cursor: pointer;
     font-weight: 600;
   }
-  .btn-remove:hover { background: #fef2f2; }
+  .btn-remove:hover { background: var(--danger-soft); }
 
   /* ── Conditions ── */
   .conditions-section { display: flex; flex-direction: column; gap: 0.4rem; }
@@ -749,7 +749,7 @@
   .btn-remove-sm {
     background: none;
     border: none;
-    color: #ef4444;
+    color: var(--danger);
     cursor: pointer;
     font-size: 0.8rem;
     padding: 0.1rem 0.3rem;
