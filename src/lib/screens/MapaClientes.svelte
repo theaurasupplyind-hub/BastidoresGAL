@@ -9,7 +9,7 @@
   import RecomendacionRutasModal from '$lib/components/RecomendacionRutasModal.svelte';
   import EditClienteModal from '$lib/components/EditClienteModal.svelte';
   import AddressAutocomplete from '$lib/components/AddressAutocomplete.svelte';
-  import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
+  import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim, mejoresResultados } from '$lib/utils/geocoding';
   import { facturasActivas } from '$lib/utils/facturas';
   import { decodePolyline, findCercanosRuta, haversine } from '$lib/utils/geo';
   import { recomendarRutas, type ClienteParaAgrupar } from '$lib/utils/barrios';
@@ -666,8 +666,9 @@
       const url = nominatimSearchUrl(origenDireccion);
       const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
       const data = await res.json();
-      if (data.length) {
-        origenCoords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      const mejor = mejoresResultados(Array.isArray(data) ? data : [], origenDireccion)[0];
+      if (mejor) {
+        origenCoords = { lat: parseFloat(mejor.lat), lng: parseFloat(mejor.lon) };
         mapaStore.origenCoords = origenCoords;
         await api.updateMapaOrigen({ direccion: origenDireccion, lat: origenCoords.lat, lng: origenCoords.lng });
         map?.setView([origenCoords.lat, origenCoords.lng], 15);
@@ -1120,9 +1121,10 @@
       const url = nominatimSearchUrl(dir);
       const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
       const data = await res.json();
-      if (data.length > 0) {
-        editDireccionPreviewCoords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-        editDireccionValor = formatearDireccionNominatim(data[0]);
+      const mejor = mejoresResultados(Array.isArray(data) ? data : [], dir)[0];
+      if (mejor) {
+        editDireccionPreviewCoords = { lat: parseFloat(mejor.lat), lng: parseFloat(mejor.lon) };
+        editDireccionValor = formatearDireccionNominatim(mejor);
       } else {
         editDireccionPreviewError = 'No se encontró la dirección. Revisá el código postal, el barrio o que diga CABA.';
       }
@@ -1144,7 +1146,8 @@
           const url = nominatimSearchUrl(editDireccionLimpia());
           const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
           const data = await res.json();
-          if (data.length > 0) editDireccionValor = formatearDireccionNominatim(data[0]);
+          const mejor = mejoresResultados(Array.isArray(data) ? data : [], editDireccionLimpia())[0];
+          if (mejor) editDireccionValor = formatearDireccionNominatim(mejor);
         } catch {}
       }
       await api.patchInvoiceField(facturaId, 'cliente_domicilio', editDireccionValor);
@@ -1239,9 +1242,10 @@
       const url = nominatimSearchUrl(dir);
       const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
       const data = await res.json();
-      if (data.length > 0) {
-        editDirClientePreviewCoords = { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-        editDirClienteValor = formatearDireccionNominatim(data[0]);
+      const mejor = mejoresResultados(Array.isArray(data) ? data : [], dir)[0];
+      if (mejor) {
+        editDirClientePreviewCoords = { lat: parseFloat(mejor.lat), lng: parseFloat(mejor.lon) };
+        editDirClienteValor = formatearDireccionNominatim(mejor);
       } else {
         editDirClientePreviewError = 'No se encontró la dirección. Revisá el código postal, el barrio o que diga CABA.';
       }
@@ -1263,7 +1267,8 @@
           const url = nominatimSearchUrl(editDirClienteLimpia());
           const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
           const data = await res.json();
-          if (data.length > 0) editDirClienteValor = formatearDireccionNominatim(data[0]);
+          const mejor = mejoresResultados(Array.isArray(data) ? data : [], editDirClienteLimpia())[0];
+          if (mejor) editDirClienteValor = formatearDireccionNominatim(mejor);
         } catch {}
       }
       const valorFinal = editDirClienteValor.trim();
@@ -1953,9 +1958,10 @@
       const url = nominatimSearchUrl(busqueda);
       const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
       const data = await res.json();
-      if (data.length) {
-        const lat = parseFloat(data[0].lat);
-        const lng = parseFloat(data[0].lon);
+      const mejor = mejoresResultados(Array.isArray(data) ? data : [], busqueda)[0];
+      if (mejor) {
+        const lat = parseFloat(mejor.lat);
+        const lng = parseFloat(mejor.lon);
         mapaStore.busquedaCoords = { lat, lng };
       }
     } catch {}

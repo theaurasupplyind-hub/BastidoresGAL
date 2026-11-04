@@ -590,7 +590,12 @@
     <div class="fs-right">
       <!-- Recent Payments -->
       <div class="fs-right-section">
-        <h3>Últimos Pagos</h3>
+        <div class="fs-section-head">
+          <h3>Últimos Pagos</h3>
+          <button class="fs-link-btn" onclick={() => (appStore.currentTab = 'pagos')}>
+            Ver historial completo →
+          </button>
+        </div>
         <div class="fs-pagos-list">
           {#each paginatedPagos as p}
             <div class="fs-pago-item" ondblclick={() => openEditPago(p)} title="Doble click para editar">
@@ -887,6 +892,31 @@
     margin: 0 0 0.429rem;
     font-size: 0.92rem;
     color: var(--text-primary);
+  }
+
+  .fs-section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.571rem;
+    margin-bottom: 0.429rem;
+  }
+  .fs-section-head h3 {
+    margin: 0;
+  }
+  .fs-link-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: inherit;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .fs-link-btn:hover {
+    text-decoration: underline;
   }
 
   .fs-pagos-list {

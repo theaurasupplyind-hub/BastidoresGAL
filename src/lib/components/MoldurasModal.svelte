@@ -5,7 +5,7 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { hasMolduraItems, parseCard, measureCardHeights, buildMoldurasHtmlPaged } from '$lib/utils/molduras';
+  import { hasMolduraItems, parseCard, measureCardHeights, buildMoldurasHtmlPaged, isDescriptionOnlyItem } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
   import { invoke } from '@tauri-apps/api/core';
 
@@ -268,10 +268,16 @@
                       <thead><tr><th>CANT</th><th>MEDIDA</th></tr></thead>
                       <tbody>
                         {#each card.items as item}
-                          <tr>
-                            <td class="sel-qty">{item.cantidad}</td>
-                            <td class="sel-measure">{item.medida} <span class="sel-tipo">{item.tipo}</span></td>
-                          </tr>
+                          {#if isDescriptionOnlyItem(item)}
+                            <tr>
+                              <td class="sel-measure" colspan="2">{item.medida}{#if item.tipo} <span class="sel-tipo">{item.tipo}</span>{/if}</td>
+                            </tr>
+                          {:else}
+                            <tr>
+                              <td class="sel-qty">{item.cantidad === 0 ? '' : item.cantidad}</td>
+                              <td class="sel-measure">{item.medida} <span class="sel-tipo">{item.tipo}</span></td>
+                            </tr>
+                          {/if}
                         {/each}
                       </tbody>
                     </table>

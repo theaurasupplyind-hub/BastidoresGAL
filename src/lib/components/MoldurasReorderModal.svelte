@@ -1,6 +1,6 @@
 <script lang="ts">
   import { appStore } from '$lib/stores/appStore.svelte';
-  import { buildMoldurasHtmlPaged, PAGE_HEIGHT, buildPagedLayout, columnHeight, groupMaterials, measureCardHeights, cardHasLargueroOTravesano } from '$lib/utils/molduras';
+  import { buildMoldurasHtmlPaged, PAGE_HEIGHT, buildPagedLayout, columnHeight, groupMaterials, measureCardHeights, cardHasLargueroOTravesano, isDescriptionOnlyItem } from '$lib/utils/molduras';
   import type { CardItem, CardMaterial } from '$lib/utils/molduras';
   import { invoke } from '@tauri-apps/api/core';
 
@@ -134,11 +134,17 @@
         <thead><tr><th>CANT</th><th>MEDIDA</th><th>TIPO</th></tr></thead>
         <tbody>
           {#each card.items as item}
-            <tr>
-              <td class="pc-qty">{item.cantidad}</td>
-              <td class="pc-measure">{item.medida}</td>
-              <td class="pc-type">{item.tipo}</td>
-            </tr>
+            {#if isDescriptionOnlyItem(item)}
+              <tr>
+                <td class="pc-measure" colspan="3">{item.medida}{item.tipo ? ` · ${item.tipo}` : ''}</td>
+              </tr>
+            {:else}
+              <tr>
+                <td class="pc-qty">{item.cantidad === 0 ? '' : item.cantidad}</td>
+                <td class="pc-measure">{item.medida}</td>
+                <td class="pc-type">{item.tipo}</td>
+              </tr>
+            {/if}
           {/each}
         </tbody>
       </table>

@@ -5,9 +5,12 @@
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { mapaStore } from '$lib/stores/mapaStore.svelte';
+  import { taskEvents } from '$lib/stores/taskEvents';
   import { animate, spring } from 'animejs';
   import FodaModal from '$lib/components/FodaModal.svelte';
   import PagoDialog from '$lib/components/PagoDialog.svelte';
+  import TaskFormModal from '$lib/components/TaskFormModal.svelte';
+  import ReplyFormModal from '$lib/components/ReplyFormModal.svelte';
   import { formatEntregadoAt, entregadoAtInputDate } from '$lib/types';
   import * as XLSX from 'xlsx';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
@@ -45,13 +48,14 @@
   let replyComposerFileInput = $state<HTMLInputElement>();
   let replyComposerTaskId = $state<number | null>(null);
 
-  // Edición inline de tareas y comentarios
-  let editingTaskId = $state<number | null>(null);
-  let editingTaskText = $state('');
-  let savingTaskId = $state<number | null>(null);
-  let editingReplyKey = $state<string | null>(null);
-  let editingReplyText = $state('');
-  let savingReplyKey = $state<string | null>(null);
+  // Edición de tareas y respuestas: modal único
+  let taskModalOpen = $state(false);
+  let taskModalTask = $state<Task | null>(null);
+  let taskModalConfirmDelete = $state(false);
+  let replyModalOpen = $state(false);
+  let replyModalTaskId = $state<number | null>(null);
+  let replyModalReply = $state<TaskReply | null>(null);
+  let replyModalConfirmDelete = $state(false);
 
   // Tareas como cards reordenables (SortableJS, 1 instancia por grupo)
   type Task = { id: number; text: string; done: boolean; position: number; pinned: boolean; created_at?: string | null; assigned_by: string | null; images: TaskImageRef[]; reply_count?: number };
@@ -82,27 +86,15 @@
   let pendingZoneEl = $state<HTMLElement | null>(null);
   let doneZoneEl = $state<HTMLElement | null>(null);
   let zoneSortables: Sortable[] = [];
-  // Persiste el orden DOM actual de una zona (Sortable ya movió los nodos)
-  async function persistZoneOrder(zoneEl: HTMLElement) {
+  // Persiste el orden DOM actual de una zona (Sortable ya movió los nodos).
+  // Solo se actualiza la tarea movida: las demás conservan su posición.
+  async function persistZoneOrder(zoneEl: HTMLElement, movedId: number) {
     const inst = Sortable.get(zoneEl);
     const ids = (inst ? inst.toArray() : []).map(Number).filter(n => !Number.isNaN(n));
-    if (ids.length === 0) return;
-    // Arrastrar implica orden manual
-    setAutoSort(false);
-    const prev = new Map(tasks.map(t => [t.id, t.position]));
-    const rank = new Map(ids.map((id, i) => [id, i]));
-    tasks = tasks.map(t => (rank.has(t.id) ? { ...t, position: rank.get(t.id)! * 1024 } : t));
-    savingOrder = true;
-    try {
-      for (const t of tasks as Task[]) {
-        if (prev.get(t.id) !== t.position && rank.has(t.id)) {
-          try { await api.updateTask(t.id, { position: t.position }); } catch {}
-        }
-      }
-    } finally {
-      savingOrder = false;
-      await loadTasks();
-    }
+    const targetIndex = ids.indexOf(movedId);
+    const task = tasks.find(t => t.id === movedId);
+    if (!task || targetIndex < 0) return;
+    await moveTaskToIndex(task, targetIndex);
   }
 
   function setupZones() {
@@ -132,8 +124,11 @@
           scrollSpeed: 8,
           onEnd: (evt) => {
             const from = evt.from as HTMLElement | null;
-            if (!from || evt.oldIndex === evt.newIndex) return;
-            void persistZoneOrder(from);
+            const item = evt.item as HTMLElement | null;
+            if (!from || !item || evt.oldIndex === evt.newIndex) return;
+            const movedId = Number(item.dataset.id);
+            if (Number.isNaN(movedId)) return;
+            void persistZoneOrder(from, movedId);
           },
         })
       );
@@ -158,9 +153,9 @@
     return () => destroyZones();
   });
 
-  // No arrastrar mientras se edita o se persiste el orden
+  // No arrastrar mientras hay un modal de tarea abierto o se persiste el orden
   $effect(() => {
-    const dis = editingTaskId !== null || savingOrder;
+    const dis = taskModalOpen || savingOrder;
     for (const s of zoneSortables) {
       try { s.option('disabled', dis); } catch {}
     }
@@ -243,86 +238,113 @@
       pinningTaskId = null;
     }
   }
-  async function removeTask(id: number) {
-    try {
-      await api.deleteTask(id);
-      await loadTasks();
-    } catch {}
+  // ── Reordenar con una sola llamada ──
+  // Las posiciones van de menor (arriba) a mayor (abajo). Para mover una tarea
+  // alcanza con ubicarla entre sus vecinas (punto medio); si el hueco se agota,
+  // se renumera la zona completa (fallback poco frecuente).
+  const POS_STEP = 1024;
+
+  function zoneOf(task: Task): Task[] {
+    return task.pinned ? pinnedZone : task.done ? doneZone : pendingZone;
   }
 
-  async function moveTaskTo(fromId: number, toId: number, after: boolean) {
-    const order = sortedTasks.map(t => t.id);
-    const fromIdx = order.indexOf(fromId);
-    let toIdx = order.indexOf(toId);
-    if (fromIdx < 0 || toIdx < 0) return;
-    const from = tasks.find(t => t.id === fromId);
-    const to = tasks.find(t => t.id === toId);
-    // No cruzar grupos fijados / hechos: el sort los separa y el drop parecería no hacer nada
-    if (!from || !to) return;
-    if (!!from.pinned !== !!to.pinned || from.done !== to.done) {
-      appStore.showToast('Solo puedes reordenar dentro del mismo grupo', 'error');
-      return;
+  function positionBetween(above: Task | null, below: Task | null): number | null {
+    if (!above && !below) return POS_STEP;
+    if (!above) {
+      const value = below!.position - POS_STEP;
+      return value >= 0 ? value : null;
     }
-    order.splice(fromIdx, 1);
-    toIdx = order.indexOf(toId);
-    order.splice(after ? toIdx + 1 : toIdx, 0, fromId);
-    // Reordenar por teclado también implica orden manual
-    setAutoSort(false);
-    // Reasignar position según nuevo orden visible
-    const pos = new Map<number, number>();
-    order.forEach((id, i) => pos.set(id, (i + 1) * 1024));
+    if (!below) return above.position + POS_STEP;
+    const a = above.position;
+    const b = below.position;
+    if (b - a < 2) return null;
+    const mid = Math.floor((a + b) / 2);
+    return mid > a && mid < b ? mid : null;
+  }
+
+  async function renumberZone(zone: Task[]) {
+    const next = new Map(zone.map((t, i) => [t.id, (i + 1) * POS_STEP]));
     const prev = new Map(tasks.map(t => [t.id, t.position]));
-    tasks = tasks.map(t => (pos.has(t.id) ? { ...t, position: pos.get(t.id)! } : t));
+    tasks = tasks.map(t => (next.has(t.id) ? { ...t, position: next.get(t.id)! } : t));
     savingOrder = true;
     try {
-      for (const [id, p] of pos) {
-        if (prev.get(id) !== p) {
-          try { await api.updateTask(id, { position: p }); } catch {}
-        }
+      for (const [id, position] of next) {
+        if (prev.get(id) !== position) await api.updateTask(id, { position });
       }
+    } catch {
+      appStore.showToast('No se pudo guardar el orden', 'error');
+      await loadTasks();
     } finally {
       savingOrder = false;
+    }
+  }
+
+  /** Mueve `task` al índice `targetIndex` dentro de su zona. Una sola llamada salvo renumero. */
+  async function moveTaskToIndex(task: Task, targetIndex: number) {
+    // Si el orden es automático (por fecha), primero lo materializamos como manual
+    // para que el arrastre no descoloque al resto de la lista.
+    if (taskAutoSort) {
+      const visual = [...zoneOf(task)];
+      setAutoSort(false);
+      await renumberZone(visual);
+    }
+
+    const zone = [...zoneOf(task)];
+    const fromIdx = zone.findIndex(t => t.id === task.id);
+    if (fromIdx < 0) return;
+    zone.splice(fromIdx, 1);
+    const idx = Math.max(0, Math.min(targetIndex, zone.length));
+    if (idx === fromIdx) return;
+    zone.splice(idx, 0, task);
+
+    setAutoSort(false);
+
+    const position = positionBetween(zone[idx - 1] ?? null, zone[idx + 1] ?? null);
+    if (position === null) {
+      await renumberZone(zone);
+      return;
+    }
+
+    const previous = task.position;
+    tasks = tasks.map(t => (t.id === task.id ? { ...t, position } : t));
+    savingOrder = true;
+    try {
+      const updated = await api.updateTask(task.id, { position });
+      if (updated && typeof updated.position === 'number' && updated.position !== position) {
+        tasks = tasks.map(t => (t.id === task.id ? { ...t, position: updated.position } : t));
+      }
+    } catch {
+      tasks = tasks.map(t => (t.id === task.id ? { ...t, position: previous } : t));
+      appStore.showToast('No se pudo mover la tarea', 'error');
       await loadTasks();
+    } finally {
+      savingOrder = false;
     }
   }
 
   function onTaskCardKey(e: KeyboardEvent, id: number) {
-    if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-      e.preventDefault();
-      const order = sortedTasks.map(t => t.id);
-      const i = order.indexOf(id);
-      const j = i + (e.key === 'ArrowUp' ? -1 : 1);
-      if (i < 0 || j < 0 || j >= order.length) return;
-      void moveTaskTo(id, order[j], e.key === 'ArrowDown');
-    }
+    if (!e.altKey || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    const zone = zoneOf(task);
+    const i = zone.findIndex(t => t.id === id);
+    const j = i + (e.key === 'ArrowUp' ? -1 : 1);
+    if (i < 0 || j < 0 || j >= zone.length) return;
+    e.preventDefault();
+    void moveTaskToIndex(task, j);
   }
 
-  // ── Edición inline de tareas ──
-  function startEditTask(task: { id: number; text: string }) {
-    editingTaskId = task.id;
-    editingTaskText = task.text;
+  // ── Modal de tarea ──
+  function openTaskModal(task: Task | null, confirmDelete = false) {
+    taskModalTask = task;
+    taskModalConfirmDelete = confirmDelete;
+    taskModalOpen = true;
   }
-  function cancelEditTask() {
-    editingTaskId = null;
-    editingTaskText = '';
+  function closeTaskModal() {
+    taskModalOpen = false;
   }
-  async function saveEditTask(id: number) {
-    if (editingTaskId !== id) return;
-    const original = tasks.find(t => t.id === id)?.text ?? '';
-    const text = editingTaskText.trim();
-    editingTaskId = null;
-    if (!text || text === original) { editingTaskText = ''; return; }
-    savingTaskId = id;
-    try {
-      await api.updateTask(id, { text });
-      await loadTasks();
-      appStore.showToast('Tarea actualizada', 'success');
-    } catch (e: any) {
-      appStore.showToast('Error al editar: ' + (e?.message || e), 'error');
-    } finally {
-      savingTaskId = null;
-      editingTaskText = '';
-    }
+  async function onTaskSaved() {
+    await loadTasks();
   }
 
   function triggerImageUpload(taskId: number) {
@@ -414,40 +436,21 @@
       await loadReplies(taskId);
     } catch {}
   }
-  async function removeReply(taskId: number, replyId: number) {
-    try {
-      await api.deleteTaskReply(taskId, replyId);
-      await loadReplies(taskId);
-      await loadTasks();
-    } catch {}
-  }
 
-  // ── Edición inline de comentarios ──
-  function startEditReply(taskId: number, reply: TaskReply) {
-    editingReplyKey = `${taskId}:${reply.id}`;
-    editingReplyText = reply.text;
+  // ── Modal de respuesta ──
+  function openReplyModal(taskId: number, reply: TaskReply, confirmDelete = false) {
+    replyModalTaskId = taskId;
+    replyModalReply = reply;
+    replyModalConfirmDelete = confirmDelete;
+    replyModalOpen = true;
   }
-  function cancelEditReply() {
-    editingReplyKey = null;
-    editingReplyText = '';
+  function closeReplyModal() {
+    replyModalOpen = false;
   }
-  async function saveEditReply(taskId: number, replyId: number) {
-    const key = `${taskId}:${replyId}`;
-    if (editingReplyKey !== key) return;
-    const original = (taskReplies.get(taskId) || []).find(r => r.id === replyId)?.text ?? '';
-    const text = editingReplyText.trim();
-    editingReplyKey = null;
-    if (!text || text === original) { editingReplyText = ''; return; }
-    savingReplyKey = key;
-    try {
-      await api.updateTaskReply(taskId, replyId, { text });
-      await loadReplies(taskId);
-    } catch (e: any) {
-      appStore.showToast('Error al editar comentario: ' + (e?.message || e), 'error');
-    } finally {
-      savingReplyKey = null;
-      editingReplyText = '';
-    }
+  async function onReplySaved() {
+    if (replyModalTaskId === null) return;
+    await loadReplies(replyModalTaskId);
+    await loadTasks();
   }
   function triggerReplyImageUpload(taskId: number, replyId: number) {
     pendingReplyUpload = { taskId, replyId };
@@ -1489,6 +1492,10 @@
     activityInterval = setInterval(loadActivity, 60000);
     panelInterval = setInterval(refrescarPanel, 60000);
     document.addEventListener('visibilitychange', onVisibilityPanel);
+    const unsubscribeTasks = taskEvents.subscribe(() => {
+      if (!showTaskTrash) void loadTasks();
+    });
+    return () => unsubscribeTasks();
   });
 
   onDestroy(() => {
@@ -1517,6 +1524,9 @@
           <button class="foda-btn" onclick={() => showFoda = true} title="Análisis FODA" aria-label="Abrir análisis FODA">
             <svg width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2A10 10 0 0 0 2 12h6a4 4 0 0 1 4 4v6A10 10 0 0 0 12 2z" fill="#00b8e6"/><path d="M12 2A10 10 0 0 1 22 12h-6a4 4 0 0 0-4-4V2z" fill="#8b00b8"/><path d="M16 12a4 4 0 0 0-4 4v6a10 10 0 0 0 10-10h-6z" fill="#00b3a4"/><path d="M12 12a4 4 0 0 0-4 4H2a10 10 0 0 0 10 10v-6a4 4 0 0 1 0-8z" fill="#8fd400"/></svg>
             <span>FODA</span>
+          </button>
+          <button class="task-sort-btn" onclick={() => openTaskModal(null)} title="Nueva tarea (con detalle)" aria-label="Nueva tarea con detalle">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           </button>
           <button class="card-trash-btn" onclick={toggleTaskTrash} aria-label="Papelera de tareas">
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
@@ -1583,26 +1593,14 @@
               {/if}
             </button>
             <div class="task-content">
-              {#if savingTaskId === task.id}
-                <span class="task-text task-saving"><span class="task-upload-spinner"></span> {task.text}</span>
-              {:else if editingTaskId === task.id}
-                <input
-                  class="task-edit-input"
-                  bind:value={editingTaskText}
-                  onkeydown={(e) => { if (e.key === 'Enter') saveEditTask(task.id); if (e.key === 'Escape') cancelEditTask(); }}
-                  onblur={() => saveEditTask(task.id)}
-                  autofocus
-                />
-              {:else}
-                <span
-                  class="task-text"
-                  role="button"
-                  tabindex="0"
-                  title="Doble clic para editar"
-                  ondblclick={() => startEditTask(task)}
-                  onkeydown={(e) => { if (e.key === 'Enter') startEditTask(task); }}
-                >{task.text}</span>
-              {/if}
+              <span
+                class="task-text"
+                role="button"
+                tabindex="0"
+                title="Abrir tarea"
+                onclick={() => openTaskModal(task)}
+                onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTaskModal(task); } }}
+              >{task.text}</span>
               {#if task.assigned_by}
                 <span class="task-assigned-by">{task.assigned_by}</span>
               {/if}
@@ -1630,10 +1628,10 @@
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
               {/if}
             </button>
-            <button class="task-edit-btn" onclick={() => startEditTask(task)} aria-label="Editar tarea" title="Editar tarea">
+            <button class="task-edit-btn" onclick={() => openTaskModal(task)} aria-label="Editar tarea" title="Editar tarea">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             </button>
-            <button class="task-remove" onclick={() => removeTask(task.id)} aria-label="Eliminar tarea">✕</button>
+            <button class="task-remove" onclick={() => openTaskModal(task, true)} aria-label="Eliminar tarea">✕</button>
             <span
               class="task-drag-handle"
               title="Arrastrar para mover"
@@ -1657,26 +1655,14 @@
                       {/if}
                     </button>
                     <div class="thread-body">
-                      {#if savingReplyKey === `${task.id}:${reply.id}`}
-                        <span class="thread-text thread-saving"><span class="task-upload-spinner"></span> {reply.text}</span>
-                      {:else if editingReplyKey === `${task.id}:${reply.id}`}
-                        <input
-                          class="thread-edit-input"
-                          bind:value={editingReplyText}
-                          onkeydown={(e) => { if (e.key === 'Enter') saveEditReply(task.id, reply.id); if (e.key === 'Escape') cancelEditReply(); }}
-                          onblur={() => saveEditReply(task.id, reply.id)}
-                          autofocus
-                        />
-                      {:else}
-                        <span
-                          class="thread-text"
-                          role="button"
-                          tabindex="0"
-                          title="Doble clic para editar"
-                          ondblclick={() => startEditReply(task.id, reply)}
-                          onkeydown={(e) => { if (e.key === 'Enter') startEditReply(task.id, reply); }}
-                        >{reply.text}</span>
-                      {/if}
+                      <span
+                        class="thread-text"
+                        role="button"
+                        tabindex="0"
+                        title="Abrir respuesta"
+                        onclick={() => openReplyModal(task.id, reply)}
+                        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openReplyModal(task.id, reply); } }}
+                      >{reply.text}</span>
                       <span class="thread-meta">{reply.assigned_by ?? ''}{reply.assigned_by ? ' · ' : ''}{reply.created_at ? shortTime(reply.created_at) : ''}</span>
                       {#if reply.images?.length}
                         <div class="task-thumbs">
@@ -1696,10 +1682,10 @@
                         <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12v3a2 2 0 01-2 2H5a2 2 0 01-2-2v-3"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
                       {/if}
                     </button>
-                    <button class="thread-edit" onclick={() => startEditReply(task.id, reply)} aria-label="Editar comentario" title="Editar comentario">
+                    <button class="thread-edit" onclick={() => openReplyModal(task.id, reply)} aria-label="Editar respuesta" title="Editar respuesta">
                       <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                     </button>
-                    <button class="thread-del" onclick={() => removeReply(task.id, reply.id)} aria-label="Eliminar respuesta">✕</button>
+                    <button class="thread-del" onclick={() => openReplyModal(task.id, reply, true)} aria-label="Eliminar respuesta">✕</button>
                   </div>
                 {/each}
                 {#if (taskReplies.get(task.id)?.length ?? 0) === 0}
@@ -2486,6 +2472,24 @@
   <FodaModal onclose={() => showFoda = false} />
 {/if}
 
+<TaskFormModal
+  open={taskModalOpen}
+  task={taskModalTask}
+  pinnedCount={pinnedCount}
+  initialConfirmDelete={taskModalConfirmDelete}
+  onclose={closeTaskModal}
+  onsaved={onTaskSaved}
+/>
+
+<ReplyFormModal
+  open={replyModalOpen}
+  taskId={replyModalTaskId}
+  reply={replyModalReply}
+  initialConfirmDelete={replyModalConfirmDelete}
+  onclose={closeReplyModal}
+  onsaved={onReplySaved}
+/>
+
 <style>
   .panel-control {
     display: flex;
@@ -2645,7 +2649,7 @@
   }
   .task-restore-btn:hover { color: #3b82f6; background: rgba(59,130,246,0.08); }
   .badge-pin { color: #b45309; font-weight: 800; }
-  .task-pin-btn { flex-shrink:0; background:none; border:1px solid transparent; border-radius:.35rem; width:1.65rem; height:1.5rem; display:flex; align-items:center; justify-content:center; color:var(--text-muted,#b0b5c0); cursor:pointer; opacity:0; pointer-events:none; transition:opacity .14s, color .12s, background .12s, border-color .12s; padding:0; }
+  .task-pin-btn { flex-shrink:0; align-self:flex-start; margin-top:.1rem; background:none; border:1px solid transparent; border-radius:.35rem; width:1.65rem; height:1.5rem; display:flex; align-items:center; justify-content:center; color:var(--text-muted,#b0b5c0); cursor:pointer; opacity:0; pointer-events:none; transition:opacity .14s, color .12s, background .12s, border-color .12s; padding:0; }
   .task-item:hover .task-pin-btn, .task-pin-btn:focus-visible, .task-pin-btn.pinning { opacity:1; pointer-events:auto; }
   .task-pin-btn:hover:not(:disabled) { border-color:#f59e0b; color:#f59e0b; background:rgba(245,158,11,.08); }
   .task-pin-btn.pinned { opacity:1; pointer-events:auto; border-color:rgba(245,158,11,.35); color:#f59e0b; background:rgba(245,158,11,.12); }
@@ -2720,6 +2724,8 @@
   .task-item.done .task-text { text-decoration: line-through; color: var(--text-muted, #9ca3af); }
   .task-check {
     flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 0.15rem;
     background: none;
     border: none;
     cursor: pointer;
@@ -2731,7 +2737,12 @@
     font-size: 0.857rem;
     color: var(--text-primary, #111827);
     min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    border-radius: 0.214rem;
   }
+  .task-content > .task-text[role="button"] { cursor: pointer; }
+  .task-text:focus-visible { outline: 2px solid var(--accent, #2563eb); outline-offset: 2px; }
   .task-assigned-by {
     font-size: 0.714rem;
     color: var(--text-muted, #9ca3af);
@@ -2818,16 +2829,6 @@
   }
   .task-item:hover .task-edit-btn { opacity: 1; }
   .task-edit-btn:hover { border-color: #6366f1; color: #6366f1; }
-  .task-edit-input {
-    width: 100%;
-    padding: 0.286rem 0.429rem;
-    border: 1.5px solid var(--border-focus, #3b82f6);
-    border-radius: 0.286rem;
-    font-size: 0.857rem;
-    background: var(--bg-card, #fff);
-    color: var(--text-primary, #111827);
-    outline: none;
-  }
   .task-saving, .thread-saving { display: inline-flex; align-items: center; gap: 0.35rem; opacity: 0.7; }
   .task-upload-spinner {
     width: 0.714rem;
@@ -2950,7 +2951,8 @@
   .thread-reply.done .thread-text { text-decoration:line-through; color:var(--text-muted,#9ca3af); }
   .thread-check { flex-shrink:0; background:none; border:none; cursor:pointer; padding:0; display:flex; align-items:center; }
   .thread-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:.15rem; }
-  .thread-text { font-size:.82rem; color:var(--text-primary,#111827); word-break:break-word; }
+  .thread-text { font-size:.82rem; color:var(--text-primary,#111827); word-break:break-word; white-space:pre-wrap; overflow-wrap:anywhere; cursor:pointer; border-radius:.214rem; }
+  .thread-text:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   .thread-meta { font-size:.65rem; color:var(--text-secondary,#9ca3b0); }
   .thread-img-add, .thread-del { flex-shrink:0; background:none; border:none; cursor:pointer; padding:.15rem .25rem; border-radius:.25rem; color:var(--text-muted,#9ca3af); font-size:.7rem; opacity:0; transition:opacity .12s; }
   .thread-reply:hover .thread-img-add, .thread-reply:hover .thread-del { opacity:1; }
@@ -2959,7 +2961,6 @@
   .thread-edit { flex-shrink:0; background:none; border:none; cursor:pointer; padding:.15rem .25rem; border-radius:.25rem; color:var(--text-muted,#9ca3af); opacity:0; transition:opacity .12s; display:flex; align-items:center; }
   .thread-reply:hover .thread-edit { opacity:1; }
   .thread-edit:hover { color:var(--accent); background:var(--accent-light); }
-  .thread-edit-input { width:100%; padding:.25rem .4rem; border:1.5px solid var(--accent); border-radius:.3rem; font-size:.82rem; outline:none; background:var(--bg-card); color:var(--text-primary,#111827); }
   .thread-input-row { display:flex; gap:.35rem; margin-top:.15rem; }
   .thread-input { flex:1; padding:.35rem .5rem; border:1.5px solid var(--border,#e5e7eb); border-radius:.35rem; font-size:.82rem; outline:none; background:var(--bg-card); color:var(--text-primary); }
   .thread-input:focus { border-color:var(--accent); }

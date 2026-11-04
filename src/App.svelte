@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
@@ -18,10 +18,23 @@
   import PdfTimerWidget from '$lib/components/PdfTimerWidget.svelte';
   import UpdatePrompt from '$lib/components/UpdatePrompt.svelte';
   import Lupa from '$lib/components/Lupa.svelte';
+  import AssistantDrawer from '$lib/components/AssistantDrawer.svelte';
+  import { assistant } from '$lib/assistant/store.svelte';
 
   let view = $state<'login' | 'splash' | 'dashboard'>('login');
 
+  function onGlobalKeydown(event: KeyboardEvent) {
+    if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+    if (event.key.toLowerCase() !== 'j') return;
+    if (view !== 'dashboard') return;
+    // No abrir encima de un modal abierto.
+    if (document.querySelector('.modal-overlay')) return;
+    event.preventDefault();
+    assistant.toggle();
+  }
+
   onMount(async () => {
+    window.addEventListener('keydown', onGlobalKeydown);
     const saved = localStorage.getItem('theme-dark');
     document.documentElement.setAttribute('data-theme', saved === 'true' ? 'dark' : 'light');
 
@@ -43,6 +56,10 @@
 
     // Fórmula de molduras configurable (backend compartido + caché local).
     molduraFormula.load().catch(() => {});
+  });
+
+  onDestroy(() => {
+    window.removeEventListener('keydown', onGlobalKeydown);
   });
 
   // Precarga al iniciar: UNA llamada para cada lista compartida, que todas las
@@ -103,6 +120,26 @@
   {#if appStore.showEstimationRules}
     <EstimationRulesModal />
   {/if}
+
+  {#if view === 'dashboard' && !assistant.open}
+    <button
+      type="button"
+      class="assistant-fab"
+      title="Asistente (Ctrl+J)"
+      aria-label="Abrir asistente"
+      onclick={() => assistant.openDrawer('chat')}
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" />
+        <path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z" />
+      </svg>
+      <span>Asistente</span>
+    </button>
+  {/if}
+
+  {#if assistant.open}
+    <AssistantDrawer />
+  {/if}
 </div>
 
 <Lupa />
@@ -112,4 +149,38 @@
   :global(body) { font-family: system-ui, -apple-system, sans-serif; overflow: hidden; }
   :global(#zoom-surface) { height: 100%; }
   .app-shell { display: flex; flex-direction: column; height: calc(100vh - 3.5rem); }
+
+  .assistant-fab {
+    position: fixed;
+    right: 1.25rem;
+    bottom: 5.25rem;
+    z-index: 8000;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.85rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 550;
+    box-shadow: var(--shadow-md);
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+  }
+
+  .assistant-fab:hover {
+    transform: translateY(-1px);
+    border-color: var(--accent);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .assistant-fab svg { color: var(--accent); }
+
+  .assistant-fab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
 </style>

@@ -3,6 +3,31 @@ import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 
 const API_URL = 'https://api-bastidores.onrender.com';
 
+/**
+ * Token compartido para los endpoints del asistente. Se configura en el build
+ * con VITE_ASSISTANT_TOKEN y debe coincidir con ASSISTANT_TOKEN del backend.
+ * No es autenticación real: es una barrera para que la URL no quede abierta.
+ */
+const ASSISTANT_TOKEN = String(import.meta.env.VITE_ASSISTANT_TOKEN ?? '').trim();
+
+export interface AssistantSettingsWire {
+  model: string;
+  temperature: number;
+  has_api_key: boolean;
+  updated_at?: string | null;
+}
+
+export interface AssistantStateWire {
+  revision: number;
+  data: unknown;
+  updated_at?: string | null;
+  settings: AssistantSettingsWire;
+}
+
+export interface AssistantPutResult extends AssistantStateWire {
+  conflict: boolean;
+}
+
 type TaskImageRef = { id: number; created_at?: string | null; url?: string | null };
 
 // Uint8Array viene tipado como ArrayBufferLike (puede ser SharedArrayBuffer), que
@@ -62,6 +87,58 @@ async function request<T>(
 
 function handleResponse<T>(data: Promise<T>, fallback: T): Promise<T> {
   return data.then(d => (d === undefined ? fallback : d));
+}
+
+/**
+ * Igual que `request` pero devuelve status y body sin lanzar en 4xx/5xx.
+ * Lo usa el asistente para manejar el 409 del compare-and-swap.
+ */
+async function assistantRequest<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  timeout = 20
+): Promise<{ status: number; data: T; raw: string }> {
+  const url = `${API_URL}${path}`;
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout * 1000);
+
+  try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'User-Agent': 'FacBalApp/2.0',
+    };
+    if (ASSISTANT_TOKEN) headers['X-Assistant-Token'] = ASSISTANT_TOKEN;
+
+    const options: RequestInit = { method, headers, signal: controller.signal };
+    if (body !== undefined && method !== 'GET') options.body = JSON.stringify(body);
+
+    const res = await tauriFetch(url, options);
+    clearTimeout(id);
+
+    const raw = await res.text().catch(() => '');
+    let data: unknown = null;
+    if (raw) {
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        data = null;
+      }
+    }
+    return { status: res.status, data: data as T, raw };
+  } catch (err) {
+    clearTimeout(id);
+    throw err;
+  }
+}
+
+function assistantHttpError(status: number, data: any, raw: string): Error {
+  const detail =
+    (data && typeof data === 'object' && 'detail' in data && String(data.detail)) ||
+    (data && typeof data === 'object' && data.error?.message) ||
+    raw?.slice(0, 300) ||
+    '';
+  return new Error(detail ? `Error ${status}: ${detail}` : `Error ${status}`);
 }
 
 export const api = {
@@ -325,6 +402,12 @@ export const api = {
     return { factura: data, items: data?.items ?? [] };
   },
 
+  /** Detalle sin tomar el lock de edición (para lecturas del asistente). */
+  getInvoiceDetail: async (id: number) => {
+    const data = await request<any>('GET', `/invoices/${id}`);
+    return { factura: data, items: data?.items ?? [] };
+  },
+
   saveFactura: (data: any) =>
     request<{ id: number }>('POST', '/invoices', data),
 
@@ -367,7 +450,14 @@ export const api = {
     }),
 
   // ---- Pagos ----
-  listPagos: () => handleResponse(request<import('$lib/types').Pago[]>('GET', '/payments'), []),
+  listPagos: (limit?: number) =>
+    handleResponse(
+      request<import('$lib/types').Pago[]>(
+        'GET',
+        limit ? `/payments?limit=${Math.max(1, Math.floor(limit))}` : '/payments'
+      ),
+      []
+    ),
 
   getInvoicesResumen: () =>
     request<{ count: number; facturado: number; deuda: number; cobrado: number }>('GET', '/invoices/resumen'),
@@ -720,6 +810,48 @@ export const api = {
     handleResponse(request<{ fortalezas: string[]; oportunidades: string[]; debilidades: string[]; amenazas: string[] }>('GET', '/foda', undefined, 10), { fortalezas: [], oportunidades: [], debilidades: [], amenazas: [] } as any),
   saveFoda: (data: { fortalezas: string[]; oportunidades: string[]; debilidades: string[]; amenazas: string[] }) =>
     request<{ status: string }>('PUT', '/foda', data),
+
+  // ---- Asistente (estado compartido + proxy a OpenRouter) ----
+  assistantGetState: async (): Promise<AssistantStateWire> => {
+    const res = await assistantRequest<AssistantStateWire>('GET', '/assistant/state', undefined, 45);
+    if (res.status < 200 || res.status >= 300) throw assistantHttpError(res.status, res.data, res.raw);
+    return res.data;
+  },
+
+  assistantPutState: async (
+    data: unknown,
+    baseRevision: number,
+    updatedBy?: string
+  ): Promise<AssistantPutResult> => {
+    const res = await assistantRequest<AssistantStateWire>('PUT', '/assistant/state', {
+      data,
+      base_revision: baseRevision,
+      updated_by: updatedBy ?? null,
+    }, 45);
+    if (res.status === 409) return { ...(res.data as AssistantStateWire), conflict: true };
+    if (res.status < 200 || res.status >= 300) throw assistantHttpError(res.status, res.data, res.raw);
+    return { ...(res.data as AssistantStateWire), conflict: false };
+  },
+
+  assistantGetSettings: async (): Promise<AssistantSettingsWire> => {
+    const res = await assistantRequest<AssistantSettingsWire>('GET', '/assistant/settings', undefined, 30);
+    if (res.status < 200 || res.status >= 300) throw assistantHttpError(res.status, res.data, res.raw);
+    return res.data;
+  },
+
+  assistantPutSettings: async (patch: {
+    model?: string;
+    temperature?: number;
+    api_key?: string;
+  }): Promise<AssistantSettingsWire> => {
+    const res = await assistantRequest<AssistantSettingsWire>('PUT', '/assistant/settings', patch, 20);
+    if (res.status < 200 || res.status >= 300) throw assistantHttpError(res.status, res.data, res.raw);
+    return res.data;
+  },
+
+  /** Proxy a OpenRouter: devuelve status/body tal cual para conservar los errores. */
+  assistantChatRaw: (body: unknown) =>
+    assistantRequest<any>('POST', '/assistant/chat', body, 120),
 
   getLatestManifest: () =>
     request<{ version: string; notes: string; pub_date: string; platforms: any }>('GET', '/latest.json', undefined, 10),

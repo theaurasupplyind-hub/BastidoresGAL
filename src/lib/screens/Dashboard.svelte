@@ -9,6 +9,7 @@
   import Productos from './Productos.svelte';
   import Facturacion from './Facturacion.svelte';
   import FichaSemanal from './FichaSemanal.svelte';
+  import Pagos from './Pagos.svelte';
   import RevisionComprobantes from './RevisionComprobantes.svelte';
   import Produccion from './Produccion.svelte';
   import Molduras from './Molduras.svelte';
@@ -278,6 +279,8 @@
         <Clientes />
       {:else if appStore.currentTab === 'mapa'}
         <MapaClientes />
+      {:else if appStore.currentTab === 'pagos'}
+        <Pagos />
       {:else if appStore.currentTab === 'estadisticas'}
         <Estadisticas />
       {:else if appStore.currentTab === 'gastos'}

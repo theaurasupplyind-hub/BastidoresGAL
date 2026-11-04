@@ -569,13 +569,59 @@ export function evaluateRules(
 
 // ── Búsqueda con scoring (productos) ──
 
-export function smartProductSearch(query: string, products: Producto[], maxResults = 8): Producto[] {
+// Prioridad para productos que existen en la lista de precios de referencia
+// (la misma que alimenta las reglas de precio). Así, ante un empate de texto
+// ("rollo" → varios productos), gana el que tiene precio de referencia y no
+// simplemente el nombre más corto.
+const REF_MATCH_BOOST = 300;
+const REF_PRICE_BONUS = 150;
+
+function buildRefIndex(
+  refs: PrecioReferencia[],
+  queryTokens: string[],
+): Map<string, Array<{ tokens: string[]; price: number; hasVariant: boolean }>> {
+  const index = new Map<string, Array<{ tokens: string[]; price: number; hasVariant: boolean }>>();
+  if (queryTokens.length === 0) return index;
+  for (const r of refs) {
+    const dims = extractDims(normalizeText(r.medida || ''));
+    if (dims.size === 0) continue;
+    const tokens = normalizeText(r.categoria || '')
+      .split(/\s+/)
+      .filter(t => t.length >= 2 && !STOP_WORDS.has(t));
+    if (tokens.length === 0) continue;
+    // Solo referencias del mismo rubro que la consulta: evita que "acrilico"
+    // priorice bastidores solo porque comparten medidas.
+    if (!tokens.some(t => queryTokens.some(qt => qt.startsWith(t) || t.startsWith(qt)))) continue;
+    const hasVariant = normalizeText(r.variante || '').length > 0;
+    for (const d of dims) {
+      const list = index.get(d) ?? [];
+      list.push({ tokens, price: r.precio, hasVariant });
+      index.set(d, list);
+    }
+  }
+  return index;
+}
+
+/** ¿Todos los tokens aparecen como palabra (o prefijo de palabra) en el texto? */
+function hasAllTokens(text: string, tokens: string[]): boolean {
+  if (tokens.length === 0) return true;
+  const words = text.split(/\s+/);
+  return tokens.every(t => words.some(w => w.startsWith(t) || t.startsWith(w)));
+}
+
+export function smartProductSearch(
+  query: string,
+  products: Producto[],
+  maxResults = 8,
+  refs: PrecioReferencia[] = [],
+): Producto[] {
   const q = query.trim();
   if (q.length < 2) return [];
 
   const qNorm = normalizeText(q);
   const qDims = extractDims(qNorm);
   const qTokens = qNorm.split(/\s+/).filter(t => !/^\d+(?:[.,]\d+)?x\d+(?:[.,]\d+)?$/.test(t));
+  const refsByDim = buildRefIndex(refs, qTokens);
 
   const scored: Array<[number, Producto]> = [];
 
@@ -606,6 +652,35 @@ export function smartProductSearch(query: string, products: Producto[], maxResul
 
       if (itemNorm.startsWith(qNorm)) score += 50;
       else if (itemNorm.includes(qNorm)) score += 30;
+    }
+
+    // Productos de la lista de precios de referencia: van primero entre los
+    // que empatan por texto. Si además el precio coincide con la referencia,
+    // se prefiere esa variante entre duplicados con el mismo nombre.
+    if (score > 0 && refsByDim.size > 0) {
+      const fullText = normalizeText(
+        `${p.descripcion} ${p.categoria} ${p.medida} ${p.variante}`,
+      );
+      let matchesRef = false;
+      let matchesPrice = false;
+      for (const d of extractDims(fullText)) {
+        const candidates = refsByDim.get(d);
+        if (!candidates) continue;
+        for (const r of candidates) {
+          if (!hasAllTokens(fullText, r.tokens)) continue;
+          matchesRef = true;
+          // El precio solo desempata cuando la referencia no distingue variante
+          // (ej: ROLLO DE TELA 2x5). Si tiene variante, la identidad es la
+          // variante y el precio puede ser una promo.
+          if (!r.hasVariant && Math.abs((p.precio_unitario ?? 0) - r.price) < 0.01) {
+            matchesPrice = true;
+          }
+        }
+      }
+      if (matchesRef) {
+        score += REF_MATCH_BOOST;
+        if (matchesPrice) score += REF_PRICE_BONUS;
+      }
     }
 
     if (score > 0) {

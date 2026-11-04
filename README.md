@@ -1,5 +1,8 @@
 # Svelte + TS + Vite
 
+> Documentación del asistente interno: [`docs/asistente-galv2.md`](./docs/asistente-galv2.md)
+> — estado, historial de iteraciones, tools, reglas y pendientes.
+
 This template should help get you started developing with Svelte and TypeScript in Vite.
 
 ## Recommended IDE Setup

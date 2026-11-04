@@ -1,4 +1,11 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.6.0': `Asistente interno (Ctrl+J): chat con herramientas reales para consultar y modificar clientes, facturas, pagos, gastos y tareas, con memoria, pendientes y deshacer. El historial y la API key se guardan en la nube y se comparten entre estaciones; la clave no viaja a las PCs.
+Pagos: nueva pantalla con historial completo, filtros por texto, método, destino y fechas, orden por fecha o monto y resumen por método. Acceso directo desde la Ficha Semanal.
+Estadísticas: nueva pestaña "Formas de pago" (12/24 meses o todo) con totales por método, promedio, clientes y método preferido por cliente.
+Molduras: medidas con grosor (160x150x4), Tapacanto con la medida en su columna y el color en el tipo, ítems sin cantidad en una fila completa y detalle de cortes más limpio.
+Precios: las sugerencias de productos priorizan la lista de precios de referencia.
+Direcciones: búsqueda de Nominatim más precisa (número antes que calle), sin duplicados y con mejor limpieza de piso/depto.
+Panel: edición de tareas y respuestas en modales con confirmación de borrado; reordenar guarda una sola posición.`,
   '2.5.2': `Accesibilidad: el zoom de la interfaz ahora es real (escala todo: textos, tablas, iconos e imágenes) con botones A− / A+ en la barra superior, atajos Ctrl +, Ctrl − y Ctrl 0, y Ctrl + rueda. Llega hasta 150%.
 Accesibilidad: nueva Lupa. Se activa en la barra, mantenés apretado el clic izquierdo y la pantalla se amplía sobre lo que estás mirando; al soltar vuelve sola. Esc para salir.`,
   '2.5.1': `Facturación: la búsqueda de direcciones trae hasta 5 resultados de Maps, separados de las direcciones guardadas, con "Buscando…", aviso de "no encontrada" y descarte de respuestas viejas si seguís tipeando.

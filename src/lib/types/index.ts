@@ -186,7 +186,7 @@ export function parseFecha(fecha: string): Date {
   return new Date(fecha);
 }
 
-function dateKey(d: string): number {
+export function dateKey(d: string): number {
   if (!d) return 0;
   if (d.includes('/')) {
     const p = d.split('/');
@@ -459,7 +459,7 @@ export interface PlanDeViaje {
   updated_at: string;
 }
 
-export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'revision-comprobantes' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent' | 'panel-control';
+export type TabId = 'kanban' | 'facturacion' | 'ficha-semanal' | 'revision-comprobantes' | 'tela' | 'molduras' | 'productos' | 'clientes' | 'pagos' | 'estadisticas' | 'gastos' | 'papelera' | 'mapa' | 'analisis-usd' | 'gasto-rapido' | 'caja' | 'print-agent' | 'panel-control';
 
 // ── Reglas de estimación (oversize / cortes desde otra referencia) ──
 

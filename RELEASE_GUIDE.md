@@ -193,8 +193,9 @@ $ghSig = (Invoke-RestMethod -Uri "https://github.com/$Repo/releases/download/$Ta
 4. Cerrar PowerShell y abrir uno nuevo
 5. **Verificar** que `C:\Users\jesus\.tauri\release.ps1` NO tenga ningún `-replace` en la línea de la URL (debe usar `$exeFile.Name` directamente)
 6. **Verificar** que `release.ps1` compile con `npm run tauri:build` (**NO** `npm run tauri build`)
-7. Ejecutar: `. C:\Users\jesus\.tauri\release.ps1`
-8. El script:
+7. **Verificar** que `.env.local` tenga `VITE_ASSISTANT_TOKEN` y que Render tenga el mismo valor en `ASSISTANT_TOKEN` (endpoints `/assistant/*`)
+8. Ejecutar: `. C:\Users\jesus\.tauri\release.ps1`
+9. El script:
    - Lee la versión de `tauri.conf.json`
    - Configura la clave de firma
    - Compila la app (`npm run tauri:build`)

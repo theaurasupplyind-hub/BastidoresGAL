@@ -72,6 +72,13 @@ export function shouldHideMaterialsTable(card: { items: CardItem[] }): boolean {
   return !hasMaterialItems(card);
 }
 
+// Ítem "descripción sola": 0 unidades y sin medida A x B (ej. "Pitones y
+// Alambre"). La fila del resumen ocupa todo el ancho, sin columnas de cantidad.
+export function isDescriptionOnlyItem(it: CardItem): boolean {
+  if (it.cantidad !== 0) return false;
+  return !/^\d+(?:[.,]\d+)?\s*[xX×]\s*\d+(?:[.,]\d+)?/.test(it.medida || '');
+}
+
 // Un pedido "solo varilla" (sin largueros ni travesaños) no necesita las
 // columnas LARGUERO/TRAV.: se muestran vacías y solo agregan ruido.
 // Se ocultan ambos grupos solo si faltan los dos.
@@ -99,10 +106,58 @@ export function parsePromoBastidores(desc: string, itemCantidad: number): number
   return perUnit * (itemCantidad || 1);
 }
 
-export function extractBastidorDimsFromDesc(desc: string): { w: number; h: number } | null {
-  const all = [...desc.matchAll(/(\d+(?:[.,]\d+)?)\s*[xX]\s*(\d+(?:[.,]\d+)?)/g)];
+// Formatos aceptados: "160 x 150" y "67 x 67 x 4". El tercer número es el
+// grosor del perfil: es solo informativo, no entra en la fórmula de materiales.
+const DIMS_3_RE = /(\d+(?:[.,]\d+)?)\s*[xX×]\s*(\d+(?:[.,]\d+)?)(?:\s*[xX×]\s*(\d+(?:[.,]\d+)?))?/;
+
+export interface ParsedDims3 {
+  w: number;
+  h: number;
+  grosor: number | null;
+  raw: string;
+}
+
+function parseNum(v: string | undefined): number {
+  const n = v === undefined ? NaN : parseFloat(v.replace(',', '.'));
+  return Number.isFinite(n) ? n : NaN;
+}
+
+export function parseDims3(desc: string): ParsedDims3 | null {
+  const m = (desc || '').match(DIMS_3_RE);
+  if (!m) return null;
+  const grosor = parseNum(m[3]);
+  return {
+    w: parseNum(m[1]),
+    h: parseNum(m[2]),
+    grosor: Number.isNaN(grosor) ? null : grosor,
+    raw: m[0],
+  };
+}
+
+export function formatMedida(w: number, h: number, grosor?: number | null): string {
+  return grosor != null ? `${w}x${h}x${grosor}` : `${w}x${h}`;
+}
+
+// Quita la medida y el relleno habitual ("bastidor", "cm", comillas) del texto.
+function stripDimsText(text: string, raw: string): string {
+  return text
+    .replace(raw, ' ')
+    .replace(/bastidor|cm|["]/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function extractBastidorDimsFromDesc(desc: string): { w: number; h: number; grosor: number | null } | null {
+  const all = [...desc.matchAll(new RegExp(DIMS_3_RE.source, 'g'))];
   const real = all
-    .map(c => ({ w: parseFloat(c[1].replace(',', '.')), h: parseFloat(c[2].replace(',', '.')) }))
+    .map(c => {
+      const grosor = parseNum(c[3]);
+      return {
+        w: parseNum(c[1]),
+        h: parseNum(c[2]),
+        grosor: Number.isNaN(grosor) ? null : grosor,
+      };
+    })
     .filter(d => Math.max(d.w, d.h) >= 15);
   if (real.length > 0) return real[real.length - 1];
   return null;
@@ -126,13 +181,11 @@ export function syncItemStrings(item: CardItem, mats: CardMaterial[]): void {
   item.travesaño = mats.filter(m => m.type === 'T').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined;
 }
 
-export function parse2DItem(desc: string): { w: number; h: number; label: string } | null {
-  const m = desc.match(/(\d+(?:[.,]\d+)?)\s*[xX]\s*(\d+(?:[.,]\d+)?)/);
-  if (!m) return null;
-  const w = parseFloat(m[1].replace(',', '.'));
-  const h = parseFloat(m[2].replace(',', '.'));
-  const rest = desc.replace(m[0], '').replace(/bastidor|cm|["]/gi, '').trim();
-  return { w, h, label: rest || 'Marco' };
+export function parse2DItem(desc: string): { w: number; h: number; grosor: number | null; label: string } | null {
+  const dims = parseDims3(desc);
+  if (!dims) return null;
+  const rest = stripDimsText(desc, dims.raw);
+  return { w: dims.w, h: dims.h, grosor: dims.grosor, label: rest || 'Marco' };
 }
 
 // ── Fórmula de molduras configurable por el usuario ──
@@ -477,6 +530,32 @@ export function hasMolduraItems(f: Factura, _excludeKeywords?: ExcludeRuleInput[
   return false;
 }
 
+// Tapacanto: la medida va sola a la columna MEDIDA y el resto de la
+// descripción (ej. el color) acompaña al tipo.
+// "TAPACANTO 160 X 160 BLANCO" -> medida "160x160", tipo "Tapacanto BLANCO"
+function buildTapacantoItem(cantidad: number, desc: string): CardItem {
+  const dims = parse2DItem(desc);
+  if (!dims) {
+    return {
+      cantidad,
+      medida: desc,
+      tipo: 'Tapacanto',
+      isNonMolding: true,
+      isTapacanto: true,
+    };
+  }
+  const extra = dims.label === 'Marco'
+    ? ''
+    : dims.label.replace(/tapacantos?/gi, ' ').replace(/\s+/g, ' ').trim();
+  return {
+    cantidad,
+    medida: formatMedida(dims.w, dims.h, dims.grosor),
+    tipo: extra ? `Tapacanto ${extra}` : 'Tapacanto',
+    isNonMolding: true,
+    isTapacanto: true,
+  };
+}
+
 export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[], hiddenKeywords?: ExcludeRuleInput[]): {
   id: number;
   num: string;
@@ -504,13 +583,7 @@ export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[], hidd
     // Tapacanto/Círculo se conservan con su subtipo para no perder su display.
     if (isExcludedByKeywords(desc, excludeKeywords)) {
       if (/tapacanto/i.test(desc)) {
-        items.push({
-          cantidad: it.cantidad,
-          medida: desc,
-          tipo: 'Tapacanto',
-          isNonMolding: true,
-          isTapacanto: true,
-        });
+        items.push(buildTapacantoItem(it.cantidad, desc));
       } else if (isCirculoDesc(desc)) {
         items.push({
           cantidad: it.cantidad,
@@ -528,14 +601,14 @@ export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[], hidd
         if (dims && dims.label && dims.label !== 'Marco') {
           items.push({
             cantidad: it.cantidad,
-            medida: `${dims.w}x${dims.h}`,
+            medida: formatMedida(dims.w, dims.h, dims.grosor),
             tipo: dims.label,
             isNonMolding: true,
           });
         } else if (dims) {
           items.push({
             cantidad: it.cantidad,
-            medida: `${dims.w}x${dims.h}`,
+            medida: formatMedida(dims.w, dims.h, dims.grosor),
             tipo: desc,
             isNonMolding: true,
           });
@@ -552,13 +625,7 @@ export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[], hidd
     }
 
     if (/tapacanto/i.test(desc)) {
-      items.push({
-        cantidad: it.cantidad,
-        medida: desc,
-        tipo: 'Tapacanto',
-        isNonMolding: true,
-        isTapacanto: true,
-      });
+      items.push(buildTapacantoItem(it.cantidad, desc));
       continue;
     }
 
@@ -581,12 +648,14 @@ export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[], hidd
         const mats = calcMaterials(dims.w, dims.h, effQty);
         const promoLabel = promoM ? `Promo ${promoM[1]}x${promoM[2]}` : 'Promo';
         let cleaned = desc.replace(/promo[^0-9]*\d+\s*[xX×]\s*\d+/gi, ' ');
-        cleaned = cleaned.replace(new RegExp(`${dims.w}\\s*[xX]\\s*${dims.h}`, 'i'), ' ');
-        cleaned = cleaned.replace(/bastidor|cm|["]/gi, ' ').replace(/\s+/g, ' ').trim();
+        const bastidorDims = parseDims3(cleaned);
+        cleaned = bastidorDims
+          ? stripDimsText(cleaned, bastidorDims.raw)
+          : cleaned.replace(/bastidor|cm|["]/gi, ' ').replace(/\s+/g, ' ').trim();
         const tipoLabel = cleaned ? `${promoLabel} · ${cleaned}` : promoLabel;
         items.push({
           cantidad: effQty,
-          medida: `${dims.w}x${dims.h}`,
+          medida: formatMedida(dims.w, dims.h, dims.grosor),
           tipo: tipoLabel,
           varilla: mats.filter(m => m.type === 'V').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined,
           larguero: mats.filter(m => m.type === 'L').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined,
@@ -613,7 +682,7 @@ export function parseCard(f: Factura, excludeKeywords?: ExcludeRuleInput[], hidd
       const mats = calcMaterials(parsed.w, parsed.h, it.cantidad);
       items.push({
         cantidad: it.cantidad,
-        medida: `${parsed.w}x${parsed.h}`,
+        medida: formatMedida(parsed.w, parsed.h, parsed.grosor),
         tipo: parsed.label,
           varilla: mats.filter(m => m.type === 'V').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined,
           larguero: mats.filter(m => m.type === 'L').map(m => `${m.qty}x${m.cm}`).join(' ') || undefined,
@@ -910,9 +979,16 @@ export function renderSingleCardHtml(card: MeasurableCard, idx: number, side: 'l
     const medida = it.isTapacanto
       ? it.medida.replace(/tapacantos?/gi, ' ').replace(/\s+/g, ' ').trim()
       : it.medida;
+    if (isDescriptionOnlyItem(it)) {
+      const tipo = it.tipo ? `<span class='sum-type'>${it.tipo}</span>` : '';
+      return `
+        <tr>
+          <td colspan='3' style='text-align:center;'><span class='sum-dim'>${medida}</span>${tipo}</td>
+        </tr>`;
+    }
     return `
         <tr>
-          <td width='15%'><span class='sum-qty'>${it.cantidad}</span></td>
+          <td width='15%'><span class='sum-qty'>${it.cantidad === 0 ? '' : it.cantidad}</span></td>
           <td width='35%'><span class='sum-dim'>${medida}</span></td>
           <td width='50%'><span class='sum-type'>${it.tipo}</span></td>
         </tr>`;

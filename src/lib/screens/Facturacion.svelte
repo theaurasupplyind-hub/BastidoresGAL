@@ -20,7 +20,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana, normalizeEsti
   import GIcon from '$lib/components/gastos/GIcon.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, buildSuggestionDesc, type PriceSuggestion } from '$lib/utils/precios';
   import { sortDimsAsc } from '$lib/utils/dims';
-import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
+import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim, mejoresResultados } from '$lib/utils/geocoding';
 import { diasRestantesNoConfirmada } from '$lib/utils/facturas';
 import type { ClientAddress } from '$lib/types';
 import flatpickr from 'flatpickr';
@@ -814,7 +814,7 @@ const tallerApi: TallerApi = api;
     const suggs = (productSuggestions[index] || [])
       .filter((s: PriceSuggestion) => !s.hint)
       .map((s: PriceSuggestion) => ({ type: 'suggestion' as const, data: s }));
-    const prods = smartProductSearch(productSearch[index], productos).map((p: Producto) => ({ type: 'product' as const, data: p }));
+    const prods = smartProductSearch(productSearch[index], productos, 8, preciosReferencia).map((p: Producto) => ({ type: 'product' as const, data: p }));
     return [...suggs, ...prods];
   }
 
@@ -1541,15 +1541,20 @@ const tallerApi: TallerApi = api;
       const data = await res.json();
       // Descarta respuestas obsoletas si el usuario siguió escribiendo.
       if (token !== addressQueryToken) return;
-      const results = Array.isArray(data) ? data.slice(0, 5) : [];
+      const results = Array.isArray(data) ? data.slice(0, 8) : [];
       const items = buildAddressSugerencias(query);
       const savedKeys = new Set(
         items.filter(s => s.type === 'saved').map(s => normalizeText(String(s.data.address ?? '')))
       );
-      for (const r of results) {
-        // Evita repetir una dirección que ya está guardada en el cliente.
-        if (savedKeys.has(normalizeText(formatearDireccionNominatim(r)))) continue;
+      // Nominatim repite la misma dirección con POIs distintos (local "Junín",
+      // "1173, Junín", etc.): se deduplica por cómo se va a mostrar.
+      const vistos = new Set<string>();
+      for (const r of mejoresResultados(results, query)) {
+        const clave = normalizeText(formatearDireccionNominatim(r));
+        if (savedKeys.has(clave) || vistos.has(clave)) continue;
+        vistos.add(clave);
         items.push({ type: 'nominatim', data: r });
+        if (vistos.size >= 5) break;
       }
       addressNominatimFound = results.length > 0;
       addressSuggestions = items;
@@ -2335,7 +2340,7 @@ const tallerApi: TallerApi = api;
                         {/each}
                         <div class="autocomplete-divider"></div>
                       {/if}
-                      {#each smartProductSearch(productSearch[i], productos) as prod, pi}
+                      {#each smartProductSearch(productSearch[i], productos, 8, preciosReferencia) as prod, pi}
                         <div
                           class="autocomplete-item"
                           class:selected={(pi + (productSuggestions[i]?.length || 0)) === selectedProdIndex[i]}

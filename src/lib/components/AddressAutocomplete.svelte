@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatearDireccionNominatim } from '$lib/utils/geocoding';
+  import { formatearDireccionNominatim, nominatimSearchUrl, mejoresResultados } from '$lib/utils/geocoding';
 
   interface Suggestion {
     label: string;
@@ -42,18 +42,28 @@
   async function fetchSuggestions(q: string) {
     loading = true;
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q + ', Buenos Aires, Argentina')}&format=json&limit=5&countrycodes=ar&addressdetails=1`,
-        { headers: { 'User-Agent': 'BastidoresGal/1.0' } }
-      );
+      const res = await fetch(nominatimSearchUrl(q), {
+        headers: { 'User-Agent': 'BastidoresGal/1.0' },
+      });
       const data = await res.json();
-      suggestions = (data || []).map((r: any) => ({
-        label: formatearDireccionNominatim(r),
-        lat: parseFloat(r.lat),
-        lng: parseFloat(r.lon),
-        display_name: r.display_name,
-        address: r.address,
-      }));
+      // Nominatim repite la misma dirección con POIs distintos: se deduplica.
+      const vistos = new Set<string>();
+      const mapeados: Suggestion[] = [];
+      for (const r of mejoresResultados(Array.isArray(data) ? data : [], q)) {
+        const label = formatearDireccionNominatim(r);
+        const clave = label.toLowerCase().trim();
+        if (vistos.has(clave)) continue;
+        vistos.add(clave);
+        mapeados.push({
+          label,
+          lat: parseFloat(r.lat),
+          lng: parseFloat(r.lon),
+          display_name: r.display_name,
+          address: r.address,
+        });
+        if (mapeados.length >= 5) break;
+      }
+      suggestions = mapeados;
       open = suggestions.length > 0 && value.length >= 2;
       selectedIndex = -1;
     } catch {

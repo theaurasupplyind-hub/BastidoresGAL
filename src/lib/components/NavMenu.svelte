@@ -42,6 +42,7 @@
       { id: 'molduras', icon: 'frame', label: 'Molduras', desc: 'Catálogo de molduras' },
       { id: 'productos', icon: 'box', label: 'Productos', desc: 'Catálogo de productos' },
       { id: 'clientes', icon: 'user', label: 'Clientes', desc: 'Base de clientes' },
+      { id: 'pagos', icon: 'wallet', label: 'Pagos', desc: 'Historial de pagos' },
       { id: 'estadisticas', icon: 'chart', label: 'Estadísticas', desc: 'Reportes y métricas' },
       { id: 'analisis-usd', icon: 'usd', label: 'USD', desc: 'Análisis en dólares' },
     ];

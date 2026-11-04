@@ -4,8 +4,15 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas, diasDemoraEntrega, diaEntregaFactura, normalizarProducto, mediana, percentil, clasificarTipoPedido, baseAgrupada, TIPOS_PEDIDO } from '$lib/utils/facturas';
   import type { TipoPedido } from '$lib/utils/facturas';
-  import { formatEntregadoAt } from '$lib/types';
-  import type { Factura, Cliente } from '$lib/types';
+  import { dateKey, formatEntregadoAt } from '$lib/types';
+  import type { Factura, Cliente, Pago } from '$lib/types';
+  import {
+    buildMetodoResumen,
+    computeClientePagoStats,
+    formatFechaPago,
+    metodoStat,
+    normalizeTexto,
+  } from '$lib/utils/pagos';
   import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, LineController, LineElement, PointElement } from 'chart.js';
   import ChartDataLabels from 'chartjs-plugin-datalabels';
   Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend, LineController, LineElement, PointElement, ChartDataLabels);
@@ -51,7 +58,7 @@
   Chart.register(monthSectionPlugin);
 
   let loading = $state(false);
-  type EstTab = 'ventas' | 'entregas';
+  type EstTab = 'ventas' | 'entregas' | 'formas-pago';
   let activeTab = $state<EstTab>('ventas');
 
   let startDate = $state('');
@@ -120,6 +127,52 @@
   let entregasMinN = $state(3);
   let entregasSort = $state<'prom' | 'facturas'>('prom');
   let entregasMinNTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // ── Formas de pago (tab Pagos) ──
+  // Se comparte la misma clave que la pantalla de historial para no descargar
+  // los pagos dos veces.
+  const PAGOS_CACHE_KEY = 'pagos:historial';
+  const PAGOS_LIMIT = 20000;
+  type PagoPeriodo = '12m' | '24m' | 'all';
+  let pagosCache = $state.raw<Pago[]>([]);
+  let pagosLoaded = $state(false);
+  let pagosLoading = $state(false);
+  let pagosError = $state('');
+  let pagoPeriodo = $state<PagoPeriodo>('12m');
+  let pagoQuery = $state('');
+  let pagoSort = $state<'total' | 'pagos' | 'ultimo'>('total');
+
+  let pagosPeriodo = $derived.by(() => {
+    if (pagoPeriodo === 'all') return pagosCache;
+    const months = pagoPeriodo === '12m' ? 12 : 24;
+    const now = new Date();
+    const since = new Date(now.getFullYear(), now.getMonth() - months, now.getDate());
+    const sinceKey = dateKey(toLocalDateStr(since));
+    return pagosCache.filter((p) => dateKey(p.date) >= sinceKey);
+  });
+
+  let pagosTotalesPeriodo = $derived(
+    pagosPeriodo.reduce((s, p) => s + (Number(p.amount) || 0), 0)
+  );
+  let pagosClientesPeriodo = $derived(
+    new Set(pagosPeriodo.map((p) => normalizeTexto(p.extra_client_name || 'Desconocido'))).size
+  );
+  let pagosPromedioPeriodo = $derived(
+    pagosPeriodo.length ? pagosTotalesPeriodo / pagosPeriodo.length : 0
+  );
+  let metodosPeriodo = $derived(buildMetodoResumen(pagosPeriodo));
+
+  let clientesPagoStats = $derived.by(() => {
+    const stats = computeClientePagoStats(pagosPeriodo);
+    const q = normalizeTexto(pagoQuery);
+    const filtrados = q ? stats.filter((s) => normalizeTexto(s.cliente).includes(q)) : stats;
+    filtrados.sort((a, b) => {
+      if (pagoSort === 'pagos') return b.count - a.count || b.total - a.total;
+      if (pagoSort === 'ultimo') return b.ultimoKey - a.ultimoKey || b.count - a.count;
+      return b.total - a.total || b.count - a.count;
+    });
+    return filtrados;
+  });
 
   let clientes = $state<Cliente[]>([]);
   let totalClientes = $state(0);
@@ -376,9 +429,32 @@
 
   async function switchTab(t: EstTab) {
     activeTab = t;
-    if (t !== 'entregas') return;
-    if (!entregasLoaded && !entregasLoading) await loadEntregas();
-    else if (entregasLoaded) buildEntregasView();
+    if (t === 'entregas') {
+      if (!entregasLoaded && !entregasLoading) await loadEntregas();
+      else if (entregasLoaded) buildEntregasView();
+    }
+    if (t === 'formas-pago' && !pagosLoaded && !pagosLoading) {
+      await loadPagos();
+    }
+  }
+
+  async function loadPagos(force = false) {
+    if (pagosLoading) return;
+    pagosLoading = true;
+    pagosError = '';
+    try {
+      if (force) cacheStore.invalidate(PAGOS_CACHE_KEY);
+      pagosCache = await cacheStore.fetch(
+        PAGOS_CACHE_KEY,
+        () => api.listPagos(PAGOS_LIMIT),
+        120000
+      );
+      pagosLoaded = true;
+    } catch (e: any) {
+      pagosError = e?.message || 'Error al cargar pagos';
+    } finally {
+      pagosLoading = false;
+    }
   }
 
   async function loadEntregas(force = false) {
@@ -1045,6 +1121,7 @@
 </script>
 
 <div class="estadisticas">
+  {#if activeTab !== 'formas-pago'}
   <div class="est-toolbar">
     <div class="preset-row">
       <button class="preset-btn" onclick={() => setPreset('7days')} class:preset-active={rangeDays === 7}>7d</button>
@@ -1074,11 +1151,13 @@
       {loading ? '⏳' : '🔄'}
     </button>
   </div>
+  {/if}
 
   <div class="est-tabs" role="tablist" aria-label="Secciones de estadísticas">
     <button role="tab" aria-selected={activeTab === 'ventas'} class="est-tab" class:active={activeTab === 'ventas'} onclick={() => switchTab('ventas')}>📊 Ventas</button>
     <button role="tab" aria-selected={activeTab === 'entregas'} class="est-tab" class:active={activeTab === 'entregas'} onclick={() => switchTab('entregas')}>🚚 Tiempos de entrega</button>
-    {#if rangeDays > 0}
+    <button role="tab" aria-selected={activeTab === 'formas-pago'} class="est-tab" class:active={activeTab === 'formas-pago'} onclick={() => switchTab('formas-pago')}>💳 Formas de pago</button>
+    {#if rangeDays > 0 && activeTab !== 'formas-pago'}
       <span class="range-info">{rangeDays}d · cohorte por entrega real</span>
     {/if}
   </div>
@@ -1431,7 +1510,7 @@
       </div>
     </div>
   </div>
-  {:else}
+  {:else if activeTab === 'entregas'}
   <!-- ── TAB ENTREGAS: reemplaza la pantalla ── -->
   <div class="ent-kpis">
     <div class="kpi-card kpi-main" title="Suma de todas las demoras dividida por la cantidad de entregas">
@@ -1637,6 +1716,123 @@
       </div>
     {/if}
   </div>
+  {/if}
+  {:else}
+  <!-- ── TAB FORMAS DE PAGO ── -->
+  <div class="fp-toolbar">
+    <div class="rec-seg" role="group" aria-label="Período">
+      <button class:active={pagoPeriodo === '12m'} onclick={() => (pagoPeriodo = '12m')}>12 meses</button>
+      <button class:active={pagoPeriodo === '24m'} onclick={() => (pagoPeriodo = '24m')}>24 meses</button>
+      <button class:active={pagoPeriodo === 'all'} onclick={() => (pagoPeriodo = 'all')}>Toda la historia</button>
+    </div>
+    <input
+      class="fp-search"
+      type="search"
+      placeholder="Buscar cliente…"
+      aria-label="Buscar cliente"
+      bind:value={pagoQuery}
+    />
+    <div class="rec-seg" role="group" aria-label="Orden">
+      <button class:active={pagoSort === 'total'} onclick={() => (pagoSort = 'total')}>Mayor monto</button>
+      <button class:active={pagoSort === 'pagos'} onclick={() => (pagoSort = 'pagos')}>Más pagos</button>
+      <button class:active={pagoSort === 'ultimo'} onclick={() => (pagoSort = 'ultimo')}>Último pago</button>
+    </div>
+    <button class="btn btn-sm btn-icon" onclick={() => loadPagos(true)} title="Recargar pagos" disabled={pagosLoading}>🔄</button>
+  </div>
+
+  {#if pagosLoading && !pagosLoaded}
+    <div class="chart-empty">Cargando pagos…</div>
+  {:else if pagosError && !pagosLoaded}
+    <div class="chart-empty">⚠️ {pagosError} <button class="btn btn-sm btn-primary" onclick={() => loadPagos(true)}>Reintentar</button></div>
+  {:else}
+    <div class="est-kpis">
+      <div class="kpi-card">
+        <span class="kpi-label">Cobrado</span>
+        <span class="kpi-value">{formatCurrency(pagosTotalesPeriodo)}</span>
+        <span class="kpi-sub">{pagosPeriodo.length} pagos en el período</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Clientes</span>
+        <span class="kpi-value">{pagosClientesPeriodo}</span>
+        <span class="kpi-sub">con pagos en el período</span>
+      </div>
+      <div class="kpi-card">
+        <span class="kpi-label">Promedio por pago</span>
+        <span class="kpi-value">{formatCurrency(pagosPromedioPeriodo)}</span>
+        <span class="kpi-sub">ticket medio</span>
+      </div>
+      {#each metodosPeriodo as m}
+        <div class="kpi-card">
+          <span class="kpi-label">{m.metodo}</span>
+          <span class="kpi-value">{m.pctCount.toFixed(1)}%</span>
+          <span class="kpi-sub">{m.count} pagos · {formatCurrency(m.total)}</span>
+        </div>
+      {/each}
+    </div>
+
+    <div class="est-monthly">
+      <div class="rec-head">
+        <h3>Cómo paga cada cliente</h3>
+        <span class="rec-periodo">{pagosPeriodo.length} pagos · {clientesPagoStats.length} clientes</span>
+      </div>
+      <p class="rec-note">
+        La forma preferente es el método con <strong>más pagos</strong>. Si el top no llega al 60%
+        del total del cliente se marca <strong>mixto</strong>. Se consultan hasta
+        {PAGOS_LIMIT.toLocaleString('es-AR')} pagos (los más recientes).
+      </p>
+      {#if clientesPagoStats.length === 0}
+        <div class="chart-empty">No hay clientes que coincidan con la búsqueda.</div>
+      {:else}
+        <div class="est-table-wrap">
+          <table class="est-table fp-table">
+            <thead>
+              <tr>
+                <th>Cliente</th>
+                <th class="td-r">Pagos</th>
+                <th class="td-r">Total</th>
+                <th class="td-r">Promedio</th>
+                <th class="td-r" title="Cantidad de pagos y % sobre el total del cliente">Efectivo</th>
+                <th class="td-r" title="Cantidad de pagos y % sobre el total del cliente">Transferencia</th>
+                <th>Preferido</th>
+                <th class="td-r">Último pago</th>
+              </tr>
+            </thead>
+            <tbody>
+              {#each clientesPagoStats as c}
+                {@const ef = metodoStat(c.metodos, 'Efectivo')}
+                {@const tr = metodoStat(c.metodos, 'Transferencia')}
+                <tr>
+                  <td>{c.cliente}</td>
+                  <td class="td-r">{c.count}</td>
+                  <td class="td-r">{formatCurrency(c.total)}</td>
+                  <td class="td-r">{formatCurrency(c.promedio)}</td>
+                  <td class="td-r">
+                    {#if ef}{ef.count} · {ef.pctCount.toFixed(0)}%{:else}—{/if}
+                  </td>
+                  <td class="td-r">
+                    {#if tr}{tr.count} · {tr.pctCount.toFixed(0)}%{:else}—{/if}
+                  </td>
+                  <td>
+                    <span
+                      class="fp-badge"
+                      class:efectivo={c.preferido === 'Efectivo'}
+                      class:transferencia={c.preferido === 'Transferencia'}
+                      title={c.mixto ? 'Reparto parejo: el método top no llega al 60%' : undefined}
+                    >
+                      {#if c.preferido === 'Efectivo'}💵{:else if c.preferido === 'Transferencia'}🏦{:else}🔀{/if}
+                      {c.preferido}
+                      <span class="fp-pct">{c.preferidoPct.toFixed(0)}%</span>
+                      {#if c.mixto}<span class="fp-mix">mixto</span>{/if}
+                    </span>
+                  </td>
+                  <td class="td-r">{formatFechaPago(c.ultimo)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+      {/if}
+    </div>
   {/if}
   {/if}
 </div>
@@ -2031,4 +2227,61 @@
   .man-tag.quit { background: #fef2f2; color: #e74c3c; }
   .ajuste-ctl { display: flex; align-items: center; gap: 0.214rem; }
   .mini-sel { font-size: 0.72rem; padding: 0.143rem 0.286rem; border: 1px solid var(--border); border-radius: 0.357rem; max-width: 8.5rem; background: var(--bg-card); color: var(--text-secondary); }
+
+  /* ── Tab formas de pago ── */
+  .fp-toolbar {
+    display: flex;
+    gap: 0.571rem;
+    align-items: center;
+    flex-wrap: wrap;
+    background: var(--bg-card);
+    padding: 0.429rem 0.571rem;
+    border-radius: 0.571rem;
+    box-shadow: 0 0.071rem 0.214rem rgba(0,0,0,0.06);
+  }
+  .fp-search {
+    flex: 1 1 14rem;
+    min-width: 11rem;
+    padding: 0.357rem 0.571rem;
+    border: 1px solid var(--border);
+    border-radius: 0.357rem;
+    font-size: 0.85rem;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    font-family: inherit;
+  }
+  .fp-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.286rem;
+    padding: 0.143rem 0.5rem;
+    border-radius: 1rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    background: var(--bg-page);
+    color: var(--text-secondary);
+    white-space: nowrap;
+  }
+  .fp-badge.efectivo {
+    background: color-mix(in srgb, #27ae60 14%, var(--bg-card));
+    color: #27ae60;
+  }
+  .fp-badge.transferencia {
+    background: color-mix(in srgb, #3b82f6 14%, var(--bg-card));
+    color: #3b82f6;
+  }
+  .fp-mix {
+    font-size: 0.62rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.02rem;
+    background: color-mix(in srgb, #8e44ad 14%, var(--bg-card));
+    color: #8e44ad;
+    border-radius: 0.714rem;
+    padding: 0.071rem 0.429rem;
+  }
+  .fp-pct {
+    font-weight: 500;
+    opacity: 0.8;
+  }
 </style>

@@ -5,7 +5,7 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData, hasMaterialItems, cardHasLargueroOTravesano, cloneMolduraFormula, normalizeMolduraFormulaConfig, evalLargueros, evalFilas, evalLarCm, evalTravCm } from '$lib/utils/molduras';
+  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData, hasMaterialItems, cardHasLargueroOTravesano, isDescriptionOnlyItem, cloneMolduraFormula, normalizeMolduraFormulaConfig, evalLargueros, evalFilas, evalLarCm, evalTravCm } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
   import MoldurasReorderModal from '$lib/components/MoldurasReorderModal.svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -417,7 +417,7 @@
 
   const detailItem = $derived(detailCard?.items[detailItemIdx] ?? null);
   const detailItemDims = $derived.by(() => {
-    if (!detailItem) return null;
+    if (!detailItem || detailItem.isTapacanto) return null;
     const m = detailItem.medida.match(/^(\d+(?:\.\d+)?)x(\d+(?:\.\d+)?)/);
     if (!m) return null;
     return { w: parseFloat(m[1]), h: parseFloat(m[2]) };
@@ -768,16 +768,25 @@
                   </thead>
                   <tbody>
                     {#each card.items as item}
-                      <tr class:non-molding={item.isNonMolding}>
-                        <td class="sm-qty">{item.cantidad}</td>
-                        <td class="sm-measure">
-                          <div class="sm-measure-top">
+                      {#if isDescriptionOnlyItem(item)}
+                        <tr class:non-molding={item.isNonMolding}>
+                          <td colspan="2" class="sm-measure">
                             {item.medida}
-                            {#if item.hasCorrection}<span class="sm-edit" title={item.correctionInherited ? 'Heredado de corrección guardada' : 'Editado'}>{item.correctionInherited ? '↪️' : '✏️'}</span>{/if}
-                          </div>
-                          <span class="sm-tipo"> {item.tipo}</span>
-                        </td>
-                      </tr>
+                            {#if item.tipo}<span class="sm-tipo"> {item.tipo}</span>{/if}
+                          </td>
+                        </tr>
+                      {:else}
+                        <tr class:non-molding={item.isNonMolding}>
+                          <td class="sm-qty">{item.cantidad === 0 ? '' : item.cantidad}</td>
+                          <td class="sm-measure">
+                            <div class="sm-measure-top">
+                              {item.medida}
+                              {#if item.hasCorrection}<span class="sm-edit" title={item.correctionInherited ? 'Heredado de corrección guardada' : 'Editado'}>{item.correctionInherited ? '↪️' : '✏️'}</span>{/if}
+                            </div>
+                            <span class="sm-tipo"> {item.tipo}</span>
+                          </td>
+                        </tr>
+                      {/if}
                     {/each}
                   </tbody>
                 </table>
@@ -1179,10 +1188,10 @@
                 tabindex="0"
                 onkeydown={(e) => e.key === 'Enter' && (detailItemIdx = i)}
               >
-                <span class="di-qty">{item.cantidad}x</span>
+                <span class="di-qty">{item.cantidad === 0 ? '' : `${item.cantidad}x`}</span>
                 <span class="di-measure">
                   <span class="di-medida">{item.medida}</span>
-                  {#if diCortes && (diCortes.larga > 0 || diCortes.corta > 0)}
+                  {#if diCortes && !item.isTapacanto && (diCortes.larga > 0 || diCortes.corta > 0)}
                     <span class="di-cortes" title="Cortes por varilla: larga {diCortes.larga} · corta {diCortes.corta}">
                       <span class="sm-c-l">Larga {diCortes.larga}</span> · <span class="sm-c-c">Corta {diCortes.corta}</span>
                     </span>
@@ -1379,7 +1388,7 @@
   .sm-measure { font-weight: 700; font-size: 1rem; }
   .sm-measure-top { display: flex; align-items: center; gap: 0.286rem; }
   .sm-edit { margin-left: 0.286rem; font-size: 0.8rem; }
-  .sm-tipo { font-weight: 800; color: var(--mol-ink-soft); font-size: 0.78rem; display: block; text-align: center; }
+  .sm-tipo { font-weight: 800; color: var(--mol-ink-soft); font-size: 0.95rem; display: block; text-align: center; }
   .sm-c-l { color: #27ae60; font-weight: 700; }
   .sm-c-c { color: #d35400; font-weight: 700; }
   .mol-summary-table tr.non-molding { opacity: 0.7; }
