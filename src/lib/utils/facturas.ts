@@ -1,4 +1,4 @@
-import type { Factura } from '$lib/types';
+import type { Factura, InvoiceItem, Producto, ProductoAlias } from '$lib/types';
 import { parseFecha } from '$lib/types';
 
 export const NO_CONFIRMADO = 'NO_CONFIRMADO';
@@ -94,6 +94,143 @@ export function diaEntregaFactura(f: Factura): Date | null {
 export function normalizarProducto(desc: string | null | undefined): string {
   if (!desc) return 'sin descripción';
   return desc.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+/**
+ * ¿Este ítem representa una venta real de un producto?
+ *
+ * Las facturas guardan los descuentos y las notas como ítems más:
+ *  - "DESCUENTO" con cantidad 1 y total negativo,
+ *  - "Promocion 12 x 15" con total negativo,
+ *  - notas de producción con cantidad 0 ("Retirar", "Medir resto…").
+ * No son productos: no deben sumar unidades ni aparecer en las tablas de
+ * productos/entregas. El total de la factura (neto) no se toca.
+ */
+export function esItemProducto(it: InvoiceItem): boolean {
+  const desc = normalizarProducto(it.descripcion);
+  if (desc.includes('descuento')) return false;
+  if (Number(it.cantidad) <= 0) return false;
+  if (Number(it.precio_unitario) < 0 || Number(it.total) < 0) return false;
+  return true;
+}
+
+// ── Alias de productos (fusiones) ──────────────────────────────────────────
+// Las facturas guardan el texto del ítem, no el id del producto. Al fusionar
+// productos se registra un alias (descripción vieja → producto destino) y acá
+// se resuelve al leer estadísticas. No se reescribe ninguna factura.
+
+export function construirMapaAlias(aliases: ProductoAlias[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const a of aliases) {
+    const key = normalizarProducto(a.alias_norm || a.descripcion);
+    if (key) map.set(key, a.descripcion);
+  }
+  return map;
+}
+
+export function resolverProducto(
+  desc: string | null | undefined,
+  aliasMap: Map<string, string>,
+): { key: string; descripcion: string } {
+  const key = normalizarProducto(desc);
+  const canonica = aliasMap.get(key);
+  if (canonica) return { key: normalizarProducto(canonica), descripcion: canonica };
+  return { key, descripcion: (desc || 'Sin descripción').trim() || 'Sin descripción' };
+}
+
+/** Devuelve la descripción canónica si el texto es un alias; si no, el original. */
+export function resolverDescripcionProducto(
+  desc: string | null | undefined,
+  aliasMap: Map<string, string>,
+): string {
+  const canonica = aliasMap.get(normalizarProducto(desc));
+  return canonica ?? (desc ?? '');
+}
+
+// ── Sugerencias de duplicados (solo para proponer, nunca automático) ──
+const STOPWORDS_PRODUCTO = new Set([
+  'de', 'del', 'y', 'con', 'para', 'el', 'la', 'los', 'las', 'un', 'una', 'al', 'en',
+]);
+
+function tokensSugerencia(texto: string): string[] {
+  return texto
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter(t => t && !STOPWORDS_PRODUCTO.has(t))
+    .map(t => (t.length > 3 ? t.replace(/(es|s)$/, '') : t))
+    .filter(Boolean);
+}
+
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/** Similitud entre dos descripciones. Solo se usa para sugerir fusiones. */
+export function similitudProducto(a: string, b: string): { score: number; motivo: string } {
+  const ta = tokensSugerencia(a);
+  const tb = tokensSugerencia(b);
+  const ka = ta.join(' ');
+  const kb = tb.join(' ');
+  if (!ka || !kb) return { score: 0, motivo: '' };
+  if (ka === kb) return { score: 1, motivo: 'mismo nombre normalizado' };
+
+  const setA = new Set(ta);
+  const setB = new Set(tb);
+  const comunes = [...setA].filter(t => setB.has(t)).length;
+  const union = new Set([...setA, ...setB]).size;
+  const jaccard = union ? comunes / union : 0;
+  const subset = comunes > 0 && comunes === Math.min(setA.size, setB.size) && setA.size !== setB.size;
+  const lev = 1 - levenshtein(ka, kb) / Math.max(ka.length, kb.length);
+
+  let score = Math.max(jaccard, lev);
+  let motivo = '';
+  if (subset) {
+    score = Math.max(score, 0.82);
+    motivo = 'mismo nombre con palabras extra';
+  } else if (jaccard >= 0.6) {
+    motivo = 'palabras en común';
+  } else if (lev >= 0.75) {
+    motivo = 'texto muy parecido';
+  }
+  return { score, motivo };
+}
+
+/** Ordena productos parecidos a `base` (excluye el propio id). */
+export function sugerirProductosSimilares(
+  base: Producto,
+  productos: Producto[],
+  minScore = 0.6,
+  limit = 8,
+): Array<{ producto: Producto; score: number; motivo: string }> {
+  return productos
+    .filter(p => p.id !== base.id && p.descripcion.trim().toLowerCase() !== base.descripcion.trim().toLowerCase())
+    .map(p => {
+      const { score, motivo } = similitudProducto(base.descripcion, p.descripcion);
+      return { producto: p, score, motivo };
+    })
+    .filter(x => x.score >= minScore)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit);
 }
 
 // ── Clasificación por tipo de pedido (híbrido B+A) ──

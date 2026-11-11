@@ -5,7 +5,7 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { parseCard, measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData, hasMaterialItems, cardHasLargueroOTravesano, isDescriptionOnlyItem, cloneMolduraFormula, normalizeMolduraFormulaConfig, evalLargueros, evalFilas, evalLarCm, evalTravCm } from '$lib/utils/molduras';
+  import { measureCardHeights, buildMoldurasHtmlPaged, getMolduraFormula, computeLarCm, computeTravCm, getCortesVarilla, buildMatRowsData, hasMaterialItems, cardHasLargueroOTravesano, isDescriptionOnlyItem, cloneMolduraFormula, normalizeMolduraFormulaConfig, evalLargueros, evalFilas, evalLarCm, evalTravCm } from '$lib/utils/molduras';
   import Bastidor from '$lib/components/Bastidor.svelte';
   import MoldurasReorderModal from '$lib/components/MoldurasReorderModal.svelte';
   import { invoke } from '@tauri-apps/api/core';
@@ -15,6 +15,7 @@
   import * as molduraRules from '$lib/stores/molduraMaterialRules';
   import * as molduraHidden from '$lib/stores/molduraHiddenRules';
   import * as molduraFormula from '$lib/stores/molduraFormula';
+  import { loadRuleKeywords, parseCardWithRules } from '$lib/stores/molduraRules';
 
   // V2 (global, Configuración → Molduras V2): consolida varillas de bastidores sin larguero/travesaño por cm.
   let merged = $derived(appStore.molduraMerged);
@@ -215,7 +216,7 @@
   );
 
   function parseCardLocal(f: Factura): ParsedCard {
-    const p = parseCard(f, molduraRules.getKeywords(), molduraHidden.getKeywords());
+    const p = parseCardWithRules(f);
     const base = { ...p, entrega: f.estado_entrega || 'PENDIENTE', hasCorrection: false };
     molduraStore.applyCorrectionsToCard(base);
     return base;
@@ -226,8 +227,7 @@
     selectedIds = new Set();
     try {
       await molduraStore.load();
-      await molduraRules.load();
-      await molduraHidden.load();
+      await loadRuleKeywords();
       await molduraFormula.load();
       const facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       const pending = facturas.filter(f => f.estado_moldura === 'PENDING' && f.estado_entrega !== 'ENTREGADO');

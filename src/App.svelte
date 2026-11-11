@@ -69,6 +69,7 @@
     cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000).catch(() => {});
     cacheStore.fetch('clientes', () => api.listClientes(), 1800000).catch(() => {});
     cacheStore.fetch('productos', () => api.listProductos(), 1800000).catch(() => {});
+    cacheStore.fetch('productos:alias', () => api.listProductAliases().catch(() => []), 1800000).catch(() => {});
     cacheStore.fetch('pagos', () => api.listPagos(), 120000).catch(() => {});
     cacheStore.fetch('preciosReferencia', () => api.getPreciosReferencia(), 1800000).catch(() => {});
     cacheStore.fetch('estimationRules', () => api.getEstimationRules(), 1800000).catch(() => {});

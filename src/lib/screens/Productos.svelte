@@ -4,11 +4,13 @@
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import type { Producto } from '$lib/types';
+  import FusionarProductosModal from '$lib/components/FusionarProductosModal.svelte';
 
   let productos = $state<Producto[]>([]);
   let search = $state('');
   let loading = $state(true);
   let showForm = $state(false);
+  let showMerge = $state(false);
   let editing = $state<Producto | null>(null);
 
   let form = $state({ descripcion: '', precio_unitario: 0, categoria: 'Varios', medida: '', variante: '', stock: 0 });
@@ -110,6 +112,7 @@
     <div class="header-actions">
       <span class="stock-total">Stock total: {totalStock}</span>
       <button class="btn-secondary" onclick={() => appStore.showPreciosRef = true}>$ Precios Ref</button>
+      <button class="btn-secondary" onclick={() => showMerge = true}>Fusionar</button>
       <button class="btn-primary" onclick={openNew}>+ Nuevo Producto</button>
     </div>
   </div>
@@ -162,6 +165,13 @@
     </div>
   {/if}
 </div>
+
+<FusionarProductosModal
+  show={showMerge}
+  {productos}
+  onclose={() => showMerge = false}
+  onmerged={refresh}
+/>
 
 {#if showForm}
   <div class="overlay">

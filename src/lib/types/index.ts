@@ -61,6 +61,26 @@ export interface Producto {
   stock: number;
 }
 
+/** Descripción histórica que se agrupa bajo otro producto en estadísticas. */
+export interface ProductoAlias {
+  alias_norm: string;
+  producto_id: string;
+  descripcion: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface ProductoMerge {
+  id: number;
+  target_id: string;
+  target_descripcion: string;
+  sources: string[];
+  alias_count: number;
+  created_at?: string | null;
+  undone_at?: string | null;
+  can_undo: boolean;
+}
+
 export interface PrecioReferencia {
   id?: number;
   categoria: string;

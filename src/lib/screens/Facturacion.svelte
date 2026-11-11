@@ -4,7 +4,7 @@
   import { api } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import type { Factura, InvoiceItem, Cliente, Producto, PrecioReferencia, PricingRule, EstimationRule, FechasEntrega, TallerDireccion } from '$lib/types';
+  import type { Factura, InvoiceItem, Cliente, Producto, ProductoAlias, PrecioReferencia, PricingRule, EstimationRule, FechasEntrega, TallerDireccion } from '$lib/types';
 import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana, normalizeEstimationParams } from '$lib/types';
   import { invoke } from '@tauri-apps/api/core';
   import { open as shellOpen } from '@tauri-apps/plugin-shell';
@@ -20,8 +20,8 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana, normalizeEsti
   import GIcon from '$lib/components/gastos/GIcon.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, buildSuggestionDesc, type PriceSuggestion } from '$lib/utils/precios';
   import { sortDimsAsc } from '$lib/utils/dims';
-import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim, mejoresResultados } from '$lib/utils/geocoding';
-import { diasRestantesNoConfirmada } from '$lib/utils/facturas';
+import { buscarDirecciones, formatearDireccionNominatim } from '$lib/utils/geocoding';
+import { diasRestantesNoConfirmada, construirMapaAlias, resolverDescripcionProducto, esItemProducto } from '$lib/utils/facturas';
 import type { ClientAddress } from '$lib/types';
 import flatpickr from 'flatpickr';
 import 'flatpickr/dist/flatpickr.min.css';
@@ -38,6 +38,7 @@ const tallerApi: TallerApi = api;
   let currentIndex = $state(-1);
   let clientes = $state<Cliente[]>([]);
   let productos = $state<Producto[]>([]);
+  let aliasMap = new Map<string, string>();
   let preciosReferencia = $state<PrecioReferencia[]>([]);
   let pricingRules = $state<PricingRule[]>([]);
   let estimationRules = $state<EstimationRule[]>([]);
@@ -144,6 +145,10 @@ const tallerApi: TallerApi = api;
   let addressNominatimFound = $state(false);
   let addressQueryToken = 0;
   let addressDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  // Timer del blur: se cancela al tocar los botones del propio campo. Sin
+  // esto, el desplegable se abría y se cerraba 200 ms después.
+  let addressCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  let addressAbort: AbortController | null = null;
   let selectedNominatimLat = $state<number | null>(null);
   let selectedNominatimLng = $state<number | null>(null);
   let facturaLat = $state<number | null>(null);
@@ -532,6 +537,10 @@ const tallerApi: TallerApi = api;
 
   let _initialized = $state(false);
 
+  function onProductosChanged() {
+    loadProductos();
+  }
+
   onMount(async () => {
     await Promise.all([loadClientes(), loadProductos(), loadPreciosReferencia(), loadPricingRules(), loadEstimationRules(), loadTalleres(), refreshHistory()]);
     // Purga local de respaldo si App.svelte no la ejecutó (throttled 12h, no duplicada)
@@ -547,6 +556,7 @@ const tallerApi: TallerApi = api;
     document.addEventListener('mouseup', dragEnd);
     document.addEventListener('mousedown', handleAddressClickOutside);
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('productos-changed', onProductosChanged);
   });
 
   onDestroy(() => {
@@ -554,6 +564,9 @@ const tallerApi: TallerApi = api;
     document.removeEventListener('mouseup', dragEnd);
     document.removeEventListener('mousedown', handleAddressClickOutside);
     document.removeEventListener('visibilitychange', onVisibilityChange);
+    window.removeEventListener('productos-changed', onProductosChanged);
+    cancelAddressClose();
+    addressAbort?.abort();
   });
 
   $effect(() => {
@@ -587,6 +600,16 @@ const tallerApi: TallerApi = api;
       productos = await cacheStore.fetch('productos', () => api.listProductos(), 1800000);
     } catch {
       productos = [];
+    }
+    try {
+      const aliases = await cacheStore.fetch(
+        'productos:alias',
+        () => api.listProductAliases().catch(() => []),
+        1800000,
+      );
+      aliasMap = construirMapaAlias(aliases);
+    } catch {
+      aliasMap = new Map();
     }
   }
 
@@ -1244,6 +1267,27 @@ const tallerApi: TallerApi = api;
       return;
     }
 
+    // Copia para guardar: en una factura NUEVA resolvemos alias de productos
+    // fusionados (texto viejo → descripción canónica). Al editar una factura
+    // histórica NO reescribimos su texto.
+    const saveItems = validItems.map(i => ({ ...i }));
+    if (!id) {
+      // Releer alias desde la caché: si otra pantalla fusionó productos, la
+      // caché se invalidó y acá se carga el mapa nuevo.
+      try {
+        const cached = cacheStore.get<ProductoAlias[]>('productos:alias');
+        const aliases = cached ?? await cacheStore.fetch(
+          'productos:alias',
+          () => api.listProductAliases().catch(() => []),
+          1800000,
+        );
+        aliasMap = construirMapaAlias(aliases);
+      } catch {}
+      for (const it of saveItems) {
+        it.descripcion = resolverDescripcionProducto(it.descripcion, aliasMap);
+      }
+    }
+
     if (tipo === 'BORRADOR') {
       appStore.showToast('Borrador guardado', 'success');
       return;
@@ -1285,9 +1329,14 @@ const tallerApi: TallerApi = api;
       )].sort((a, b) => b.length - a.length);
       let lastVariant = '';
 
-      for (const item of validItems) {
+      for (const item of saveItems) {
+        // Descuentos y notas no son productos: no crear/actualizar catálogo.
+        if (!esItemProducto(item)) continue;
         const key = keyOf(item.descripcion);
         if (existingDescs.has(key)) continue;
+        // Si el texto es un alias de un producto fusionado, el producto ya
+        // existe con su descripción canónica: no recrear el origen.
+        if (resolverDescripcionProducto(item.descripcion, aliasMap) !== item.descripcion) continue;
 
         let catDetected = 'Varios';
         for (const c of allCats) {
@@ -1317,15 +1366,22 @@ const tallerApi: TallerApi = api;
         }
 
         const pid = `MAN_${Date.now()}_${Math.floor(Math.random() * 900 + 100)}`;
-        await api.addProducto({
-          id: pid,
-          descripcion: item.descripcion.trim(),
-          precio_unitario: item.precio_unitario ?? 0,
-          categoria: catDetected,
-          medida,
-          variante,
-          stock: 0,
-        });
+        try {
+          await api.addProducto({
+            id: pid,
+            descripcion: item.descripcion.trim(),
+            precio_unitario: item.precio_unitario ?? 0,
+            categoria: catDetected,
+            medida,
+            variante,
+            stock: 0,
+          });
+        } catch (e) {
+          // 409 = la descripción es un alias de un producto fusionado; el
+          // backend canonicaliza el ítem al guardar la factura. No abortar.
+          console.warn('No se pudo auto-crear producto', item.descripcion, e);
+          continue;
+        }
 
         productos = [...productos, {
           id: pid,
@@ -1349,7 +1405,7 @@ const tallerApi: TallerApi = api;
         cliente_piso_depto,
         cliente_telefono,
         cliente_taller,
-        items: validItems.map(i => ({
+        items: saveItems.map(i => ({
           cantidad: i.cantidad,
           descripcion: i.descripcion,
           precio_unitario: i.precio_unitario ?? 0,
@@ -1469,28 +1525,73 @@ const tallerApi: TallerApi = api;
     return (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
   }
 
+  // Palabras que no sirven para decidir si una dirección guardada coincide:
+  // el usuario agrega "caba" o "capital" y antes ya no matcheaba nada.
+  const ADDR_IGNORAR = new Set(['caba', 'capital', 'federal', 'argentina', 'buenos', 'aires', 'ciudad', 'autonoma', 'de', 'del']);
+
+  function tokensDireccion(texto: string): string[] {
+    return normalizeText(texto)
+      .replace(/[.,;]/g, ' ')
+      .split(/\s+/)
+      .filter(t => t.length > 1 && !ADDR_IGNORAR.has(t));
+  }
+
+  // Coincidencia por tokens: "marcelo torcuato de alvear 1891, caba" tiene que
+  // encontrar "Marcelo Torcuato de Alvear 1891". Con `includes(q)` no pasaba.
+  function coincideDireccion(query: string, texto: string): boolean {
+    const qTokens = tokensDireccion(query);
+    if (qTokens.length === 0) return true;
+    const target = normalizeText(texto).replace(/[.,;]/g, ' ');
+    return qTokens.every(t => target.includes(t));
+  }
+
   function buildAddressSugerencias(query = '') {
     const items: Array<{type: 'saved' | 'nominatim', data: any}> = [];
-    const q = normalizeText(query.trim());
-    const match = (a: ClientAddress) => !q || normalizeText(`${a.address} ${a.label ?? ''} ${a.extra ?? ''}`).includes(q);
     for (const a of clienteAddresses) {
-      if (match(a)) items.push({ type: 'saved', data: a });
+      if (coincideDireccion(query, `${a.address} ${a.label ?? ''} ${a.extra ?? ''}`)) {
+        items.push({ type: 'saved', data: a });
+      }
     }
     const dom = clienteDomicilioPrincipal();
-    if (dom && !clienteAddresses.some(a => a.address === dom) && (!q || normalizeText(dom).includes(q))) {
+    if (dom && !clienteAddresses.some(a => a.address === dom) && coincideDireccion(query, dom)) {
       items.push({ type: 'saved', data: { id: -1, client_id: cliente_id, address: dom, extra: '', label: '📋 Domicilio principal', is_default: false, lat: null, lng: null } });
     }
     return items;
+  }
+
+  function cancelAddressClose() {
+    if (addressCloseTimer) {
+      clearTimeout(addressCloseTimer);
+      addressCloseTimer = null;
+    }
+  }
+
+  function addressWrapHasFocus(): boolean {
+    const el = document.activeElement as HTMLElement | null;
+    return !!el?.closest('.address-wrap');
+  }
+
+  function handleAddressBlur(e: FocusEvent) {
+    const next = e.relatedTarget as HTMLElement | null;
+    // Si el foco va a un botón del propio campo (chevron, +) no cerramos.
+    if (next?.closest('.address-wrap')) return;
+    cancelAddressClose();
+    addressCloseTimer = setTimeout(() => {
+      showAddressDropdown = false;
+      addressCloseTimer = null;
+    }, 150);
   }
 
   function handleAddressClickOutside(e: MouseEvent) {
     if (!showAddressDropdown) return;
     const t = e.target as HTMLElement | null;
     if (t?.closest('.address-wrap')) return;
+    cancelAddressClose();
     showAddressDropdown = false;
   }
 
   function toggleAddressDropdown() {
+    cancelAddressClose();
     if (showAddressDropdown) {
       showAddressDropdown = false;
       return;
@@ -1502,9 +1603,10 @@ const tallerApi: TallerApi = api;
   }
 
   function handleAddressFocus() {
+    cancelAddressClose();
     addressSearchState = 'idle';
-    if (clienteAddresses.length > 0 && !cliente_domicilio.trim()) {
-      addressSuggestions = buildAddressSugerencias();
+    if (clienteAddresses.length > 0 || clienteDomicilioPrincipal()) {
+      addressSuggestions = buildAddressSugerencias(cliente_domicilio);
       selectedAddressIdx = -1;
       showAddressDropdown = true;
     }
@@ -1514,6 +1616,8 @@ const tallerApi: TallerApi = api;
     if (addressDebounceTimer) clearTimeout(addressDebounceTimer);
     // Cualquier cambio (aunque acorte el texto) invalida las respuestas en vuelo.
     const token = ++addressQueryToken;
+    addressAbort?.abort();
+    addressAbort = null;
     const text = cliente_domicilio.trim();
     if (text.length >= 4) {
       addressSearchState = 'searching';
@@ -1535,13 +1639,12 @@ const tallerApi: TallerApi = api;
   }
 
   async function searchNominatim(query: string, token: number) {
+    const controller = new AbortController();
+    addressAbort = controller;
     try {
-      const url = nominatimSearchUrl(query);
-      const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
-      const data = await res.json();
+      const results = await buscarDirecciones(query, { limit: 8, signal: controller.signal });
       // Descarta respuestas obsoletas si el usuario siguió escribiendo.
-      if (token !== addressQueryToken) return;
-      const results = Array.isArray(data) ? data.slice(0, 8) : [];
+      if (token !== addressQueryToken || controller.signal.aborted) return;
       const items = buildAddressSugerencias(query);
       const savedKeys = new Set(
         items.filter(s => s.type === 'saved').map(s => normalizeText(String(s.data.address ?? '')))
@@ -1549,7 +1652,7 @@ const tallerApi: TallerApi = api;
       // Nominatim repite la misma dirección con POIs distintos (local "Junín",
       // "1173, Junín", etc.): se deduplica por cómo se va a mostrar.
       const vistos = new Set<string>();
-      for (const r of mejoresResultados(results, query)) {
+      for (const r of results) {
         const clave = normalizeText(formatearDireccionNominatim(r));
         if (savedKeys.has(clave) || vistos.has(clave)) continue;
         vistos.add(clave);
@@ -1558,18 +1661,23 @@ const tallerApi: TallerApi = api;
       }
       addressNominatimFound = results.length > 0;
       addressSuggestions = items;
-      showAddressDropdown = true;
+      // No reabrir si el usuario ya hizo click afuera mientras se buscaba.
+      if (addressWrapHasFocus() || showAddressDropdown) showAddressDropdown = true;
     } catch {
-      if (token !== addressQueryToken) return;
+      if (token !== addressQueryToken || controller.signal.aborted) return;
       addressNominatimFound = false;
       addressSuggestions = buildAddressSugerencias(query);
-      showAddressDropdown = true;
+      if (addressWrapHasFocus() || showAddressDropdown) showAddressDropdown = true;
     } finally {
-      if (token === addressQueryToken) addressSearchState = 'done';
+      if (token === addressQueryToken) {
+        addressSearchState = 'done';
+        if (addressAbort === controller) addressAbort = null;
+      }
     }
   }
 
   function selectAddress(sug: {type: 'saved' | 'nominatim', data: any}) {
+    cancelAddressClose();
     if (sug.type === 'saved') {
       const addr = sug.data as ClientAddress;
       cliente_domicilio = addr.address;
@@ -2162,17 +2270,17 @@ const tallerApi: TallerApi = api;
                 <input type="text" bind:value={cliente_domicilio} placeholder="Domicilio" class="input-with-icon-left input-with-address-btns"
                   oninput={handleAddressInput}
                   onfocus={handleAddressFocus}
-                  onblur={() => setTimeout(() => showAddressDropdown = false, 200)}
+                  onblur={handleAddressBlur}
                   onkeydown={handleAddressKeydown}
                 />
                 <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
                 {#if clienteAddresses.length > 0}
-                  <button class="address-inner-btn address-btn-saved" onclick={toggleAddressDropdown} tabindex="-1" type="button" title="Direcciones guardadas">
+                  <button class="address-inner-btn address-btn-saved" onmousedown={(e) => { e.preventDefault(); toggleAddressDropdown(); }} tabindex="-1" type="button" title="Direcciones guardadas">
                     <span class="addr-count-text">{totalDirecciones} direcciones</span>
                     <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="6 9 12 15 18 9"/></svg>
                   </button>
                 {/if}
-                <button class="address-inner-btn address-btn-add" onclick={openAddAddressModal} tabindex="-1" type="button" title="Agregar nueva dirección">
+                <button class="address-inner-btn address-btn-add" onmousedown={(e) => { e.preventDefault(); openAddAddressModal(); }} tabindex="-1" type="button" title="Agregar nueva dirección">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 </button>
                 {#if showAddressDropdown}
@@ -2194,6 +2302,9 @@ const tallerApi: TallerApi = api;
                             onmousedown={(e) => { e.preventDefault(); e.stopPropagation(); deleteSavedAddress(sug.data); }}><GIcon name="trash" size={14} /></button>
                         {:else}
                           <span class="addr-nominatim">{formatearDireccionNominatim(sug.data)}</span>
+                          {#if /\d/.test(cliente_domicilio) && !sug.data.address?.house_number}
+                            <span class="addr-hint">sin altura exacta</span>
+                          {/if}
                         {/if}
                       </div>
                     {/each}
@@ -4197,6 +4308,13 @@ const tallerApi: TallerApi = api;
     color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .addr-hint {
+    margin-left: auto;
+    padding-left: 0.5rem;
+    font-size: 0.65rem;
+    color: var(--text-muted);
     white-space: nowrap;
   }
   .searching-item {

@@ -9,7 +9,7 @@
   import RecomendacionRutasModal from '$lib/components/RecomendacionRutasModal.svelte';
   import EditClienteModal from '$lib/components/EditClienteModal.svelte';
   import AddressAutocomplete from '$lib/components/AddressAutocomplete.svelte';
-  import { nominatimSearchUrl, limpiarDireccion, formatearDireccionNominatim, mejoresResultados } from '$lib/utils/geocoding';
+  import { buscarDirecciones, limpiarDireccion, formatearDireccionNominatim } from '$lib/utils/geocoding';
   import { facturasActivas } from '$lib/utils/facturas';
   import { decodePolyline, findCercanosRuta, haversine } from '$lib/utils/geo';
   import { recomendarRutas, type ClienteParaAgrupar } from '$lib/utils/barrios';
@@ -663,10 +663,7 @@
     geocodificandoOrigen = true;
     mapaStore.geocodificandoOrigen = true;
     try {
-      const url = nominatimSearchUrl(origenDireccion);
-      const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
-      const data = await res.json();
-      const mejor = mejoresResultados(Array.isArray(data) ? data : [], origenDireccion)[0];
+      const mejor = (await buscarDirecciones(origenDireccion, { limit: 5 }))[0];
       if (mejor) {
         origenCoords = { lat: parseFloat(mejor.lat), lng: parseFloat(mejor.lon) };
         mapaStore.origenCoords = origenCoords;
@@ -1118,10 +1115,7 @@
     editDireccionPreviewError = '';
     editDireccionPreviewCoords = null;
     try {
-      const url = nominatimSearchUrl(dir);
-      const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
-      const data = await res.json();
-      const mejor = mejoresResultados(Array.isArray(data) ? data : [], dir)[0];
+      const mejor = (await buscarDirecciones(dir, { limit: 5 }))[0];
       if (mejor) {
         editDireccionPreviewCoords = { lat: parseFloat(mejor.lat), lng: parseFloat(mejor.lon) };
         editDireccionValor = formatearDireccionNominatim(mejor);
@@ -1143,10 +1137,7 @@
       // Estandarizar al formato corto (calle, barrio, CABA) si no se probó la ubicación
       if (!editDireccionPreviewCoords && editDireccionValor.trim()) {
         try {
-          const url = nominatimSearchUrl(editDireccionLimpia());
-          const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
-          const data = await res.json();
-          const mejor = mejoresResultados(Array.isArray(data) ? data : [], editDireccionLimpia())[0];
+          const mejor = (await buscarDirecciones(editDireccionLimpia(), { limit: 5 }))[0];
           if (mejor) editDireccionValor = formatearDireccionNominatim(mejor);
         } catch {}
       }
@@ -1239,10 +1230,7 @@
     editDirClientePreviewError = '';
     editDirClientePreviewCoords = null;
     try {
-      const url = nominatimSearchUrl(dir);
-      const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
-      const data = await res.json();
-      const mejor = mejoresResultados(Array.isArray(data) ? data : [], dir)[0];
+      const mejor = (await buscarDirecciones(dir, { limit: 5 }))[0];
       if (mejor) {
         editDirClientePreviewCoords = { lat: parseFloat(mejor.lat), lng: parseFloat(mejor.lon) };
         editDirClienteValor = formatearDireccionNominatim(mejor);
@@ -1264,10 +1252,7 @@
       // Estandarizar al formato corto (calle, barrio, CABA) si no se probó la ubicación
       if (!editDirClientePreviewCoords && editDirClienteValor.trim()) {
         try {
-          const url = nominatimSearchUrl(editDirClienteLimpia());
-          const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
-          const data = await res.json();
-          const mejor = mejoresResultados(Array.isArray(data) ? data : [], editDirClienteLimpia())[0];
+          const mejor = (await buscarDirecciones(editDirClienteLimpia(), { limit: 5 }))[0];
           if (mejor) editDirClienteValor = formatearDireccionNominatim(mejor);
         } catch {}
       }
@@ -1955,10 +1940,7 @@
     if (facturasFiltradas.length > 0) return;
 
     try {
-      const url = nominatimSearchUrl(busqueda);
-      const res = await fetch(url, { headers: { 'User-Agent': 'BastidoresGal/1.0' } });
-      const data = await res.json();
-      const mejor = mejoresResultados(Array.isArray(data) ? data : [], busqueda)[0];
+      const mejor = (await buscarDirecciones(busqueda, { limit: 5 }))[0];
       if (mejor) {
         const lat = parseFloat(mejor.lat);
         const lng = parseFloat(mejor.lon);

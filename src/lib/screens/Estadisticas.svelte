@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
-  import { facturasActivas, diasDemoraEntrega, diaEntregaFactura, normalizarProducto, mediana, percentil, clasificarTipoPedido, baseAgrupada, TIPOS_PEDIDO } from '$lib/utils/facturas';
+  import { facturasActivas, diasDemoraEntrega, diaEntregaFactura, mediana, percentil, clasificarTipoPedido, baseAgrupada, TIPOS_PEDIDO, construirMapaAlias, resolverProducto, esItemProducto } from '$lib/utils/facturas';
   import type { TipoPedido } from '$lib/utils/facturas';
   import { dateKey, formatEntregadoAt } from '$lib/types';
   import type { Factura, Cliente, Pago } from '$lib/types';
@@ -68,6 +68,8 @@
   let facturas = $state<Factura[]>([]);
   let facturasRec = $state<Factura[]>([]);
   let filteredFacturas = $state<Factura[]>([]);
+  // Alias de productos fusionados: texto histórico → descripción canónica.
+  let aliasMap = new Map<string, string>();
 
   let kpis = $state<{ label: string; value: string; change: string; arrow: string; color: string }[]>([]);
   let kpiDefs = $state<{ current: number; previous: number }[]>([{ current: 0, previous: 0 }, { current: 0, previous: 0 }, { current: 0, previous: 0 }, { current: 0, previous: 0 }]);
@@ -379,16 +381,30 @@
     ? Math.round((parseDate(endDate).getTime() - parseDate(startDate).getTime()) / 864e5) + 1
     : 0);
 
+  async function loadAliases() {
+    try {
+      const aliases = await cacheStore.fetch(
+        'productos:alias',
+        () => api.listProductAliases().catch(() => []),
+        1800000,
+      );
+      aliasMap = construirMapaAlias(aliases);
+    } catch {
+      aliasMap = new Map();
+    }
+  }
+
   async function loadData() {
     loading = true;
     try {
       cacheStore.invalidate('facturas');
+      await loadAliases();
       facturas = facturasActivas(await cacheStore.fetch('facturas', () => api.listFacturas({ limit: 2000 }), 300000));
       facturasRec = facturasActivas(await cacheStore.fetch('facturas:recurrencia', () => api.listFacturas({ limit: 20000, with_items: false }), 300000));
       clientes = await cacheStore.fetch('clientes', () => api.listClientes(), 1800000);
       totalClientes = clientes.length;
       globalVentasTotal = facturas.reduce((s, f) => s + (f.total || 0), 0);
-      globalUnidadesTotal = facturas.reduce((s, f) => s + (f.items || []).reduce((si, it) => si + (it.cantidad || 0), 0), 0);
+      globalUnidadesTotal = facturas.reduce((s, f) => s + (f.items || []).filter(esItemProducto).reduce((si, it) => si + (it.cantidad || 0), 0), 0);
       computeMonthlyTable();
       computeForecast();
       loadMeta();
@@ -469,6 +485,7 @@
       entregasCache = facturasActivas(all);
       entregasTruncada = all.length >= ENTREGAS_LIMIT;
       entregasLoaded = true;
+      if (aliasMap.size === 0) await loadAliases();
       buildEntregasView();
     } catch (e) {
       console.error('Error cargando entregas:', e);
@@ -524,12 +541,13 @@
       let marr = mMap.get(mKey);
       if (!marr) { marr = []; mMap.set(mKey, marr); }
       marr.push(dias);
-      const items = f.items || [];
+      const items = (f.items || []).filter(esItemProducto);
       const tiposEnFactura = new Set<TipoPedido>();
       for (const it of items) {
-        const key = normalizarProducto(it.descripcion);
+        const resuelto = resolverProducto(it.descripcion, aliasMap);
+        const key = resuelto.key;
         let g = pMap.get(key);
-        if (!g) { g = { display: (it.descripcion || 'Sin descripción').trim(), facturas: new Set(), unidades: 0, dias: [] }; pMap.set(key, g); }
+        if (!g) { g = { display: resuelto.descripcion, facturas: new Set(), unidades: 0, dias: [] }; pMap.set(key, g); }
         g.facturas.add(f.id);
         g.unidades += it.cantidad || 0;
         g.dias.push(dias);
@@ -672,7 +690,7 @@
     const total = current.reduce((s, f) => s + (f.total || 0), 0);
     const cant = current.length;
     const prom = cant > 0 ? total / cant : 0;
-    const units = current.reduce((s, f) => s + (f.items || []).reduce((si, it) => si + (it.cantidad || 0), 0), 0);
+    const units = current.reduce((s, f) => s + (f.items || []).filter(esItemProducto).reduce((si, it) => si + (it.cantidad || 0), 0), 0);
 
     const labels = ['Ventas brutas', 'Cantidad de ventas', 'Ticket promedio', 'Unidades vendidas'];
     const formatters = [
@@ -755,7 +773,7 @@
       const name = f.cliente_nombre || 'Desconocido';
       const g = agg.get(name) || { total: 0, units: 0 };
       g.total += f.total || 0;
-      g.units += (f.items || []).reduce((s, it) => s + (it.cantidad || 0), 0);
+      g.units += (f.items || []).filter(esItemProducto).reduce((s, it) => s + (it.cantidad || 0), 0);
       agg.set(name, g);
     }
     topClientes = Array.from(agg.entries())
@@ -765,18 +783,19 @@
   }
 
   function computeTopProductos(current: Factura[]) {
-    const agg = new Map<string, { total: number; units: number }>();
+    const agg = new Map<string, { descripcion: string; total: number; units: number }>();
     for (const f of current) {
       for (const it of (f.items || [])) {
-        const desc = it.descripcion || 'Sin descripción';
-        const g = agg.get(desc) || { total: 0, units: 0 };
+        if (!esItemProducto(it)) continue;
+        const resuelto = resolverProducto(it.descripcion, aliasMap);
+        const g = agg.get(resuelto.key) || { descripcion: resuelto.descripcion, total: 0, units: 0 };
         g.total += it.total || 0;
         g.units += it.cantidad || 0;
-        agg.set(desc, g);
+        agg.set(resuelto.key, g);
       }
     }
-    topProductos = Array.from(agg.entries())
-      .map(([producto, v]) => ({ producto, total: v.total, unidades: v.units }))
+    topProductos = Array.from(agg.values())
+      .map(v => ({ producto: v.descripcion, total: v.total, unidades: v.units }))
       .sort((a, b) => b.total - a.total)
       .slice(0, 50);
   }

@@ -375,6 +375,57 @@ export const api = {
     if (![200, 204].includes(res.status)) throw new Error('Error del servidor al borrar producto');
   },
 
+  // ---- Alias y fusión de productos ----
+  listProductAliases: () =>
+    handleResponse(
+      request<import('$lib/types').ProductoAlias[]>('GET', '/product-aliases', undefined, 10),
+      []
+    ),
+
+  addProductAlias: (data: { descripcion: string; producto_id: string; alias?: string }) =>
+    request<{ status: string; alias_norm: string; producto_id: string }>(
+      'POST', '/product-aliases', data, 10
+    ),
+
+  deleteProductAlias: (aliasNorm: string) =>
+    request<{ status: string }>(
+      'DELETE', `/product-aliases/${encodeURIComponent(aliasNorm)}`, undefined, 10
+    ),
+
+  mergeProductos: (data: {
+    target_id: string;
+    target: {
+      id: string;
+      descripcion: string;
+      precio_unitario: number;
+      categoria: string;
+      medida: string;
+      variante: string;
+      stock: number;
+    };
+    source_ids: string[];
+    aliases?: string[];
+    user_id?: number;
+  }) => request<{
+    status: string;
+    merge_id: number;
+    target: Record<string, unknown>;
+    aliases: string[];
+  }>('POST', '/products/merge', data, 25),
+
+  listProductMerges: (limit = 20) =>
+    handleResponse(
+      request<import('$lib/types').ProductoMerge[]>(
+        'GET', `/products/merges?limit=${Math.max(1, Math.floor(limit))}`, undefined, 10
+      ),
+      []
+    ),
+
+  undoProductoMerge: (mergeId: number) =>
+    request<{ status: string; merge_id: number }>(
+      'POST', `/products/merges/${mergeId}/undo`, undefined, 25
+    ),
+
   // ---- Facturas ----
   nextInvoiceNumber: (prefix = 'F') =>
     request<{ next_number: string }>('GET', `/invoices/next_number?prefix=${prefix}`, undefined, 5)

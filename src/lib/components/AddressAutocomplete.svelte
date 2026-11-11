@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatearDireccionNominatim, nominatimSearchUrl, mejoresResultados } from '$lib/utils/geocoding';
+  import { formatearDireccionNominatim, buscarDirecciones } from '$lib/utils/geocoding';
 
   interface Suggestion {
     label: string;
@@ -24,6 +24,7 @@
   let inputEl: HTMLInputElement;
   let containerEl: HTMLDivElement;
   let debounceTimer: ReturnType<typeof setTimeout>;
+  let abortController: AbortController | null = null;
 
   function handleInput(e: Event) {
     const target = e.target as HTMLInputElement;
@@ -41,15 +42,16 @@
 
   async function fetchSuggestions(q: string) {
     loading = true;
+    abortController?.abort();
+    const controller = new AbortController();
+    abortController = controller;
     try {
-      const res = await fetch(nominatimSearchUrl(q), {
-        headers: { 'User-Agent': 'BastidoresGal/1.0' },
-      });
-      const data = await res.json();
+      const data = await buscarDirecciones(q, { limit: 5, signal: controller.signal });
+      if (controller.signal.aborted) return;
       // Nominatim repite la misma dirección con POIs distintos: se deduplica.
       const vistos = new Set<string>();
       const mapeados: Suggestion[] = [];
-      for (const r of mejoresResultados(Array.isArray(data) ? data : [], q)) {
+      for (const r of data) {
         const label = formatearDireccionNominatim(r);
         const clave = label.toLowerCase().trim();
         if (vistos.has(clave)) continue;
@@ -67,10 +69,11 @@
       open = suggestions.length > 0 && value.length >= 2;
       selectedIndex = -1;
     } catch {
+      if (controller.signal.aborted) return;
       suggestions = [];
       open = false;
     } finally {
-      loading = false;
+      if (!controller.signal.aborted) loading = false;
     }
   }
 

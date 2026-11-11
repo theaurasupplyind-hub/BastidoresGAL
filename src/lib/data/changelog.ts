@@ -1,4 +1,8 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.6.1': `Productos: fusionar duplicados (por ejemplo Costura/Costuras) eligiendo el producto que queda, con precio y stock finales. Las ventas históricas se agrupan en estadísticas mediante alias, sin modificar facturas, y la fusión se puede deshacer desde el historial.
+Estadísticas: los descuentos, las líneas negativas y las notas con cantidad 0 ya no se cuentan como productos ni como unidades vendidas; los totales en $ siguen siendo netos.
+Molduras: reglas de palabras clave unificadas para que pantalla, modal, PDF del Kanban e impresión remota detecten las mismas molduras y materiales.
+Direcciones: búsqueda centralizada en Nominatim con caché, límite de una consulta por segundo, cancelación de búsquedas anteriores y mejor normalización de calles, alturas y abreviaturas.`,
   '2.6.0': `Asistente interno (Ctrl+J): chat con herramientas reales para consultar y modificar clientes, facturas, pagos, gastos y tareas, con memoria, pendientes y deshacer. El historial y la API key se guardan en la nube y se comparten entre estaciones; la clave no viaja a las PCs.
 Pagos: nueva pantalla con historial completo, filtros por texto, método, destino y fechas, orden por fecha o monto y resumen por método. Acceso directo desde la Ficha Semanal.
 Estadísticas: nueva pestaña "Formas de pago" (12/24 meses o todo) con totales por método, promedio, clientes y método preferido por cliente.

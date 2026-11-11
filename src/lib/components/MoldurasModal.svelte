@@ -5,8 +5,9 @@
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { facturasActivas } from '$lib/utils/facturas';
   import type { Factura } from '$lib/types';
-  import { hasMolduraItems, parseCard, measureCardHeights, buildMoldurasHtmlPaged, isDescriptionOnlyItem } from '$lib/utils/molduras';
+  import { measureCardHeights, buildMoldurasHtmlPaged, isDescriptionOnlyItem } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
+  import { loadRuleKeywords, parseCardWithRules, hasMolduraWithRules } from '$lib/stores/molduraRules';
   import { invoke } from '@tauri-apps/api/core';
 
   let { show, preselectedIds = [], onClose }: {
@@ -23,11 +24,12 @@
   let generatingPdf = $state(false);
   let config = $state<any>({});
 
-  let parsedCache = $state<Map<number, ReturnType<typeof parseCard>>>(new Map());
+  let parsedCache = $state<Map<number, ReturnType<typeof parseCardWithRules>>>(new Map());
 
   onMount(async () => {
     try { config = await invoke('get_config'); } catch {}
     try { await molduraStore.load(); } catch {}
+    try { await loadRuleKeywords(); } catch {}
     selectedIds = new Set(preselectedIds);
     if (preselectedIds.length > 0) {
       await loadFacturas();
@@ -39,7 +41,7 @@
     if (!p) {
       const f = facturas.find(x => x.id === id);
       if (f) {
-        p = parseCard(f);
+        p = parseCardWithRules(f);
         molduraStore.applyCorrectionsToCard(p);
         parsedCache.set(id, p);
       }
@@ -76,11 +78,8 @@
 
   const parsedCards = $derived.by(() => {
     return selectedCards
-      .map(f => {
-        const p = getParsed(f.id);
-        return p ? { ...p, hasMoldura: hasMolduraItems(f) } : null;
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null);
+      .map(f => getParsed(f.id))
+      .filter((x): x is NonNullable<typeof x> => x !== null && x !== undefined);
   });
 
   let searchTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -235,7 +234,7 @@
                   <span class="search-num">{f.numero_factura || f.numero_presupuesto || `ID:${f.id}`}</span>
                   <span class="search-cliente">{f.cliente_nombre}</span>
                   <span class="search-total">${(f.total || 0).toFixed(0)}</span>
-                  <span class="search-moldura">{hasMolduraItems(f) ? '🖼' : '📄'}</span>
+                  <span class="search-moldura">{hasMolduraWithRules(f) ? '🖼' : '📄'}</span>
                   <span class="search-add-btn">+</span>
                 </div>
               {/each}

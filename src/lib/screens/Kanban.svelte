@@ -6,9 +6,10 @@
   import { startPdfTimer, endPdfTimer } from '$lib/stores/pdfTimerStore.svelte';
   import type { Factura, InvoiceItem, FechasEntrega } from '$lib/types';
   import { parseFechasEntrega, formatFechasEntregaDisplay } from '$lib/types';
-  import { hasMolduraItems, parseCard, measureCardHeights, buildMoldurasHtmlPaged } from '$lib/utils/molduras';
+  import { measureCardHeights, buildMoldurasHtmlPaged } from '$lib/utils/molduras';
   import * as molduraStore from '$lib/stores/molduraCorrectionsLocal';
   import * as molduraFormula from '$lib/stores/molduraFormula';
+  import { loadRuleKeywords, parseCardWithRules } from '$lib/stores/molduraRules';
   import { invoke } from '@tauri-apps/api/core';
   import InvoicePrintModal from '$lib/components/InvoicePrintModal.svelte';
   import PrinterBadge from '$lib/components/PrinterBadge.svelte';
@@ -613,10 +614,11 @@
     try {
       await molduraStore.load();
       await molduraFormula.load();
+      await loadRuleKeywords();
       const parsed = cards.map(f => {
-        const p = parseCard(f);
+        const p = parseCardWithRules(f);
         molduraStore.applyCorrectionsToCard(p);
-        return { ...p, hasMoldura: hasMolduraItems(f) };
+        return p;
       });
       const heights = await measureCardHeights(parsed, appStore.molduraMerged);
       const html = buildMoldurasHtmlPaged(parsed, heights, appStore.molduraMerged);
@@ -660,10 +662,11 @@
     try {
       await molduraStore.load();
       await molduraFormula.load();
+      await loadRuleKeywords();
       const parsed = cards.map(f => {
-        const p = parseCard(f);
+        const p = parseCardWithRules(f);
         molduraStore.applyCorrectionsToCard(p);
-        return { ...p, hasMoldura: hasMolduraItems(f) };
+        return p;
       });
       const heights = await measureCardHeights(parsed, appStore.molduraMerged);
       const html = buildMoldurasHtmlPaged(parsed, heights, appStore.molduraMerged);
