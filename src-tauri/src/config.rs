@@ -87,6 +87,32 @@ impl AppState {
         }
     }
 
+    pub fn api_token(&self) -> Result<Option<String>, String> {
+        let path = self.data_dir.join("desktop-api-token.txt");
+        match fs::read_to_string(path) {
+            Ok(token) => {
+                let token = token.trim().to_string();
+                Ok((!token.is_empty()).then_some(token))
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) => Err(error.to_string()),
+        }
+    }
+
+    pub fn api_client(&self) -> Result<reqwest::Client, String> {
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Some(token) = self.api_token()? {
+            let value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+                .map_err(|error| error.to_string())?;
+            headers.insert(reqwest::header::AUTHORIZATION, value);
+        }
+
+        reqwest::Client::builder()
+            .default_headers(headers)
+            .build()
+            .map_err(|error| error.to_string())
+    }
+
     fn config_path(data_dir: &PathBuf) -> PathBuf {
         data_dir.join("config.json")
     }

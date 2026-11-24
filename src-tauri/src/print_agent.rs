@@ -78,9 +78,16 @@ pub fn start_agent(app: AppHandle, handle: tauri::State<PrintAgentHandle>) {
 
     let agent_app = app.clone();
     let agent_status = handle.status_arc();
+    let client = match app.state::<AppState>().api_client() {
+        Ok(client) => client,
+        Err(error) => {
+            log::error!("Could not configure API credentials for print agent: {}", error);
+            *running = false;
+            return;
+        }
+    };
 
     tauri::async_runtime::spawn(async move {
-        let client = reqwest::Client::new();
         let mut poll_interval = tokio::time::interval(Duration::from_secs(POLL_INTERVAL_SECS));
         let mut heartbeat_interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
 

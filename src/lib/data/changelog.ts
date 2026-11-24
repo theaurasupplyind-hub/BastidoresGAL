@@ -1,4 +1,8 @@
 export const CHANGELOG: Record<string, string> = {
+  '2.6.2': `Facturación: el campo Taller tiene un botón para elegir entre todas sus direcciones conocidas, guardar la dirección actual y borrar direcciones guardadas del taller con confirmación; al elegir un taller ya no se fuerza una sola dirección.
+Facturación: las promos "N x M" ya no se invierten al ordenar medidas — "Promo 23 x 1" se conserva tal cual y el bastidor sigue ordenándose menor x mayor.
+Conexión: todas las llamadas a la API y las imágenes (listas de precios, tareas y comprobantes) viajan con el token de la estación; la URL de la API se puede cambiar con VITE_API_URL.
+Impresión remota: estaciones y trabajos usan el mismo token de autenticación.`,
   '2.6.1': `Productos: fusionar duplicados (por ejemplo Costura/Costuras) eligiendo el producto que queda, con precio y stock finales. Las ventas históricas se agrupan en estadísticas mediante alias, sin modificar facturas, y la fusión se puede deshacer desde el historial.
 Estadísticas: los descuentos, las líneas negativas y las notas con cantidad 0 ya no se cuentan como productos ni como unidades vendidas; los totales en $ siguen siendo netos.
 Molduras: reglas de palabras clave unificadas para que pantalla, modal, PDF del Kanban e impresión remota detecten las mismas molduras y materiales.

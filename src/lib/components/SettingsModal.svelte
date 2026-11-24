@@ -105,7 +105,7 @@
         <label>Ordenar medidas</label>
         <label class="check-row">
           <input type="checkbox" bind:checked={config.sort_dims_enabled} />
-          <span>Menor x mayor al pegar o salir del campo</span>
+          <span>Menor x mayor al pegar o salir del campo (no aplica a promos N x M)</span>
         </label>
 
         <label>Molduras V2</label>

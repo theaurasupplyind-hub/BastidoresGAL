@@ -107,8 +107,22 @@ fn get_log_path(state: tauri::State<AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn wake_server() -> Result<String, String> {
+fn get_api_token(state: tauri::State<AppState>) -> Result<Option<String>, String> {
+    state.api_token()
+}
+
+#[tauri::command]
+fn wake_server(state: tauri::State<AppState>) -> Result<String, String> {
     let client = reqwest::blocking::Client::builder()
+        .default_headers({
+            let mut headers = reqwest::header::HeaderMap::new();
+            if let Some(token) = state.api_token()? {
+                let value = reqwest::header::HeaderValue::from_str(&format!("Bearer {token}"))
+                    .map_err(|error| error.to_string())?;
+                headers.insert(reqwest::header::AUTHORIZATION, value);
+            }
+            headers
+        })
         .timeout(std::time::Duration::from_secs(8))
         .build()
         .map_err(|e| e.to_string())?;
@@ -868,9 +882,9 @@ fn register_station(
     let user_name = user.as_ref().map(|u| u.user_name.clone());
     drop(user);
 
+    let client = state.api_client()?;
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let client = reqwest::Client::new();
         let resp = client
             .post("https://api-bastidores.onrender.com/stations")
             .json(&serde_json::json!({
@@ -920,10 +934,10 @@ fn unregister_station(state: tauri::State<AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn list_print_stations() -> Result<Vec<serde_json::Value>, String> {
+fn list_print_stations(state: tauri::State<AppState>) -> Result<Vec<serde_json::Value>, String> {
+    let client = state.api_client()?;
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let client = reqwest::Client::new();
         let resp = client
             .get("https://api-bastidores.onrender.com/stations")
             .timeout(std::time::Duration::from_secs(10))
@@ -959,9 +973,9 @@ fn submit_print_job(
         .unwrap_or("documento.pdf")
         .to_string();
 
+    let client = state.api_client()?;
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let client = reqwest::Client::new();
         let form = reqwest::multipart::Form::new()
             .part(
                 "file",
@@ -1004,9 +1018,9 @@ fn check_print_job_status(
         .to_string();
     drop(config);
 
+    let client = state.api_client()?;
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let client = reqwest::Client::new();
         let resp = client
             .get(format!("https://api-bastidores.onrender.com/print-jobs/{}/status", job_id))
             .header("X-Api-Key", &api_key)
@@ -1034,9 +1048,9 @@ fn delete_station(
     let api_key = config.station_api_key.clone().unwrap_or_default();
     drop(config);
 
+    let client = state.api_client()?;
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let client = reqwest::Client::new();
         let resp = client
             .delete(format!("https://api-bastidores.onrender.com/stations/{}", station_id))
             .header("X-Api-Key", &api_key)
@@ -1066,9 +1080,9 @@ fn get_print_job_history(
         .ok_or("No hay API key. ¿Registraste la estación o seleccionaste una estación destino?")?;
     drop(config);
 
+    let client = state.api_client()?;
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let client = reqwest::Client::new();
         let resp = client
             .get("https://api-bastidores.onrender.com/print-jobs/history")
             .header("X-Api-Key", &api_key)
@@ -1099,9 +1113,9 @@ fn cancel_print_job(
         .ok_or("No hay API key")?;
     drop(config);
 
+    let client = state.api_client()?;
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async {
-        let client = reqwest::Client::new();
         let resp = client
             .patch(format!("https://api-bastidores.onrender.com/print-jobs/{}/cancel", job_id))
             .header("X-Api-Key", &api_key)
@@ -1150,6 +1164,7 @@ pub fn run() {
             logout,
             get_data_dir,
             get_log_path,
+            get_api_token,
             wake_server,
             set_clipboard_png,
             generate_pdf,

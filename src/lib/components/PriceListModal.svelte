@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { api } from '$lib/api/client';
+  import { onDestroy } from 'svelte';
+  import { api, authenticatedFetch } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
-  import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
   import { invoke } from '@tauri-apps/api/core';
   import { Image } from '@tauri-apps/api/image';
   import { writeImage } from '@tauri-apps/plugin-clipboard-manager';
@@ -44,7 +44,22 @@
 
   async function loadImages() {
     try {
-      images = await api.listPriceListImages();
+      for (const image of images) {
+        if (typeof image.view_url === 'string' && image.view_url.startsWith('blob:')) {
+          URL.revokeObjectURL(image.view_url);
+        }
+      }
+      const fetched = await api.listPriceListImages();
+      images = await Promise.all(fetched.map(async (image) => {
+        try {
+          const url = image.view_url ?? api.getPriceListViewUrl(image.id);
+          const response = await authenticatedFetch(url);
+          if (!response.ok) return image;
+          return { ...image, view_url: URL.createObjectURL(await response.blob()) };
+        } catch {
+          return image;
+        }
+      }));
     } catch (e) {
       appStore.alert('Error al cargar imágenes: ' + (e as Error).message);
     }
@@ -105,7 +120,7 @@
     if (!currentImage) return;
     try {
       const url = api.getPriceListDownloadUrl(currentImage.id);
-      const resp = await tauriFetch(url, { method: 'GET' });
+      const resp = await authenticatedFetch(url, { method: 'GET' });
       if (!resp.ok) throw new Error('Error al descargar');
       const buf = await resp.arrayBuffer();
       const blob = new Blob([buf]);
@@ -149,7 +164,7 @@
 
       if (!rgba) {
         const url = api.getPriceListDownloadUrl(currentImage.id);
-        const resp = await tauriFetch(url, { method: 'GET' });
+        const resp = await authenticatedFetch(url, { method: 'GET' });
         if (!resp.ok) throw new Error('Error al descargar imagen');
         const bitmap = await createImageBitmap(new Blob([await resp.arrayBuffer()]));
         try {
@@ -219,6 +234,14 @@
   }
 
   let isZoomed = $derived(zoomPercent > 0);
+
+  onDestroy(() => {
+    for (const image of images) {
+      if (typeof image.view_url === 'string' && image.view_url.startsWith('blob:')) {
+        URL.revokeObjectURL(image.view_url);
+      }
+    }
+  });
 </script>
 
 {#if show}

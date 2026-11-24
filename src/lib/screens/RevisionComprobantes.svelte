@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
-  import { api } from '$lib/api/client';
+  import { onDestroy, onMount } from 'svelte';
+  import { api, authenticatedFetch } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import type { VoucherReview } from '$lib/types';
 
   let loading = $state(false);
   let rows = $state<VoucherReview[]>([]);
+  let mediaUrls = $state<Record<number, string>>({});
   let deleting = $state<Set<number>>(new Set());
   let cleaning = $state(false);
   let offset = $state(0);
@@ -28,7 +29,24 @@
   }
 
   function mediaUrl(row: VoucherReview): string {
-    return row.media_url ?? api.getVoucherReviewMediaUrl(row.id);
+    return mediaUrls[row.id] ?? row.media_url ?? api.getVoucherReviewMediaUrl(row.id);
+  }
+
+  async function loadMedia(items: VoucherReview[]) {
+    const resolved = await Promise.all(items.map(async (row) => {
+      try {
+        const response = await authenticatedFetch(api.getVoucherReviewMediaUrl(row.id));
+        if (!response.ok) return null;
+        return [row.id, URL.createObjectURL(await response.blob())] as const;
+      } catch {
+        return null;
+      }
+    }));
+    const next = { ...mediaUrls };
+    for (const item of resolved) {
+      if (item) next[item[0]] = item[1];
+    }
+    mediaUrls = next;
   }
 
   async function deleteRow(id: number) {
@@ -37,6 +55,12 @@
     try {
       await api.deleteVoucherReview(id);
       rows = rows.filter(r => r.id !== id);
+      if (mediaUrls[id]) {
+        URL.revokeObjectURL(mediaUrls[id]);
+        const next = { ...mediaUrls };
+        delete next[id];
+        mediaUrls = next;
+      }
       appStore.showToast('Registro eliminado', 'success');
     } catch (e) {
       appStore.alert('Error al eliminar: ' + (e as Error).message);
@@ -59,6 +83,9 @@
       });
       hasMore = data.length > PAGE_SIZE;
       rows = data.slice(0, PAGE_SIZE);
+      for (const url of Object.values(mediaUrls)) URL.revokeObjectURL(url);
+      mediaUrls = {};
+      await loadMedia(rows);
     } catch (e) {
       appStore.alert('Error al cargar revisiones: ' + (e as Error).message);
     } finally {
@@ -77,7 +104,9 @@
         offset: newOffset,
       });
       hasMore = data.length > PAGE_SIZE;
-      rows = [...rows, ...data.slice(0, PAGE_SIZE)];
+      const added = data.slice(0, PAGE_SIZE);
+      rows = [...rows, ...added];
+      await loadMedia(added);
       offset = newOffset;
     } catch (e) {
       appStore.alert('Error al cargar más: ' + (e as Error).message);
@@ -99,6 +128,9 @@
   }
 
   onMount(loadRows);
+  onDestroy(() => {
+    for (const url of Object.values(mediaUrls)) URL.revokeObjectURL(url);
+  });
 </script>
 
 <div class="revision-vouchers">

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import Sortable from 'sortablejs';
-  import { api } from '$lib/api/client';
+  import { api, authenticatedFetch } from '$lib/api/client';
   import { appStore } from '$lib/stores/appStore.svelte';
   import { cacheStore } from '$lib/stores/cacheStore.svelte';
   import { mapaStore } from '$lib/stores/mapaStore.svelte';
@@ -192,8 +192,36 @@
 
   async function loadTasks() {
     loadingTasks = true;
-    try { tasks = await api.listTasks(); ensureTaskPositions(); } catch { tasks = []; }
+    try {
+      const fetched = await api.listTasks();
+      for (const task of tasks) {
+        for (const image of task.images ?? []) {
+          if (image.url?.startsWith('blob:')) URL.revokeObjectURL(image.url);
+        }
+      }
+      tasks = await Promise.all(fetched.map(async task => ({
+        ...task,
+        images: await addAuthorizedTaskImageUrls(task.id, task.images ?? []),
+      })));
+      ensureTaskPositions();
+    } catch { tasks = []; }
     finally { loadingTasks = false; }
+  }
+
+  async function addAuthorizedTaskImageUrls(taskId: number, images: TaskImageRef[], replyId?: number): Promise<TaskImageRef[]> {
+    return Promise.all(images.map(async image => {
+      if (image.url) return image;
+      try {
+        const endpoint = replyId === undefined
+          ? api.getTaskImageViewUrl(taskId, image.id)
+          : api.getTaskReplyImageViewUrl(taskId, replyId, image.id);
+        const response = await authenticatedFetch(endpoint);
+        if (!response.ok) return image;
+        return { ...image, url: URL.createObjectURL(await response.blob()) };
+      } catch {
+        return image;
+      }
+    }));
   }
   async function addTask() {
     const t = newTaskText.trim();
@@ -372,11 +400,23 @@
     }
   }
 
-  function openImagePreview(taskId: number, imageId: number, url?: string | null) {
-    selectedImageUrl = url ?? api.getTaskImageViewUrl(taskId, imageId);
+  async function openImagePreview(taskId: number, imageId: number, url?: string | null) {
+    if (selectedImageUrl?.startsWith('blob:')) URL.revokeObjectURL(selectedImageUrl);
+    if (url) {
+      selectedImageUrl = url;
+      return;
+    }
+    try {
+      const response = await authenticatedFetch(api.getTaskImageViewUrl(taskId, imageId));
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      selectedImageUrl = URL.createObjectURL(await response.blob());
+    } catch {
+      appStore.showToast('No se pudo cargar la imagen.', 'error');
+    }
   }
 
   function closeImagePreview() {
+    if (selectedImageUrl?.startsWith('blob:')) URL.revokeObjectURL(selectedImageUrl);
     selectedImageUrl = null;
   }
 
@@ -393,7 +433,16 @@
     loadingReplies.add(taskId);
     loadingReplies = new Set(loadingReplies);
     try {
-      const replies = await api.listTaskReplies(taskId);
+      const fetched = await api.listTaskReplies(taskId);
+      for (const reply of taskReplies.get(taskId) ?? []) {
+        for (const image of reply.images ?? []) {
+          if (image.url?.startsWith('blob:')) URL.revokeObjectURL(image.url);
+        }
+      }
+      const replies = await Promise.all(fetched.map(async reply => ({
+        ...reply,
+        images: await addAuthorizedTaskImageUrls(taskId, reply.images ?? [], reply.id),
+      })));
       taskReplies.set(taskId, replies);
       taskReplies = new Map(taskReplies);
     } catch {} finally {
@@ -475,8 +524,19 @@
   async function removeReplyImage(taskId: number, replyId: number, imageId: number) {
     try { await api.deleteTaskReplyImage(taskId, replyId, imageId); await loadReplies(taskId); } catch {}
   }
-  function openReplyImage(taskId: number, replyId: number, imageId: number, url?: string|null) {
-    selectedImageUrl = url ?? api.getTaskReplyImageViewUrl(taskId, replyId, imageId);
+  async function openReplyImage(taskId: number, replyId: number, imageId: number, url?: string|null) {
+    if (selectedImageUrl?.startsWith('blob:')) URL.revokeObjectURL(selectedImageUrl);
+    if (url) {
+      selectedImageUrl = url;
+      return;
+    }
+    try {
+      const response = await authenticatedFetch(api.getTaskReplyImageViewUrl(taskId, replyId, imageId));
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      selectedImageUrl = URL.createObjectURL(await response.blob());
+    } catch {
+      appStore.showToast('No se pudo cargar la imagen.', 'error');
+    }
   }
 
   // ── Imágenes pendientes en el compositor de comentarios ──
@@ -1327,8 +1387,18 @@
   }
 
   async function downloadPFile(f: ProspectoFileMeta) {
-    try { await shellOpen(api.getProspectoDownloadUrl(f.id)); }
-    catch (err: any) { appStore.showToast('Error al descargar: ' + (err?.message || String(err)), 'error'); }
+    try {
+      const bytes = await api.downloadProspectoBytes(f.id);
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+      const objectUrl = URL.createObjectURL(new Blob([buffer]));
+      const link = document.createElement('a');
+      link.href = objectUrl;
+      link.download = f.original_filename || f.name || 'archivo.xlsx';
+      link.click();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    } catch (err: any) {
+      appStore.showToast('Error al descargar: ' + (err?.message || String(err)), 'error');
+    }
   }
 
   /** Devuelve URL si la celda es un link (hipervínculo del Excel, URL, www., Instagram). absR = fila absoluta en la hoja. */

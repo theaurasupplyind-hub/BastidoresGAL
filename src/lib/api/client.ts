@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 
-const API_URL = 'https://api-bastidores.onrender.com';
+const API_URL = String(import.meta.env.VITE_API_URL ?? '').trim().replace(/\/+$/, '') || 'https://api-bastidores.onrender.com';
 
 /**
  * Token compartido para los endpoints del asistente. Se configura en el build
@@ -9,6 +9,18 @@ const API_URL = 'https://api-bastidores.onrender.com';
  * No es autenticación real: es una barrera para que la URL no quede abierta.
  */
 const ASSISTANT_TOKEN = String(import.meta.env.VITE_ASSISTANT_TOKEN ?? '').trim();
+
+export async function authenticatedFetch(input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  try {
+    const token = await invoke<string | null>('get_api_token');
+    if (token) headers.set('Authorization', `Bearer ${token}`);
+  } catch {
+    // Older installed builds and unauthenticated development runs keep working
+    // while the production API is in compatibility mode.
+  }
+  return tauriFetch(input, { ...init, headers });
+}
 
 export interface AssistantSettingsWire {
   model: string;
@@ -58,7 +70,7 @@ async function request<T>(
     if (body && method !== 'GET') {
       options.body = JSON.stringify(body);
     }
-    const res = await tauriFetch(url, options);
+    const res = await authenticatedFetch(url, options);
     clearTimeout(id);
 
     if (!res.ok) {
@@ -113,7 +125,7 @@ async function assistantRequest<T>(
     const options: RequestInit = { method, headers, signal: controller.signal };
     if (body !== undefined && method !== 'GET') options.body = JSON.stringify(body);
 
-    const res = await tauriFetch(url, options);
+    const res = await authenticatedFetch(url, options);
     clearTimeout(id);
 
     const raw = await res.text().catch(() => '');
@@ -169,7 +181,7 @@ export const api = {
     request('PUT', `/clients/${id}`, data),
 
   deleteCliente: async (id: number) => {
-    const res = await tauriFetch(`${API_URL}/clients/${id}`, { method: 'DELETE' });
+    const res = await authenticatedFetch(`${API_URL}/clients/${id}`, { method: 'DELETE' });
     if (![200, 204].includes(res.status)) {
       throw new Error('No se puede eliminar: El cliente tiene datos asociados (facturas).');
     }
@@ -243,7 +255,7 @@ export const api = {
         await api.deleteCliente(sid);
       } catch {
         try {
-          const res = await tauriFetch(`${API_URL}/clients/${sid}?force=true`, { method: 'DELETE' });
+          const res = await authenticatedFetch(`${API_URL}/clients/${sid}?force=true`, { method: 'DELETE' });
           if (![200, 204].includes(res.status)) {
             const t = await res.text().catch(() => '');
             errors.push(`No se pudo eliminar cliente ${sid}: ${t || res.status}`);
@@ -272,7 +284,7 @@ export const api = {
     request('PUT', `/clients/${clientId}/addresses/${addressId}`, data),
 
   deleteAddress: async (clientId: number, addressId: number) => {
-    const res = await tauriFetch(`${API_URL}/clients/${clientId}/addresses/${addressId}`, { method: 'DELETE' });
+    const res = await authenticatedFetch(`${API_URL}/clients/${clientId}/addresses/${addressId}`, { method: 'DELETE' });
     if (![200, 204].includes(res.status)) throw new Error('Error al eliminar dirección');
   },
 
@@ -293,7 +305,7 @@ export const api = {
     request('PUT', `/talleres/${id}`, data),
 
   deleteTaller: async (id: number) => {
-    const res = await tauriFetch(`${API_URL}/talleres/${id}`, { method: 'DELETE' });
+    const res = await authenticatedFetch(`${API_URL}/talleres/${id}`, { method: 'DELETE' });
     if (![200, 204].includes(res.status)) throw new Error('Error al eliminar el taller');
   },
 
@@ -371,7 +383,7 @@ export const api = {
     request('PUT', `/products/${id}`, data),
 
   deleteProducto: async (id: string) => {
-    const res = await tauriFetch(`${API_URL}/products/${id}`, { method: 'DELETE' });
+    const res = await authenticatedFetch(`${API_URL}/products/${id}`, { method: 'DELETE' });
     if (![200, 204].includes(res.status)) throw new Error('Error del servidor al borrar producto');
   },
 
@@ -466,7 +478,7 @@ export const api = {
     request('PUT', `/invoices/${id}`, data),
 
   deleteFactura: async (id: number) => {
-    const res = await tauriFetch(`${API_URL}/invoices/${id}`, { method: 'DELETE' });
+    const res = await authenticatedFetch(`${API_URL}/invoices/${id}`, { method: 'DELETE' });
     if (res.status === 404) return;
     if (![200, 204].includes(res.status)) throw new Error(`Error al eliminar: ${res.status}`);
   },
@@ -483,7 +495,7 @@ export const api = {
     request('POST', `/invoices/${id}/restore`),
 
   permanentDeleteInvoice: async (id: number) => {
-    const res = await tauriFetch(`${API_URL}/invoices/${id}/permanent?force=true`, { method: 'DELETE' });
+    const res = await authenticatedFetch(`${API_URL}/invoices/${id}/permanent?force=true`, { method: 'DELETE' });
     if (![200, 204].includes(res.status)) throw new Error(`Error al eliminar definitivamente: ${res.status}`);
   },
 
@@ -586,7 +598,7 @@ export const api = {
     formData.append('name', name);
     formData.append('file', new Blob([toBlobPart(file)], { type: 'image/png' }), name + '.png');
     const url = `${API_URL}/price-list-images`;
-    const resp = await tauriFetch(url, { method: 'POST', body: formData });
+    const resp = await authenticatedFetch(url, { method: 'POST', body: formData });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
       throw new Error(`HTTP ${resp.status}: ${text.slice(0, 200)}`);
@@ -781,7 +793,7 @@ export const api = {
     const formData = new FormData();
     formData.append('file', new Blob([toBlobPart(file)], { type: 'image/webp' }), name);
     const url = `${API_URL}/tasks/${taskId}/images`;
-    const resp = await tauriFetch(url, { method: 'POST', body: formData });
+    const resp = await authenticatedFetch(url, { method: 'POST', body: formData });
     if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }
     return resp.json();
   },
@@ -809,7 +821,7 @@ export const api = {
     const formData = new FormData();
     formData.append('file', new Blob([toBlobPart(file)], { type: 'image/webp' }), name);
     const url = `${API_URL}/tasks/${taskId}/replies/${replyId}/images`;
-    const resp = await tauriFetch(url, { method: 'POST', body: formData });
+    const resp = await authenticatedFetch(url, { method: 'POST', body: formData });
     if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }
     return resp.json();
   },
@@ -838,14 +850,14 @@ export const api = {
     formData.append('sheets_meta', sheetsMeta);
     formData.append('file', new Blob([bytes as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), filename);
     const url = `${API_URL}/prospecto-files`;
-    const resp = await tauriFetch(url, { method: 'POST', body: formData });
+    const resp = await authenticatedFetch(url, { method: 'POST', body: formData });
     if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }
     return resp.json();
   },
 
   async downloadProspectoBytes(id: number): Promise<Uint8Array> {
     const url = `${API_URL}/prospecto-files/${id}/download`;
-    const resp = await tauriFetch(url, { method: 'GET' });
+    const resp = await authenticatedFetch(url, { method: 'GET' });
     if (!resp.ok) { const t = await resp.text().catch(() => ''); throw new Error(`HTTP ${resp.status}: ${t.slice(0, 200)}`); }
     const buf = await resp.arrayBuffer();
     return new Uint8Array(buf);

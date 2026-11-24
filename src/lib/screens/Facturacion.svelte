@@ -19,7 +19,7 @@ import { parseFechasEntrega, serializeFechasEntrega, getDiaSemana, normalizeEsti
   import EditClienteModal from '$lib/components/EditClienteModal.svelte';
   import GIcon from '$lib/components/gastos/GIcon.svelte';
   import { suggestPrice, smartProductSearch, normalizeText, getBaseAndDims, refsToProductos, buildSuggestionDesc, type PriceSuggestion } from '$lib/utils/precios';
-  import { sortDimsAsc } from '$lib/utils/dims';
+  import { sortDimsAsc, sortAllDimsAsc } from '$lib/utils/dims';
 import { buscarDirecciones, formatearDireccionNominatim } from '$lib/utils/geocoding';
 import { diasRestantesNoConfirmada, construirMapaAlias, resolverDescripcionProducto, esItemProducto } from '$lib/utils/facturas';
 import type { ClientAddress } from '$lib/types';
@@ -31,6 +31,12 @@ type TallerApi = typeof api & {
   addTaller?: (data: { taller: string; direccion: string }) => Promise<unknown>;
 };
 const tallerApi: TallerApi = api;
+
+type TallerAddressEntry = {
+  direccion: string;
+  origen: 'taller' | 'cliente' | 'factura';
+  id?: number;
+};
 
   let loading = $state(false);
   let saving = $state(false);
@@ -132,6 +138,7 @@ const tallerApi: TallerApi = api;
   });
   let showNewAddressPrompt = $state(false);
   let pendingDeleteAddr = $state<ClientAddress | null>(null);
+  let pendingDeleteTallerAddr = $state<TallerAddressEntry | null>(null);
   let newAddressLabel = $state('');
   let newAddressDefault = $state(false);
   let pendingSavePayload = $state<any>(null);
@@ -326,6 +333,8 @@ const tallerApi: TallerApi = api;
   let tallerSearch = $state('');
   let showTallerResults = $state(false);
   let selectedTallerIndex = $state(-1);
+  let showTallerAddressMenu = $state(false);
+  let selectedTallerAddrIndex = $state(-1);
   let showTelefonoResults = $state(false);
   let selectedTelefonoIndex = $state(-1);
   let talleres = $state<TallerDireccion[]>([]);
@@ -484,6 +493,29 @@ const tallerApi: TallerApi = api;
     for (const f of facturas) push(f.cliente_taller || '', f.cliente_domicilio || '');
     if (!q) return entries.slice(0, 10);
     return entries.filter(e => normalizeText(e.taller).includes(q)).slice(0, 10);
+  });
+
+  // Todas las direcciones conocidas para el taller actual. El autocompletado
+  // deduplica por nombre y se queda con una sola dirección; acá juntamos las
+  // tres fuentes (talleres guardados, clientes y facturas) deduplicando por
+  // dirección para poder elegir la correcta cuando hay varias.
+  let tallerAddresses = $derived.by(() => {
+    const nombre = normalizeText(tallerSearch);
+    if (!nombre) return [];
+    const seen = new Set<string>();
+    const out: TallerAddressEntry[] = [];
+    const push = (direccion: string, origen: TallerAddressEntry['origen'], id?: number) => {
+      const d = (direccion || '').trim();
+      if (!d) return;
+      const key = normalizeText(d);
+      if (seen.has(key)) return;
+      seen.add(key);
+      out.push({ direccion: d, origen, id });
+    };
+    for (const t of talleres) if (normalizeText(t.taller) === nombre) push(t.direccion, 'taller', t.id);
+    for (const c of clientes) if (normalizeText(c.taller) === nombre) push(c.domicilio, 'cliente');
+    for (const f of facturas) if (normalizeText(f.cliente_taller || '') === nombre) push(f.cliente_domicilio || '', 'factura');
+    return out;
   });
 
   let totalCalculado = $derived.by(() => {
@@ -696,6 +728,7 @@ const tallerApi: TallerApi = api;
     cliente_telefono = c.telefono;
     cliente_taller = c.taller || '';
     tallerSearch = c.taller || '';
+    showTallerAddressMenu = false;
     clienteSearch = c.nombre;
     selectedClienteIndex = -1;
     showClienteResults = false;
@@ -718,6 +751,63 @@ const tallerApi: TallerApi = api;
     tallerSearch = t.taller;
     selectedTallerIndex = -1;
     showTallerResults = false;
+    showTallerAddressMenu = false;
+  }
+
+  function toggleTallerAddressMenu() {
+    showTallerAddressMenu = !showTallerAddressMenu;
+    selectedTallerAddrIndex = -1;
+    if (showTallerAddressMenu) {
+      showTallerResults = false;
+      selectedTallerIndex = -1;
+    }
+  }
+
+  function selectTallerDireccion(addr: TallerAddressEntry) {
+    cliente_domicilio = addr.direccion;
+    showTallerAddressMenu = false;
+    selectedTallerAddrIndex = -1;
+  }
+
+  function deleteTallerDireccion(a: TallerAddressEntry) {
+    if (a.origen !== 'taller' || !a.id) return;
+    pendingDeleteTallerAddr = a;
+    selectedTallerAddrIndex = -1;
+  }
+
+  async function confirmDeleteTallerDireccion() {
+    const a = pendingDeleteTallerAddr;
+    if (!a || !a.id) return;
+    pendingDeleteTallerAddr = null;
+    try {
+      await api.deleteTaller(a.id);
+      cacheStore.invalidate('talleres');
+      talleres = await cacheStore.fetch('talleres', () => tallerApi.listTalleres?.() ?? Promise.resolve([]), 1800000);
+      // La dirección ya cargada en la factura no se toca: solo se borra del
+      // registro de talleres para que no vuelva a aparecer en el autocompletado.
+      showTallerAddressMenu = true;
+      appStore.showToast('Dirección del taller eliminada', 'success');
+    } catch {
+      appStore.showToast('No se pudo eliminar la dirección del taller', 'error');
+    }
+  }
+
+  async function saveTallerDireccion() {
+    const nombre = (cliente_taller || tallerSearch || '').trim();
+    const direccion = (cliente_domicilio || '').trim();
+    if (!nombre || !direccion || direccion.toLowerCase() === 'retira') {
+      appStore.showToast('Ingrese un taller y una dirección para guardar', 'error');
+      return;
+    }
+    try {
+      await tallerApi.addTaller?.({ taller: nombre, direccion });
+      cacheStore.invalidate('talleres');
+      talleres = await cacheStore.fetch('talleres', () => tallerApi.listTalleres?.() ?? Promise.resolve([]), 1800000);
+      showTallerAddressMenu = false;
+      appStore.showToast('Dirección guardada para el taller', 'success');
+    } catch {
+      appStore.showToast('No se pudo guardar la dirección del taller', 'error');
+    }
   }
 
   function selectProducto(index: number, prod: Producto) {
@@ -917,6 +1007,22 @@ const tallerApi: TallerApi = api;
   }
 
   function handleTallerKeydown(e: KeyboardEvent) {
+    if (showTallerAddressMenu) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        selectedTallerAddrIndex = Math.min(selectedTallerAddrIndex + 1, tallerAddresses.length - 1);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        selectedTallerAddrIndex = Math.max(selectedTallerAddrIndex - 1, -1);
+      } else if (e.key === 'Enter' && selectedTallerAddrIndex >= 0 && tallerAddresses[selectedTallerAddrIndex]) {
+        e.preventDefault();
+        selectTallerDireccion(tallerAddresses[selectedTallerAddrIndex]);
+      } else if (e.key === 'Escape') {
+        showTallerAddressMenu = false;
+        selectedTallerAddrIndex = -1;
+      }
+      return;
+    }
     const results = tallerIndex;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -929,6 +1035,7 @@ const tallerApi: TallerApi = api;
       selectTaller(results[selectedTallerIndex]);
     } else if (e.key === 'Escape') {
       showTallerResults = false;
+      showTallerAddressMenu = false;
     }
   }
 
@@ -1198,6 +1305,7 @@ const tallerApi: TallerApi = api;
     clienteSearch = '';
     tallerSearch = '';
     showTallerResults = false;
+    showTallerAddressMenu = false;
     selectedTallerIndex = -1;
     selectedClienteIndex = -1;
     showTelefonoResults = false;
@@ -1317,11 +1425,13 @@ const tallerApi: TallerApi = api;
       }
 
       // ── Auto-crear productos nuevos (lógica completa) ──
-      // La clave de dedup se normaliza con sortDimsAsc: los productos creados
+      // La clave de dedup se normaliza con sortAllDimsAsc: los productos creados
       // antes del fix de "Ordenar medidas" están guardados como "100x50", y sin
       // normalizar, escribir "50x100" no matchearía con ellos y crearía un
-      // producto duplicado del mismo bastidor.
-      const keyOf = (desc: string) => (appStore.sortDimsEnabled ? sortDimsAsc(desc) : desc).trim().toLowerCase();
+      // producto duplicado del mismo bastidor. A diferencia del texto visible,
+      // acá también se ordena el par de la promo ("Promo 1x23" y "Promo 23x1"
+      // deben caer en la misma clave).
+      const keyOf = (desc: string) => (appStore.sortDimsEnabled ? sortAllDimsAsc(desc) : desc).trim().toLowerCase();
       const existingDescs = new Set(productos.map(p => keyOf(p.descripcion)));
       const allCats = [...new Set(productos
         .filter(p => p.categoria)
@@ -2341,14 +2451,25 @@ const tallerApi: TallerApi = api;
                 <input
                   type="text"
                   bind:value={tallerSearch}
-                  oninput={() => { showTallerResults = true; cliente_taller = tallerSearch; }}
-                  onfocus={() => showTallerResults = true}
-                  onblur={() => setTimeout(() => showTallerResults = false, 200)}
+                  oninput={() => { showTallerResults = true; showTallerAddressMenu = false; cliente_taller = tallerSearch; }}
+                  onfocus={() => { showTallerResults = true; showTallerAddressMenu = false; }}
+                  onblur={() => setTimeout(() => { showTallerResults = false; showTallerAddressMenu = false; }, 200)}
                   onkeydown={handleTallerKeydown}
                   placeholder="Taller"
-                  class="input-with-icon-left"
+                  class="input-with-icon-left input-with-taller-btn"
+                  class:input-with-taller-count={tallerAddresses.length > 1}
                 />
                 <svg class="input-icon-left" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 00 0 1.4l1.6 1.6a1 1 0 00 1.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
+                {#if tallerSearch.trim()}
+                  <button class="taller-inner-btn" type="button" tabindex="-1"
+                    title="Elegir dirección del taller" aria-label="Elegir dirección del taller"
+                    onmousedown={(e) => { e.preventDefault(); toggleTallerAddressMenu(); }}>
+                    {#if tallerAddresses.length > 1}
+                      <span class="taller-addr-count">{tallerAddresses.length} direcciones</span>
+                    {/if}
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  </button>
+                {/if}
                 {#if showTallerResults && tallerIndex.length > 0}
                   <div class="autocomplete-results">
                     {#each tallerIndex as t, i}
@@ -2360,6 +2481,37 @@ const tallerApi: TallerApi = api;
                         {t.taller}{t.direccion ? ` — ${t.direccion}` : ''}
                       </div>
                     {/each}
+                  </div>
+                {/if}
+                {#if showTallerAddressMenu}
+                  <div class="autocomplete-results">
+                    {#if tallerAddresses.length === 0}
+                      <div class="autocomplete-item addr-none">No hay direcciones conocidas para este taller.</div>
+                    {:else}
+                      <div class="addr-group-label">Direcciones del taller</div>
+                      {#each tallerAddresses as a, i}
+                        <div class="autocomplete-item"
+                          class:selected={i === selectedTallerAddrIndex || normalizeText(a.direccion) === normalizeText(cliente_domicilio)}
+                          title={a.origen === 'taller' ? 'Dirección guardada del taller' : `Dirección de ${a.origen} (no se puede eliminar desde acá)`}
+                          onmousedown={(e) => { e.preventDefault(); selectTallerDireccion(a); }}>
+                          <span class="taller-addr-text">{a.direccion}</span>
+                          {#if a.origen === 'taller'}
+                            <button class="addr-del" type="button" title="Eliminar dirección del taller" aria-label="Eliminar dirección del taller"
+                              onmousedown={(e) => { e.preventDefault(); e.stopPropagation(); deleteTallerDireccion(a); }}>
+                              <GIcon name="trash" size={14} />
+                            </button>
+                          {:else}
+                            <span class="taller-addr-origin">{a.origen}</span>
+                          {/if}
+                        </div>
+                      {/each}
+                    {/if}
+                    <div class="autocomplete-divider"></div>
+                    <div class="autocomplete-item add-address-item"
+                      onmousedown={(e) => { e.preventDefault(); saveTallerDireccion(); }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                      Guardar la dirección actual para este taller
+                    </div>
                   </div>
                 {/if}
               </div>
@@ -2818,6 +2970,25 @@ const tallerApi: TallerApi = api;
       <p>
         ¿Eliminar la dirección
         <strong>"{addr.address}{addr.extra ? ` - ${addr.extra}` : ''}"</strong>?
+      </p>
+    {/snippet}
+  </ConfirmModal>
+{/if}
+
+{#if pendingDeleteTallerAddr}
+  {@const addr = pendingDeleteTallerAddr}
+  <ConfirmModal
+    title="Eliminar dirección del taller"
+    confirmText="Eliminar"
+    cancelText="Cancelar"
+    danger
+    onconfirm={confirmDeleteTallerDireccion}
+    oncancel={() => pendingDeleteTallerAddr = null}
+  >
+    {#snippet children()}
+      <p>
+        ¿Eliminar la dirección <strong>"{addr.direccion}"</strong> del registro del taller?
+        No se modificará la dirección de la factura actual.
       </p>
     {/snippet}
   </ConfirmModal>
@@ -4201,6 +4372,53 @@ const tallerApi: TallerApi = api;
   }
   .addr-count-text { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
   .address-btn-add { right: 0.2rem; }
+
+  /* ===== BOTÓN DE DIRECCIÓN DEL TALLER ===== */
+  .input-with-taller-btn {
+    padding-right: 2.2rem !important;
+  }
+  .input-with-taller-count {
+    padding-right: 7rem !important;
+  }
+  .taller-inner-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    right: 0.3rem;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.2rem 0.3rem;
+    border-radius: 0.214rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    line-height: 1;
+    z-index: 1;
+    transition: color 0.12s, background 0.12s;
+  }
+  .taller-inner-btn:hover {
+    color: var(--text-primary);
+    background: var(--bg-hover);
+  }
+  .taller-addr-count {
+    font-size: var(--text-xs);
+    white-space: nowrap;
+  }
+  .taller-addr-text {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .taller-addr-origin {
+    margin-left: auto;
+    font-size: var(--text-xs);
+    color: var(--text-muted);
+  }
+
   .add-address-item {
     display: flex;
     align-items: center;
